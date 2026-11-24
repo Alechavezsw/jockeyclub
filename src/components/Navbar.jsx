@@ -15,6 +15,7 @@ const NAV_ICONS = {
   dashboard: Home,
   reservations: CalendarDays,
   payments: Wallet,
+  colonia: Sun,
   news: Newspaper,
   attendance: ClipboardCheck,
 };

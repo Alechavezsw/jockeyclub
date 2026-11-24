@@ -68,16 +68,15 @@ export const COLONIA_ACTIVITY_KINDS = Object.freeze([
 ]);
 
 export const COLONIA_SECTIONS = Object.freeze([
-  { key: 'resumen', label: 'Resumen' },
   { key: 'inscripciones', label: 'Inscripciones' },
   { key: 'alumnos', label: 'Alumnos' },
+  { key: 'cuenta', label: 'Cuenta' },
   { key: 'hermanos', label: 'Hermanos y promociones' },
-  { key: 'cobranzas', label: 'Cobranzas' },
   { key: 'asistencia', label: 'Asistencia' },
   { key: 'grupos', label: 'Grupos' },
   { key: 'actividades', label: 'Actividades' },
   { key: 'reportes', label: 'Reportes' },
-  { key: 'configuracion', label: 'Configuración' },
+  { key: 'resumen', label: 'Resumen' },
 ]);
 
 /** Temporada oficial publicada (valores iniciales; fin configurable). */

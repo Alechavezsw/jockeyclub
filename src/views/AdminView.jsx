@@ -96,6 +96,7 @@ const TAB_PREFETCH = {
   members_stats: () => import('../components/admin/MembersStatsPanel'),
   settings: () => import('../components/admin/SystemSettingsTab'),
   settings_bookings: () => import('../components/admin/ClubFacilitiesPanel'),
+  settings_colonia: () => import('../components/admin/ColoniaTab'),
   dues: () => import('../components/erp/CuotasPanel'),
   dashboard: () => import('../components/admin/AdminDashboardTab'),
   reports: () => import('../components/admin/ReportsTab'),
@@ -264,6 +265,7 @@ export default function AdminView({
       || (routeTab === 'pool_gate' && permittedTabs.includes('pool'))
       || (routeTab === 'gate_porter_books' && permittedTabs.includes('gate_income'))
       || (routeTab === 'settings_bookings' && permittedTabs.includes('settings'))
+      || (routeTab === 'settings_colonia' && permittedTabs.includes('settings'))
     ),
   );
   const activeTab = routeTabAllowed ? routeTab : permittedTabs[0] || 'dashboard';
@@ -734,6 +736,7 @@ export default function AdminView({
             icon: SlidersHorizontal,
             label: 'Configuración',
             children: [
+              { key: 'settings_colonia', icon: Sun, label: 'Colonia' },
               { key: 'settings_bookings', icon: Calendar, label: 'Reservas' },
             ],
           },
@@ -758,7 +761,9 @@ export default function AdminView({
               if (child.key === 'members_app' || child.key === 'members_amet' || child.key === 'members_tenis' || child.key === 'members_stats') {
                 return permittedTabs.includes('members');
               }
-              if (child.key === 'settings_bookings') return permittedTabs.includes('settings');
+              if (child.key === 'settings_bookings' || child.key === 'settings_colonia') {
+                return permittedTabs.includes('settings');
+              }
               return permittedTabs.includes(child.key);
             });
             return children.length ? { ...tab, children } : { ...tab, children: undefined };
@@ -1249,7 +1254,7 @@ export default function AdminView({
       <div className="admin-main">
       <div className="page-stage">
       {/* Cabecera solo fuera del Inicio (el dashboard ya trae su propia intro) */}
-      {activeTab !== 'dashboard' && activeTab !== 'events' && activeTab !== 'accounting' && activeTab !== 'books' && activeTab !== 'informes' && activeTab !== 'caja' && activeTab !== 'operation' && activeTab !== 'jev' && activeTab !== 'messaging' && activeTab !== 'members_app' && activeTab !== 'members_amet' && activeTab !== 'members_tenis' && activeTab !== 'members_stats' && activeTab !== 'colonia' && activeTab !== 'settings_bookings' && activeTab !== 'gate_porter_books' && (
+      {activeTab !== 'dashboard' && activeTab !== 'events' && activeTab !== 'accounting' && activeTab !== 'books' && activeTab !== 'informes' && activeTab !== 'caja' && activeTab !== 'operation' && activeTab !== 'jev' && activeTab !== 'messaging' && activeTab !== 'members_app' && activeTab !== 'members_amet' && activeTab !== 'members_tenis' && activeTab !== 'members_stats' && activeTab !== 'colonia' && activeTab !== 'settings_bookings' && activeTab !== 'settings_colonia' && activeTab !== 'gate_porter_books' && (
         <div className="page-header" style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
           <div>
             <h1 className="page-title">{panelMeta.title}</h1>
@@ -1496,7 +1501,7 @@ export default function AdminView({
       )}
 
       {activeTab === 'colonia' && (
-        <ColoniaTab roles={user?.roles || []} role={userRole} />
+        <ColoniaTab roles={user?.roles || []} role={userRole} members={members} onSendMessage={sendMessage} />
       )}
 
       {activeTab === 'members_tenis' && (
@@ -1865,6 +1870,10 @@ export default function AdminView({
           setIsZondaActive={setIsZondaActive}
           goToTab={goToTab}
         />
+      )}
+
+      {activeTab === 'settings_colonia' && (
+        <ColoniaTab roles={user?.roles || []} role={userRole} members={members} onlySection="configuracion" />
       )}
 
       {activeTab === 'settings_bookings' && (

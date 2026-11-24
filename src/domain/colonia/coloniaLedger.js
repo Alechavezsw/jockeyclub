@@ -2,8 +2,8 @@
  * Submayor Colonia — independiente de members.outstanding_balance y dues.
  */
 
-import { COLONIA_CHARGE_CONCEPTS } from './coloniaConstants';
-import { coloniaMethodLabel } from './coloniaConstants';
+import { COLONIA_CHARGE_CONCEPTS, coloniaMethodLabel } from './coloniaConstants';
+import { planAmountFor } from './coloniaTariffs';
 
 export function moneyArs(value) {
   const n = Number(value);
@@ -99,6 +99,68 @@ export function buildColoniaReceipt({
     status,
     chargeConcepts: chargeConcepts || [],
   };
+}
+
+export function coloniaNextMonthLabel(today = new Date()) {
+  const next = new Date(today.getFullYear(), today.getMonth() + 1, 1);
+  return next.toLocaleDateString('es-AR', { month: 'long', year: 'numeric' });
+}
+
+function rowsByEnrollment(rows = []) {
+  const map = new Map();
+  for (const row of rows || []) {
+    const id = row?.enrollment_id || row?.enrollmentId;
+    if (!id) continue;
+    const list = map.get(id) || [];
+    list.push(row);
+    map.set(id, list);
+  }
+  return map;
+}
+
+/**
+ * Cuenta de Colonia por inscripción: cobrado, falta y, si el plan es mensual, el mes que viene.
+ * No mezcla la cuota social.
+ */
+export function buildColoniaAccountRows({
+  enrollments = [],
+  charges = [],
+  payments = [],
+  tariffs,
+  periodicity = null,
+  today = new Date(),
+} = {}) {
+  const chargeMap = rowsByEnrollment(charges);
+  const paymentMap = rowsByEnrollment(payments);
+  const nextLabel = coloniaNextMonthLabel(today);
+  return (enrollments || [])
+    .filter((row) => row?.status !== 'cancelada')
+    .map((enrollment) => {
+      const summary = summarizeColoniaAccount({
+        charges: chargeMap.get(enrollment.id) || [],
+        payments: paymentMap.get(enrollment.id) || [],
+      });
+      const plan = String(enrollment.plan_key || enrollment.planKey || '');
+      const kind = enrollment.student?.member_kind || enrollment.student?.memberKind || 'socio';
+      const monthly = plan === 'cuota'
+        || (periodicity === 'monthly' && (plan === 'promo_2' || plan === 'promo_3'));
+      const monthAmount = monthly ? (Number(planAmountFor(tariffs, kind, plan)) || 0) : 0;
+      const owed = summary.balanceDue;
+      let status = 'pago';
+      if (owed > 0) status = 'falta';
+      else if (summary.pendingConfirmation > 0) status = 'pendiente';
+      else if (monthAmount > 0) status = 'proximo';
+      return {
+        enrollment,
+        summary,
+        plan,
+        status,
+        owed,
+        nextAmount: status === 'proximo' ? monthAmount : 0,
+        nextLabel,
+        noticeAmount: owed > 0 ? owed : (status === 'proximo' ? monthAmount : 0),
+      };
+    });
 }
 
 /** CSV simple de inscripciones (reportes administrativos). */

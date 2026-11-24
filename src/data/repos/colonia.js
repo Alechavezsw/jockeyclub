@@ -135,6 +135,26 @@ export async function listColoniaCharges(enrollmentId) {
   return data || [];
 }
 
+export async function listColoniaSeasonCharges(seasonId) {
+  requireCloud();
+  const { data, error } = await sb()
+    .from('colonia_charges')
+    .select('*')
+    .eq('season_id', seasonId);
+  if (error) mapRpcMissing(error, 'No se pudieron cargar los cargos de Colonia');
+  return data || [];
+}
+
+export async function listColoniaSeasonPayments(seasonId) {
+  requireCloud();
+  const { data, error } = await sb()
+    .from('colonia_payments')
+    .select('*')
+    .eq('season_id', seasonId);
+  if (error) mapRpcMissing(error, 'No se pudieron cargar los pagos de Colonia');
+  return data || [];
+}
+
 export async function listColoniaPayments(enrollmentId) {
   requireCloud();
   const { data, error } = await sb()

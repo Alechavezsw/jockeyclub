@@ -11,6 +11,7 @@ const ADMIN_SECTIONS = [
   { key: 'dues', title: 'Cuotas', keywords: 'cuotas socios liquidacion vencimiento saldos cuentas' },
   { key: 'bookings', title: 'Reservas', keywords: 'reservas canchas turnos libro' },
   { key: 'settings_bookings', title: 'Configuración de reservas', keywords: 'configuracion reservas espacios salones horarios precios canchas' },
+  { key: 'settings_colonia', title: 'Configuración de Colonia', keywords: 'configuracion colonia temporada promociones hermanos periodicidad inscripcion' },
   { key: 'disciplines', title: 'Disciplinas', keywords: 'disciplinas deportes' },
   { key: 'pool', title: 'Pileta', keywords: 'pileta natacion canon' },
   { key: 'pool_gate', title: 'Entrada pileta', keywords: 'entrada pileta puerta apto invitado' },

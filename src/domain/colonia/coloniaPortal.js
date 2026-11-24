@@ -4,7 +4,13 @@
 
 import { COLONIA_SEASON_2026_2027 } from './coloniaConstants';
 import { validateColoniaAge } from './coloniaAge';
-import { evaluatePromotionCharge, normalizeMemberKind } from './coloniaTariffs';
+import {
+  COLONIA_OFFICIAL_TARIFFS_2026_2027,
+  evaluatePromotionCharge,
+  normalizeMemberKind,
+  planAmountFor,
+} from './coloniaTariffs';
+import { coloniaNextMonthLabel } from './coloniaLedger';
 import { enrollmentIdentityKey, isWithinEnrollmentWindow } from './coloniaEnrollment';
 
 /** Estados UI ↔ CHECK de colonia_enrollments (tras migración 170000). */
@@ -65,13 +71,19 @@ export function portalEnabledPlans(season = COLONIA_SEASON_2026_2027) {
   return [...COLONIA_PORTAL_PLAN_KEYS];
 }
 
+function canonicalMemberNumber(value) {
+  const digits = String(value || '').replace(/\D/g, '');
+  if (!digits) return '';
+  return digits.replace(/^0+/, '') || '0';
+}
+
 export function matchHouseholdToEnrollment(householdMember, enrollments = []) {
   const mid = householdMember?.id || householdMember?.memberId;
-  const number = String(householdMember?.memberId || householdMember?.member_number || '').replace(/\D/g, '');
+  const number = canonicalMemberNumber(householdMember?.memberId || householdMember?.member_number);
   const name = String(householdMember?.name || householdMember?.full_name || '').trim().toLowerCase();
   for (const row of enrollments) {
     const sid = row.student_member_id || row.studentMemberId || row.student?.member_id;
-    const snum = String(row.student_member_number || row.student?.member_number || '').replace(/\D/g, '');
+    const snum = canonicalMemberNumber(row.student_member_number || row.student?.member_number);
     const sname = String(row.student_name || row.student?.full_name || '').trim().toLowerCase();
     if (mid && sid && String(mid) === String(sid)) return row;
     if (number && snum && number === snum) return row;
@@ -199,6 +211,30 @@ function formatIsoDate(iso) {
   return `${d}/${m}/${y}`;
 }
 
+/** Lo que el socio ve en la app: su saldo, lo pagado y la cuota del mes que viene. */
+export function buildMemberColoniaHome(enrollments = [], tariffs = COLONIA_OFFICIAL_TARIFFS_2026_2027) {
+  const mine = (enrollments || []).map((row) => {
+    const bal = coloniaEnrollmentBalance(row);
+    const monthly = row.plan_key === 'cuota' || row.planKey === 'cuota';
+    const kind = row.student?.member_kind || row.student?.memberKind || 'socio';
+    const nextAmount = monthly && bal.balance <= 0
+      ? (Number(planAmountFor(tariffs, kind, 'cuota')) || 0)
+      : 0;
+    return { row, bal, nextAmount };
+  });
+  return {
+    dueTotal: mine.reduce((sum, item) => sum + Math.max(0, item.bal.balance), 0),
+    paidTotal: mine.reduce((sum, item) => sum + item.bal.paid, 0),
+    nextLabel: coloniaNextMonthLabel(),
+    mine,
+    statusParts: [
+      { label: 'Confirmadas', value: (enrollments || []).filter((row) => row.status === 'confirmada').length },
+      { label: 'Pendientes', value: (enrollments || []).filter((row) => ['pendiente', 'pendiente_pago', 'observada'].includes(row.status)).length },
+      { label: 'Canceladas', value: (enrollments || []).filter((row) => row.status === 'cancelada').length },
+    ],
+  };
+}
+
 export function buildPortalEnrollmentPayload({
   seasonId,
   student,
@@ -218,7 +254,7 @@ export function buildPortalEnrollmentPayload({
       birth_date: student.birthDate || null,
       member_kind: normalizeMemberKind(student.memberKind) || 'socio',
       member_id: student.memberUuid || student.id || null,
-      member_number: String(student.memberNumber || student.memberId || '').replace(/\D/g, '') || null,
+      member_number: canonicalMemberNumber(student.memberNumber || student.memberId) || null,
       shirt_size: String(student.shirtSize || '').trim() || null,
       identity_key: enrollmentIdentityKey(student),
     },
