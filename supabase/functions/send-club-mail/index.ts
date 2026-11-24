@@ -1,14 +1,21 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { memberMayOperate } from "../_shared/operationalMember.ts";
 import {
   CLUB_MAIL_BATCH,
+  CLUB_MAIL_FROM,
   CLUB_MAIL_MAX_BATCHES,
-  CLUB_MAIL_PAGE,
-  clubMailStaffAllowed,
-  collectClubMailReady,
+  CLUB_MAIL_PREVIEW_MS,
+  bodyFingerprint,
+  clubMailAuthDecision,
+  clubMailRequestScope,
+  CLUB_MAIL_RESERVED,
+  CLUB_MAIL_UNCERTAIN_MARK,
+  decidePreviewClaim,
   deliverableClubEmail,
-  operationalAudienceFilter,
+  explainClubMailMember,
+  publicMailCounts,
+  resendBatchDisposition,
+  scanClubMailAudience,
 } from "../_shared/clubMailAudience.ts";
 
 const corsHeaders = {
@@ -16,9 +23,8 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const DEFAULT_FROM = "Jockey Club San Juan <socios@jockeyclubsj.com.ar>";
+const DEFAULT_FROM = CLUB_MAIL_FROM;
 const LOGO_SRC = "https://jockeyclubsj.com.ar/logo-jockey-club.png";
-const PAGE = CLUB_MAIL_PAGE;
 const BATCH = CLUB_MAIL_BATCH;
 const MAX_BATCHES = CLUB_MAIL_MAX_BATCHES;
 
@@ -71,24 +77,45 @@ function noticeHtml(subject: string, body: string) {
 type Admin = ReturnType<typeof createClient>;
 type Target = { email: string; memberNumber: string };
 
-async function alreadySent(admin: Admin, campaignId: string) {
+async function claimedEmails(admin: Admin, campaignId: string) {
   const done = new Set<string>();
   let from = 0;
   for (;;) {
     const { data, error } = await admin
       .from("club_mail_sends")
-      .select("email, resend_id")
+      .select("email")
       .eq("campaign_id", campaignId)
       .range(from, from + 999);
     if (error) throw new Error(error.message);
     const rows = data || [];
-    for (const row of rows) {
-      if (row.resend_id) done.add(String(row.email || "").toLowerCase());
-    }
+    for (const row of rows) done.add(String(row.email || "").toLowerCase());
     if (rows.length < 1000) break;
     from += 1000;
   }
   return done;
+}
+
+async function openClaim(admin: Admin, campaignId: string) {
+  const { data, error } = await admin
+    .from("club_mail_sends")
+    .select("email")
+    .eq("campaign_id", campaignId)
+    .is("resend_id", null)
+    .or(`email_error.eq.${CLUB_MAIL_RESERVED},email_error.eq.${CLUB_MAIL_UNCERTAIN_MARK},email_error.is.null`)
+    .limit(1);
+  if (error) throw new Error(error.message);
+  return Boolean(data?.length);
+}
+
+async function holdingCampaign(admin: Admin) {
+  const { data, error } = await admin
+    .from("club_mail_campaigns")
+    .select("id")
+    .eq("status", "uncertain")
+    .limit(1)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return data?.id ? String(data.id) : "";
 }
 
 async function sendBatch(
@@ -100,32 +127,31 @@ async function sendBatch(
   html: string,
   batchKey: string,
 ) {
-  if (!prepared.length) return { sent: 0, failed: 0, ids: [] as string[], error: "" };
-  const res = await fetch("https://api.resend.com/emails/batch", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-      "Idempotency-Key": `batch-club-mail/${batchKey}`,
-    },
-    body: JSON.stringify(
-      prepared.map((item) => ({
-        from,
-        to: [item.email],
-        reply_to: ["socios@jockeyclubsj.com.ar"],
-        subject,
-        text,
-        html,
-      })),
-    ),
-  });
-  const payload = await res.json().catch(() => ({})) as { data?: Array<{ id?: string }>; message?: string };
-  const ids = Array.isArray(payload?.data) ? payload.data.map((item) => String(item?.id || "")) : [];
-  if (!res.ok) {
-    return { sent: 0, failed: prepared.length, ids, error: String(payload?.message || `Resend ${res.status}`) };
+  if (!prepared.length) return resendBatchDisposition(200, { data: [] }, 0);
+  try {
+    const res = await fetch("https://api.resend.com/emails/batch", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+        "Idempotency-Key": `batch-club-mail/${batchKey}`,
+      },
+      body: JSON.stringify(
+        prepared.map((item) => ({
+          from,
+          to: [item.email],
+          reply_to: ["socios@jockeyclubsj.com.ar"],
+          subject,
+          text,
+          html,
+        })),
+      ),
+    });
+    const payload = await res.json().catch(() => ({})) as { data?: Array<{ id?: string }>; message?: string };
+    return resendBatchDisposition(res.status, payload, prepared.length);
+  } catch {
+    return resendBatchDisposition(null, null, prepared.length);
   }
-  const sent = ids.filter(Boolean).length;
-  return { sent, failed: prepared.length - sent, ids, error: "" };
 }
 
 async function recordBatch(
@@ -165,63 +191,243 @@ Deno.serve(async (req) => {
     if (!supabaseUrl || !serviceKey || !anonKey) return json(500, { error: "Falta la configuración de Supabase." });
 
     const authHeader = req.headers.get("Authorization") || "";
+    const unsigned = clubMailAuthDecision({ authorization: authHeader, staff: true });
+    if (unsigned.status === 401) return json(401, { error: unsigned.error });
     const userClient = createClient(supabaseUrl, anonKey, {
       global: { headers: { Authorization: authHeader } },
     });
     const { data: staff, error: staffError } = await userClient.rpc("has_staff_access");
-    if (staffError || !clubMailStaffAllowed(staff)) {
-      return json(403, { error: "Solo el personal del club puede enviar comunicados." });
-    }
+    const allowed = clubMailAuthDecision({
+      authorization: authHeader,
+      staff,
+      staffError: Boolean(staffError),
+    });
+    if (allowed.status !== 200) return json(allowed.status, { error: allowed.error });
     const { data: authData } = await userClient.auth.getUser();
     const senderId = authData?.user?.id || null;
 
     const body = await req.json().catch(() => ({}));
+    const action = String(body.action || "send").trim();
+    const scope = clubMailRequestScope(body);
+    const audience = scope.audience;
+    const memberNumber = scope.memberNumber;
     const subject = String(body.subject || "").trim();
     const text = String(body.text || body.body || "").trim();
-    const audience = String(body.audience || "all").trim();
-    const memberNumber = String(body.memberNumber || body.memberId || "").trim();
     const campaignId = String(body.campaignId || crypto.randomUUID()).trim();
-    if (!subject || !text) return json(400, { error: "Completá asunto y mensaje." });
-    if (!/^[0-9a-f-]{36}$/i.test(campaignId)) return json(400, { error: "Campaña inválida." });
-
+    const previewId = String(body.previewId || "").trim();
     const admin = createClient(supabaseUrl, serviceKey);
-    const from = Deno.env.get("RESEND_FROM") || DEFAULT_FROM;
-    const html = noticeHtml(subject, text);
-    const done = await alreadySent(admin, campaignId);
-    const counts = { sent: 0, failed: 0, skipped: done.size, more: false };
-    const ready: Target[] = [];
 
-    const takeMember = (row: { email?: string | null; member_number?: string | null }) => {
-      const email = deliverableEmail(row.email);
-      if (!email || done.has(email)) return;
-      done.add(email);
-      ready.push({ email, memberNumber: String(row.member_number || "") });
-    };
-
-    if (audience === "one") {
-      if (!memberNumber) return json(400, { error: "Elegí un socio." });
+    const pageMembers = async (from: number, to: number) => {
       const { data, error } = await admin
         .from("members")
-        .select("member_number, email, status, meta")
-        .eq("member_number", memberNumber)
+        .select("member_number, full_name, email, status, meta")
+        .order("member_number")
+        .range(from, to);
+      if (error) throw new Error(error.message);
+      return data || [];
+    };
+
+    if (action === "lookup") {
+      const query = String(body.query || "").replace(/[^0-9A-Za-zÁÉÍÓÚáéíóúÑñ ]/g, "").trim().slice(0, 40);
+      if (query.length < 2) return json(400, { error: "Escribí un nombre o un número de socio." });
+      const { data, error } = await admin
+        .from("members")
+        .select("member_number, full_name, email, status, meta")
+        .or(`member_number.eq.${query},full_name.ilike."%${query}%"`)
+        .order("member_number")
+        .limit(8);
+      if (error) return json(500, { error: error.message });
+      const hits = [];
+      for (const row of data || []) {
+        const email = deliverableClubEmail(row.email);
+        let siblings: string[] = [];
+        if (email) {
+          const { data: same } = await admin
+            .from("members")
+            .select("member_number")
+            .ilike("email", email)
+            .limit(8);
+          siblings = (same || []).map((item) => String(item.member_number || ""));
+        }
+        hits.push(explainClubMailMember(row, siblings));
+      }
+      return json(200, { ok: true, hits });
+    }
+
+    if (action === "status") {
+      if (!/^[0-9a-f-]{36}$/i.test(campaignId)) return json(400, { error: "Campaña inválida." });
+      const { data, error } = await admin
+        .from("club_mail_campaigns")
+        .select("id, subject, confirmed_count, accepted_count, error_count, attempt_count, status, created_at, finished_at")
+        .eq("id", campaignId)
         .maybeSingle();
       if (error) return json(500, { error: error.message });
-      if (!data) return json(404, { error: "No encontramos a ese socio." });
-      if (!memberMayOperate(data)) {
-        return json(400, { error: "Ese socio está inactivo y no entra en los avisos." });
+      if (!data) return json(404, { error: "No está esa campaña." });
+      return json(200, {
+        ok: true,
+        campaign: data,
+        note: "Aceptado por Resend no significa que el correo ya llegó.",
+      });
+    }
+    if (action === "acknowledge") {
+      if (!/^[0-9a-f-]{36}$/i.test(campaignId)) return json(400, { error: "Campaña inválida." });
+      const { data, error } = await admin
+        .from("club_mail_campaigns")
+        .update({ status: "failed", finished_at: new Date().toISOString() })
+        .eq("id", campaignId)
+        .eq("status", "uncertain")
+        .select("id")
+        .maybeSingle();
+      if (error) return json(500, { error: error.message });
+      if (!data) return json(404, { error: "No hay una campaña en duda con ese número." });
+      return json(200, {
+        ok: true,
+        campaignId,
+        note: "Quedó revisada. No se reenvió ningún correo.",
+      });
+    }
+    if (action !== "preview" && action !== "send") return json(400, { error: "Acción desconocida." });
+    if (!subject || !text) return json(400, { error: "Completá asunto y mensaje." });
+    if (action === "send" && !/^[0-9a-f-]{36}$/i.test(campaignId)) return json(400, { error: "Campaña inválida." });
+
+    const loadLive = async () => {
+      if (audience === "one") {
+        if (!memberNumber) throw new Error("Elegí un socio.");
+        const { data, error } = await admin
+          .from("members")
+          .select("member_number, full_name, email, status, meta")
+          .eq("member_number", memberNumber)
+          .maybeSingle();
+        if (error) throw new Error(error.message);
+        if (!data) throw new Error("No encontramos a ese socio.");
+        return scanClubMailAudience(async (from) => (from === 0 ? [data] : []));
       }
-      takeMember(data);
-      if (!ready.length) {
-        return json(200, {
-          ok: true,
-          campaignId,
-          sent: 0,
-          failed: 0,
-          skipped: 1,
-          more: false,
-          error: "Ese socio no tiene un mail real.",
+      return scanClubMailAudience(pageMembers);
+    };
+
+    if (action === "preview") {
+      if (audience === "staff" || audience === "admin") {
+        return json(400, { error: "La revisión del padrón es para socios." });
+      }
+      const live = await loadLive();
+      const expiresAt = new Date(Date.now() + CLUB_MAIL_PREVIEW_MS).toISOString();
+      const { data, error } = await admin
+        .from("club_mail_previews")
+        .insert({
+          audience,
+          member_number: memberNumber || null,
+          subject,
+          body_sha256: await bodyFingerprint(subject, text),
+          audience_sha256: live.audienceSha256,
+          counts: publicMailCounts(live),
+          created_by: senderId,
+          expires_at: expiresAt,
+        })
+        .select("id, expires_at")
+        .single();
+      if (error) return json(500, { error: error.message });
+      const holdCampaignId = await holdingCampaign(admin);
+      return json(200, {
+        ok: true,
+        previewId: data.id,
+        expiresAt: data.expires_at,
+        from: DEFAULT_FROM,
+        counts: publicMailCounts(live),
+        holdCampaignId: holdCampaignId || null,
+      });
+    }
+
+    const from = Deno.env.get("RESEND_FROM") || DEFAULT_FROM;
+    const html = noticeHtml(subject, text);
+    const done = await claimedEmails(admin, campaignId);
+    const counts = { sent: 0, failed: 0, skipped: done.size, more: false, confirmed: 0 };
+    const ready: Target[] = [];
+
+    if (audience === "one" || audience === "all") {
+      if (!/^[0-9a-f-]{36}$/i.test(previewId)) {
+        return json(409, { error: "Revisá los destinatarios antes de enviar." });
+      }
+      const { data: preview, error: previewError } = await admin
+        .from("club_mail_previews")
+        .select("*")
+        .eq("id", previewId)
+        .maybeSingle();
+      if (previewError) return json(500, { error: previewError.message });
+      const live = await loadLive();
+      const decision = decidePreviewClaim(preview, {
+        audienceSha256: live.audienceSha256,
+        bodySha256: await bodyFingerprint(subject, text),
+        campaignId,
+      });
+      if (!decision.ok) return json(decision.status, { error: decision.error });
+      if (!decision.retry) {
+        const hold = await holdingCampaign(admin);
+        if (hold) {
+          return json(409, {
+            error: `Hay un envío en duda (${hold}). Revisalo antes de mandar otro.`,
+            campaignId: hold,
+            uncertain: true,
+          });
+        }
+      }
+      if (audience === "one" && live.recipients === 0) {
+        return json(400, {
+          error: live.excludedByBaja
+            ? "Ese socio está inactivo y no entra en los avisos."
+            : "Ese socio no tiene un mail real.",
         });
       }
+      if (!decision.retry) {
+        const { data: claimed, error: claimError } = await admin
+          .from("club_mail_previews")
+          .update({ consumed_at: new Date().toISOString(), campaign_id: campaignId })
+          .eq("id", previewId)
+          .is("consumed_at", null)
+          .select("id")
+          .maybeSingle();
+        if (claimError) return json(500, { error: claimError.message });
+        if (!claimed) {
+          const { data: again } = await admin
+            .from("club_mail_previews")
+            .select("*")
+            .eq("id", previewId)
+            .maybeSingle();
+          const second = decidePreviewClaim(again, {
+            audienceSha256: live.audienceSha256,
+            bodySha256: await bodyFingerprint(subject, text),
+            campaignId,
+          });
+          if (!second.ok || !second.retry) {
+            return json(409, { error: second.error || "Esa revisión ya se usó para un envío." });
+          }
+        } else {
+        const { error: campaignError } = await admin.from("club_mail_campaigns").insert({
+          id: campaignId,
+          preview_id: previewId,
+          subject,
+          audience_sha256: live.audienceSha256,
+          confirmed_count: live.recipients,
+          sender_id: senderId,
+          status: "sending",
+        });
+        if (campaignError) return json(500, { error: campaignError.message });
+        }
+      }
+      if (await openClaim(admin, campaignId)) {
+        await admin.from("club_mail_campaigns").update({
+          status: "uncertain",
+          finished_at: new Date().toISOString(),
+        }).eq("id", campaignId);
+        return json(409, {
+          error: `El lote quedó en duda (${campaignId}). No lo reenvío hasta que se revise.`,
+          campaignId,
+          uncertain: true,
+        });
+      }
+      counts.confirmed = live.recipients;
+      const pending = live.targets.filter((target) => !done.has(target.email));
+      ready.push(...pending.slice(0, BATCH * MAX_BATCHES));
+      counts.more = pending.length > ready.length;
     } else if (audience === "staff" || audience === "admin") {
       const roles = audience === "admin"
         ? ["admin", "superadmin", "accountant"]
@@ -260,26 +466,7 @@ Deno.serve(async (req) => {
         });
       }
     } else {
-      const need = BATCH * MAX_BATCHES;
-      let fromRow = 0;
-      let scannedFull = false;
-      while (ready.length < need) {
-        const { data, error } = await admin
-          .from("members")
-          .select("member_number, email, status, meta")
-          .or(operationalAudienceFilter())
-          .not("email", "is", null)
-          .order("member_number")
-          .range(fromRow, fromRow + PAGE - 1);
-        if (error) return json(500, { error: error.message });
-        const rows = data || [];
-        scannedFull = rows.length === PAGE;
-        const page = collectClubMailReady(rows, { seen: done, cap: need - ready.length });
-        ready.push(...page.ready);
-        if (rows.length < PAGE) break;
-        fromRow += PAGE;
-      }
-      counts.more = ready.length > need || (scannedFull && ready.length >= need);
+      return json(400, { error: "Destino desconocido." });
     }
 
     const outgoing = ready.slice(0, audience === "one" ? ready.length : BATCH * MAX_BATCHES);
@@ -287,21 +474,77 @@ Deno.serve(async (req) => {
     const htmlBody = html;
     for (let i = 0; i < outgoing.length; i += BATCH) {
       const chunk = outgoing.slice(i, i + BATCH);
+      const { data: claimedRows, error: claimRowsError } = await admin.rpc("claim_club_mail_batch", {
+        p_campaign_id: campaignId,
+        p_subject: subject,
+        p_sender: senderId,
+        p_rows: chunk.map((item) => ({ email: item.email, memberNumber: item.memberNumber || "" })),
+      });
+      if (claimRowsError) return json(500, { error: claimRowsError.message });
+      const ownedEmails = new Set((claimedRows || []).map((row: { email?: string }) => String(row.email || "").toLowerCase()));
+      const owned = chunk.filter((item) => ownedEmails.has(item.email));
+      if (!owned.length) continue;
       const batch = await sendBatch(
-        chunk,
+        owned,
         apiKey,
         from,
         subject,
         text,
         htmlBody,
-        `${campaignId}/${chunk[0].email}/${chunk.length}`,
+        `${campaignId}/${owned[0].email}/${owned.length}`,
       );
-      await recordBatch(admin, campaignId, subject, senderId, chunk, batch.ids, batch.error);
-      counts.sent += batch.sent;
-      counts.failed += batch.failed;
+      if (batch.disposition === "uncertain") {
+        await admin.from("club_mail_sends").update({ email_error: CLUB_MAIL_UNCERTAIN_MARK })
+          .eq("campaign_id", campaignId)
+          .in("email", owned.map((item) => item.email))
+          .is("resend_id", null);
+        await admin.from("club_mail_campaigns").update({
+          status: "uncertain",
+          finished_at: new Date().toISOString(),
+        }).eq("id", campaignId);
+        return json(409, {
+          error: `${batch.error} Campaña ${campaignId}.`,
+          campaignId,
+          uncertain: true,
+        });
+      }
+      try {
+        await recordBatch(admin, campaignId, subject, senderId, owned, batch.ids, batch.error);
+      } catch {
+        await admin.from("club_mail_sends").update({ email_error: CLUB_MAIL_UNCERTAIN_MARK })
+          .eq("campaign_id", campaignId)
+          .in("email", owned.map((item) => item.email))
+          .is("resend_id", null);
+        await admin.from("club_mail_campaigns").update({
+          status: "uncertain",
+          finished_at: new Date().toISOString(),
+        }).eq("id", campaignId);
+        return json(409, {
+          error: `Resend aceptó el lote y no pude guardar los identificadores. No lo reenvío. Campaña ${campaignId}.`,
+          campaignId,
+          uncertain: true,
+        });
+      }
+      if (batch.disposition === "accepted") counts.sent += batch.accepted;
+      else counts.failed += owned.length;
     }
 
-    return json(200, { ok: true, campaignId, ...counts });
+    if (audience === "all" || audience === "one") {
+      const { error: progressError } = await admin.rpc("record_club_mail_progress", {
+        p_campaign_id: campaignId,
+        p_accepted: counts.sent,
+        p_failed: counts.failed,
+        p_more: counts.more,
+      });
+      if (progressError) return json(500, { error: progressError.message });
+    }
+
+    return json(200, {
+      ok: true,
+      campaignId,
+      ...counts,
+      note: "Aceptado por Resend no significa que el correo ya llegó.",
+    });
   } catch (error) {
     return json(500, { error: error instanceof Error ? error.message : "No se pudo enviar el mail." });
   }

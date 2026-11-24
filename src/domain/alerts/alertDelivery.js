@@ -30,6 +30,11 @@ export function alertMailAudience(audience) {
   return 'all';
 }
 
+/** El mail a socios sale por la revisión de Mensajería, no desde la alerta. */
+export function alertMailNeedsPadronPreview(audience) {
+  return alertMailAudience(audience) === 'all';
+}
+
 export function alertMailRoles(audience) {
   const next = String(audience || 'all').toLowerCase();
   if (next === 'admin') return [...ADMIN_MAIL_ROLES];
@@ -65,9 +70,10 @@ export function buildAlertDmMessage(alert, {
   });
 }
 
-export function alertDeliverySummary({ dm, mail, mailed } = {}) {
+export function alertDeliverySummary({ dm, mail, mailed, mailPadron } = {}) {
   const bits = [];
   if (dm) bits.push(dm === MAILBOX.OPERATIONS ? 'MD a operaciones' : 'MD a socios');
+  if (mailPadron) bits.push('el mail al padrón se confirma en Mensajería');
   if (mail) {
     const sent = Number(mailed?.sent) || 0;
     const failed = Number(mailed?.failed) || 0;

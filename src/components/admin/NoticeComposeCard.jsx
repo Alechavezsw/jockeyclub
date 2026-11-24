@@ -22,6 +22,15 @@ import {
   rankMemberSearchHit,
 } from '../../domain/members/households';
 
+const MAIL_REASONS = {
+  recipient: 'Entra en el envío',
+  shared: 'Comparte el correo; sale una sola vez',
+  missing: 'Sin correo',
+  alias: 'Alias excluido',
+  baja: 'Baja vigente',
+  'not-operational': 'No está operativo',
+};
+
 const EMPTY_PICK = {
   firstName: '',
   lastName: '',
@@ -75,6 +84,11 @@ export default function NoticeComposeCard({
   const [content, setContent] = useState('');
   const [aiPrompt, setAiPrompt] = useState('');
   const [confirmMass, setConfirmMass] = useState(false);
+  const [preview, setPreview] = useState(null);
+  const [showLetter, setShowLetter] = useState(false);
+  const [confirmSend, setConfirmSend] = useState(false);
+  const [lookupQuery, setLookupQuery] = useState('');
+  const [lookupHits, setLookupHits] = useState([]);
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
   const [ok, setOk] = useState('');
@@ -202,8 +216,80 @@ export default function NoticeComposeCard({
       setSubject(drafted.subject);
       setContent(drafted.body);
       setConfirmMass(false);
+      setPreview(null);
+      setConfirmSend(false);
+      setShowLetter(false);
     } catch (err) {
       setError(err?.message || 'La IA no pudo redactar.');
+    } finally {
+      setBusy('');
+    }
+  };
+
+  const dropReview = () => {
+    setPreview(null);
+    setShowLetter(false);
+    setConfirmSend(false);
+    setConfirmMass(false);
+  };
+
+  const reviewAudience = async () => {
+    setError('');
+    setOk('');
+    if (!subject.trim() || !content.trim()) {
+      setError('Completá asunto y mensaje antes de revisar.');
+      return;
+    }
+    if (audience === 'one' && !recipientId) {
+      setError('Elegí un socio.');
+      return;
+    }
+    setBusy('review');
+    try {
+      const data = await repos.previewClubMail({
+        subject: subject.trim(),
+        text: content.trim(),
+        audience,
+        memberNumber: audience === 'one' ? recipientId : '',
+      });
+      setPreview(data);
+      setShowLetter(true);
+      setConfirmSend(false);
+      setLookupHits([]);
+    } catch (err) {
+      setPreview(null);
+      setError(err?.message || 'No se pudo revisar los destinatarios.');
+    } finally {
+      setBusy('');
+    }
+  };
+
+  const acknowledgeHold = async () => {
+    if (!preview?.holdCampaignId) return;
+    setBusy('hold');
+    setError('');
+    try {
+      await repos.acknowledgeClubMailHold(preview.holdCampaignId);
+      setPreview((current) => (current ? { ...current, holdCampaignId: null } : current));
+      setOk('Quedó la constancia. No se reenvió ningún correo.');
+    } catch (err) {
+      setError(err?.message || 'No se pudo dejar constancia.');
+    } finally {
+      setBusy('');
+    }
+  };
+
+  const lookupMember = async () => {
+    const query = lookupQuery.trim();
+    if (query.length < 2) return;
+    setBusy('lookup');
+    setError('');
+    try {
+      const data = await repos.lookupClubMailMember(query);
+      setLookupHits(data?.hits || []);
+    } catch (err) {
+      setLookupHits([]);
+      setError(err?.message || 'No se pudo buscar ese socio.');
     } finally {
       setBusy('');
     }
@@ -232,7 +318,19 @@ export default function NoticeComposeCard({
         : 'Ese socio no tiene un mail real. Cargá el correo en la ficha.');
       return;
     }
-    if (audience === 'all' && !confirmMass) {
+    if (sendMail && !preview?.previewId) {
+      setError('Revisá los destinatarios antes de enviar.');
+      return;
+    }
+    if (sendMail && preview?.holdCampaignId) {
+      setError('Hay un envío en duda. Dejá constancia de esa revisión antes de mandar otro.');
+      return;
+    }
+    if (sendMail && !confirmSend) {
+      setError('Mirá el correo y confirmá el envío.');
+      return;
+    }
+    if (audience === 'all' && !sendMail && !confirmMass) {
       setConfirmMass(true);
       return;
     }
@@ -260,6 +358,7 @@ export default function NoticeComposeCard({
             text: content.trim(),
             audience,
             memberNumber: audience === 'one' ? recipientId : '',
+            previewId: preview?.previewId,
             onProgress: ({ sent, failed, more }) => {
               setProgress(more
                 ? `Enviando mails… ${sent} enviados${failed ? `, ${failed} no salieron` : ''}`
@@ -273,8 +372,9 @@ export default function NoticeComposeCard({
             { cause: err },
           );
         }
-        bits.push(mailed.sent === 1 ? '1 mail' : `${mailed.sent} mails`);
-        if (mailed.failed) bits.push(`${mailed.failed} mails no salieron`);
+        bits.push(mailed.sent === 1 ? '1 mail aceptado por Resend' : `${mailed.sent} mails aceptados por Resend`);
+        if (mailed.failed) bits.push(`${mailed.failed} no los aceptó el proveedor`);
+        bits.push('eso no confirma que ya llegaron');
       }
       setSubject('');
       setContent('');
@@ -350,7 +450,7 @@ export default function NoticeComposeCard({
             <button
               type="button"
               className={`ops-notice-dest${audience === 'one' ? ' is-on' : ''}`}
-              onClick={() => { setAudience('one'); setConfirmMass(false); }}
+              onClick={() => { setAudience('one'); dropReview(); }}
             >
               <UserRound size={18} aria-hidden />
               <span>
@@ -361,12 +461,12 @@ export default function NoticeComposeCard({
             <button
               type="button"
               className={`ops-notice-dest${audience === 'all' ? ' is-on' : ''}`}
-              onClick={() => { setAudience('all'); setRecipientId(''); setConfirmMass(false); }}
+              onClick={() => { setAudience('all'); setRecipientId(''); dropReview(); }}
             >
               <Users size={18} aria-hidden />
               <span>
                 <strong>Todos los socios</strong>
-                <em>{sendMail ? `${mailCounts.withMail} mails` : 'Bandeja interna'}</em>
+                <em>{sendMail ? 'Se cuenta al revisar' : 'Bandeja interna'}</em>
               </span>
             </button>
           </fieldset>
@@ -479,7 +579,7 @@ export default function NoticeComposeCard({
                           setRecipientId(m.memberId);
                           setMemberQuery('');
                           setMemberPick(EMPTY_PICK);
-                          setConfirmMass(false);
+                          dropReview();
                         }}
                       >
                         <strong>{m.name}</strong>
@@ -493,9 +593,7 @@ export default function NoticeComposeCard({
           ) : (
             <p className="ops-notice-count">
               {sendDm ? 'El mensaje interno lo ven todos en la bandeja. ' : ''}
-              {sendMail
-                ? `El mail sale a ${mailCounts.withMail} direcciones${mailCounts.withoutMail ? ` · ${mailCounts.withoutMail} fichas sin mail real` : ''}.`
-                : ''}
+              {sendMail ? 'El mail se cuenta en el servidor, con el padrón completo, antes de salir.' : ''}
             </p>
           )}
         </section>
@@ -547,7 +645,7 @@ export default function NoticeComposeCard({
             id="ops-notice-subject"
             className="form-input"
             value={subject}
-            onChange={(e) => { setSubject(e.target.value); setConfirmMass(false); }}
+            onChange={(e) => { setSubject(e.target.value); dropReview(); }}
             placeholder="Asunto del comunicado"
             required
           />
@@ -558,11 +656,116 @@ export default function NoticeComposeCard({
             className="form-input"
             rows={8}
             value={content}
-            onChange={(e) => { setContent(e.target.value); setConfirmMass(false); }}
+            onChange={(e) => { setContent(e.target.value); dropReview(); }}
             placeholder="Texto que recibe el socio"
             required
           />
         </section>
+
+        {sendMail ? (
+          <section className="ops-notice-block ops-mail-review">
+            <header className="ops-notice-block-head">
+              <span className="ops-notice-step">{channel === 'both' ? '4' : '3'}</span>
+              <div>
+                <h4>Revisar destinatarios</h4>
+                <p>El conteo sale del padrón, no de las fichas abiertas en esta pantalla.</p>
+              </div>
+            </header>
+            <button type="button" className="btn btn-secondary" onClick={reviewAudience} disabled={Boolean(busy)}>
+              <Search size={14} />
+              {busy === 'review' ? 'Contando el padrón…' : 'Revisar destinatarios'}
+            </button>
+            {preview?.counts ? (
+              <>
+                {preview.holdCampaignId ? (
+                  <div className="ops-notice-confirm" role="status">
+                    <p>
+                      Hay un envío en duda ({preview.holdCampaignId}). No sale otro hasta dejar constancia. Eso no reenvía correos.
+                    </p>
+                    <button type="button" className="btn btn-secondary btn-sm" onClick={acknowledgeHold} disabled={Boolean(busy)}>
+                      {busy === 'hold' ? 'Guardando…' : 'Dejar constancia, sin reenviar'}
+                    </button>
+                  </div>
+                ) : null}
+                <dl className="ops-mail-ledger">
+                  {[
+                    ['Socios operativos', preview.counts.operational],
+                    ['Con correo real', preview.counts.withRealEmail],
+                    ['Direcciones únicas', preview.counts.uniqueAddresses],
+                    ['Sin correo', preview.counts.missingEmail],
+                    ['Alias excluidos', preview.counts.aliasExcluded],
+                    ['Correos compartidos', preview.counts.sharedAddresses],
+                    ['Excluidos por baja', preview.counts.excludedByBaja],
+                    ['Van a salir', preview.counts.recipients],
+                  ].map(([label, value]) => (
+                    <div key={label}>
+                      <dt>{label}</dt>
+                      <dd>{value}</dd>
+                    </div>
+                  ))}
+                </dl>
+                {preview.counts.sharedGroups?.length ? (
+                  <ul className="ops-mail-shared">
+                    {preview.counts.sharedGroups.map((group) => (
+                      <li key={group.join('-')}>N° {group.join(' y N° ')} comparten un correo. Sale una sola vez.</li>
+                    ))}
+                  </ul>
+                ) : null}
+                <div className="ops-notice-search">
+                  <Search size={16} aria-hidden />
+                  <input
+                    className="form-input"
+                    value={lookupQuery}
+                    onChange={(e) => setLookupQuery(e.target.value)}
+                    placeholder="Buscar un socio por nombre o número"
+                    aria-label="Buscar por qué entra o queda afuera"
+                  />
+                  <button type="button" className="btn btn-secondary btn-sm" onClick={lookupMember} disabled={Boolean(busy)}>
+                    {busy === 'lookup' ? 'Buscando…' : 'Ver motivo'}
+                  </button>
+                </div>
+                {lookupHits.length ? (
+                  <ul className="ops-mail-hits">
+                    {lookupHits.map((hit) => (
+                      <li key={hit.memberNumber}>
+                        <strong>{hit.name || `N° ${hit.memberNumber}`}</strong>
+                        <span>
+                          N° {hit.memberNumber}
+                          {hit.maskedEmail ? ` · ${hit.maskedEmail}` : ''}
+                          {' · '}
+                          {MAIL_REASONS[hit.reason] || hit.reason}
+                          {hit.alsoHeldBy?.length ? ` · también N° ${hit.alsoHeldBy.join(', N° ')}` : ''}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+                <button type="button" className="btn btn-secondary btn-sm" onClick={() => setShowLetter((open) => !open)}>
+                  {showLetter ? 'Ocultar el correo' : 'Vista previa del correo'}
+                </button>
+                {showLetter ? (
+                  <article className="ops-mail-letter">
+                    <p>Sede Rivadavia</p>
+                    <h4 className="serif-font">Jockey Club San Juan</h4>
+                    <p>De {preview.from}</p>
+                    <p>Para {preview.counts.recipients} {preview.counts.recipients === 1 ? 'dirección' : 'direcciones'}</p>
+                    <h5>{subject}</h5>
+                    <p>{content}</p>
+                  </article>
+                ) : null}
+                <label className="ops-mail-confirm">
+                  <input
+                    type="checkbox"
+                    checked={confirmSend}
+                    disabled={Boolean(preview.holdCampaignId)}
+                    onChange={(e) => setConfirmSend(e.target.checked)}
+                  />
+                  Confirmo el envío a {preview.counts.recipients} {preview.counts.recipients === 1 ? 'dirección' : 'direcciones'}.
+                </label>
+              </>
+            ) : null}
+          </section>
+        ) : null}
 
         {confirmMass ? (
           <div className="ops-notice-confirm" role="status">
@@ -578,7 +781,11 @@ export default function NoticeComposeCard({
                 ? 'Envío masivo al padrón'
                 : 'Elegí un destino para enviar'}
           </p>
-          <button type="submit" className="btn btn-primary" disabled={Boolean(busy)}>
+          <button
+            type="submit"
+            className="btn btn-primary"
+            disabled={Boolean(busy) || (sendMail && (!preview?.previewId || !confirmSend || Boolean(preview?.holdCampaignId)))}
+          >
             <Send size={16} />
             {busy === 'send'
               ? 'Enviando…'
