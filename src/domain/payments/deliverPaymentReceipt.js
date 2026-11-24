@@ -15,6 +15,26 @@ import { sendCashPaymentReceipt } from '../accounting/cashPaymentReceiptDelivery
  * @param {function} [args.onSendMessage] Mensajería interna
  * @param {'cuota'|'reserva'|'porteria'|'pileta'|'otro'|string} [args.kind]
  */
+export function deliverMemberDuesReceipts(saved, onSendMessage) {
+  const jobs = [
+    deliverPaymentReceipt({
+      member: saved?.member,
+      payment: saved?.payment,
+      onSendMessage,
+      kind: 'cuota',
+    }),
+  ];
+  if (saved?.also?.payment) {
+    jobs.push(deliverPaymentReceipt({
+      member: saved.also.member || saved.member,
+      payment: saved.also.payment,
+      onSendMessage,
+      kind: 'cuota',
+    }));
+  }
+  return Promise.all(jobs);
+}
+
 export async function deliverPaymentReceipt({
   member,
   payment,

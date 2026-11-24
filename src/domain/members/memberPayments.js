@@ -1516,11 +1516,75 @@ export function recordDuesCollection(member, {
   discountDetail = '',
   chargeScope = 'all',
   monthlyAmount = null,
+  tennisPeriodDueOns = null,
 } = {}) {
   if (!member) throw new Error('Socio no encontrado.');
   const account = billingAccountMember(member, members);
   if (!account) throw new Error('El cobro va a la cuenta del titular. No está en el padrón.');
   const scope = String(chargeScope || '').trim().toLowerCase();
+  const tennisPeriods = Array.isArray(tennisPeriodDueOns)
+    ? tennisPeriodDueOns.map((value) => String(value || '').slice(0, 10)).filter(Boolean)
+    : [];
+  if (tennisPeriods.length && scope !== 'abono_tenis' && scope !== 'addon' && scope !== 'tenis') {
+    const socialPreview = collectionPreview(account, today, {
+      periodDueOns,
+      skipSurcharge: duesMethodSkipsSurcharge(method),
+      chargeScope: 'social',
+    });
+    const tennisPreview = collectionTennisPreview(account, today, {
+      periodDueOns: tennisPeriods,
+      monthlyAmount,
+    });
+    const paid = amount != null ? money(amount) : money(socialPreview.cash + tennisPreview.cash);
+    const socialPaid = money(Math.min(socialPreview.cash, paid));
+    const tennisPaid = money(Math.max(0, paid - socialPaid));
+    const socialResult = socialPaid > 0.009
+      ? recordDuesCollection(member, {
+        method,
+        bankId,
+        bankName,
+        journalAccount,
+        receiptName,
+        receiptAttachment,
+        amount: socialPaid,
+        today,
+        members,
+        periodDueOns,
+        treasuryMatch,
+        paymentPlanId,
+        paymentPlanLabel,
+        paymentPlans,
+        receiptParse,
+        paymentSplits,
+        cardFinancing,
+        financingPercent,
+        financingFixed,
+        operatorRole,
+        discount,
+        discountDetail,
+        chargeScope: 'social',
+        monthlyAmount,
+      })
+      : { member: account, payment: null };
+    const tennisResult = tennisPaid > 0.009
+      ? recordTennisAbonoCollection(socialResult.member, {
+        method,
+        bankId,
+        bankName,
+        journalAccount,
+        receiptName,
+        receiptAttachment,
+        amount: tennisPaid,
+        today,
+        members,
+        periodDueOns: tennisPeriods,
+        monthlyAmount,
+        treasuryMatch,
+        receiptParse,
+      })
+      : null;
+    return tennisResult ? { ...socialResult, also: tennisResult } : socialResult;
+  }
   if (scope === 'abono_tenis' || scope === 'addon' || scope === 'tenis') {
     return recordTennisAbonoCollection(member, {
       method,
@@ -2792,6 +2856,7 @@ export async function persistDuesCollection(result, {
   updateMember,
   addJournalEntry,
   onAccountEntry,
+  skipAlso = false,
 } = {}) {
   if (!result?.member) return result;
   let next = result;
@@ -2890,9 +2955,27 @@ export async function persistDuesCollection(result, {
   // B9: si el RPC POS ya publicó el asiento en la misma txn, no re-publicar.
   if (next.journalEntry && !next.journalAtomic) {
     const ensured = await ensureDuesCollectionJournal(next, { addJournalEntry });
-    return ensured;
+    return attachTennisCollection(result, ensured, {
+      setMembers, updateMember, addJournalEntry, onAccountEntry, skipAlso,
+    });
   }
-  return next;
+  return attachTennisCollection(result, next, {
+    setMembers, updateMember, addJournalEntry, onAccountEntry, skipAlso,
+  });
+}
+
+async function attachTennisCollection(result, saved, hooks) {
+  if (!result?.also || hooks.skipAlso || !saved?.member) return saved;
+  const tennisSaved = await persistDuesCollection({
+    ...result.also,
+    also: null,
+    member: {
+      ...result.also.member,
+      ...saved.member,
+      id: saved.member.id || result.also.member?.id,
+    },
+  }, { ...hooks, skipAlso: true });
+  return { ...saved, also: tennisSaved };
 }
 
 /**

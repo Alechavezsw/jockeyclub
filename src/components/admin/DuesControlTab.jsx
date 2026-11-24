@@ -355,6 +355,14 @@ export default function DuesControlTab({
       onSendMessage,
       kind: 'cuota',
     });
+    if (saved?.also?.payment) {
+      void deliverPaymentReceipt({
+        member: saved.also.member || saved.member,
+        payment: saved.also.payment,
+        onSendMessage,
+        kind: 'cuota',
+      });
+    }
     setCollectMember(null);
     setFlash(`Cobro registrado · ${formatCurrency((saved?.payment || result.payment).amount)} · ${(saved?.member || result.member).name}`);
     window.setTimeout(() => setFlash(''), 5000);

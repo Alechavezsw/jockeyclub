@@ -1882,6 +1882,14 @@ export default function AccountingTab({
               onSendMessage,
               kind: 'cuota',
             });
+            if (saved?.also?.payment) {
+              void deliverPaymentReceipt({
+                member: saved.also.member || saved.member,
+                payment: saved.also.payment,
+                onSendMessage,
+                kind: 'cuota',
+              });
+            }
             upsertUnidentifiedCollection({
               ...matched,
               duesApplied: true,
