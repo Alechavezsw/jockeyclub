@@ -22,6 +22,8 @@ import {
 import { memberMatchesDirectoryQuery } from '../../domain/members/households';
 import { PADRON_BAJA_OPTIONS } from '../../domain/members/membershipMoves';
 import { money } from '../../domain/money';
+import { collectionPeriodChoices } from '../../domain/members/dues';
+import { duesMonthsPhrase } from '../../domain/members/duesImputations';
 import { todayISODateAR } from '../../lib/arDate';
 import { isSupabaseConfigured } from '../../lib/supabase';
 import { repos } from '../../data/bootstrap';
@@ -511,6 +513,8 @@ export function MemberReactivateModal({
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(saldo);
+  const owedChoices = selected ? collectionPeriodChoices(selected, new Date()) : [];
+  const owedMonthsLabel = duesMonthsPhrase(owedChoices.map((row) => row.dueOn));
   const bajaPrevia = String(selected?.bajaMotivo || selected?.meta?.bajaMotivo || '').trim();
 
   const confirm = async () => {
@@ -677,8 +681,20 @@ export function MemberReactivateModal({
           />
         </label>
       </div>
-      <p style={{ margin: '-0.35rem 0 0.85rem', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-        El saldo no se edita. Quedan el usuario, la fecha y la hora. La baja anterior no se borra.
+      {selected ? (
+        <p
+          style={{ margin: '-0.35rem 0 0.55rem', fontSize: '0.82rem', color: 'var(--text-secondary)' }}
+          aria-live="polite"
+        >
+          {owedMonthsLabel
+            ? <>Meses que debe: <strong>{owedMonthsLabel}</strong></>
+            : saldo > 0.01
+              ? 'Hay saldo, pero sin meses liquidables aún.'
+              : 'Sin deuda de cuotas.'}
+        </p>
+      ) : null}
+      <p style={{ margin: '0 0 0.85rem', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+        El saldo no se edita. Los meses son los liquidables de la ficha. Quedan el usuario, la fecha y la hora. La baja anterior no se borra.
       </p>
 
       <label className="form-group" style={{ display: 'block', marginBottom: '0.85rem' }}>
