@@ -1,9 +1,11 @@
 import {
+  currencyIsArs,
   debitInstant,
   duesDueOn,
   duesMonthPhrase,
   isSubscriptionAdhesionIntent,
   isUniqueViolation,
+  moneyCentsEqual,
   paymentStatus,
   sameMember,
   subscriptionDebitCredits,
@@ -73,6 +75,17 @@ export async function settleSubscriptionCharge({
   if (exempt === true) return { http: 200, body: { ok: true, ignored: true, reason: 'exempt' } };
 
   const credits = subscriptionDebitCredits(paymentStatusValue);
+  if (credits && (!currencyIsArs(currency) || !moneyCentsEqual(amount, subscription.amount))) {
+    return {
+      http: 200,
+      body: {
+        ok: false,
+        applied: false,
+        permanent: true,
+        error: 'El débito no coincide con el capital de la adhesión.',
+      },
+    };
+  }
   if (credits && !(amount > 0)) {
     return {
       http: 200,
