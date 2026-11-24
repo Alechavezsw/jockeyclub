@@ -7,6 +7,7 @@ import {
   CLUB_MAIL_PREVIEW_MS,
   bodyFingerprint,
   clubMailAuthDecision,
+  clubMailNumberKeys,
   clubMailRequestScope,
   CLUB_MAIL_RESERVED,
   CLUB_MAIL_UNCERTAIN_MARK,
@@ -230,12 +231,14 @@ Deno.serve(async (req) => {
     if (action === "lookup") {
       const query = String(body.query || "").replace(/[^0-9A-Za-zÁÉÍÓÚáéíóúÑñ ]/g, "").trim().slice(0, 40);
       if (query.length < 2) return json(400, { error: "Escribí un nombre o un número de socio." });
-      const { data, error } = await admin
+      const numbers = clubMailNumberKeys(query);
+      let request = admin
         .from("members")
-        .select("member_number, full_name, email, status, meta")
-        .or(`member_number.eq.${query},full_name.ilike."%${query}%"`)
-        .order("member_number")
-        .limit(8);
+        .select("member_number, full_name, email, status, meta");
+      request = numbers.length
+        ? request.in("member_number", numbers)
+        : request.or(`member_number.eq.${query},full_name.ilike."%${query}%"`);
+      const { data, error } = await request.order("member_number").limit(8);
       if (error) return json(500, { error: error.message });
       const hits = [];
       for (const row of data || []) {
@@ -251,7 +254,11 @@ Deno.serve(async (req) => {
         }
         hits.push(explainClubMailMember(row, siblings));
       }
-      return json(200, { ok: true, hits });
+      return json(200, {
+        ok: true,
+        hits,
+        message: numbers.length && !hits.length ? "No encontramos un socio con ese número" : "",
+      });
     }
 
     if (action === "status") {

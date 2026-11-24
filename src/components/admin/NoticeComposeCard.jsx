@@ -9,14 +9,15 @@ import {
   recipientLabel,
 } from '../../domain/messaging/messages';
 import {
-  deliverableEmail,
   mailAudienceCount,
   noticeConfirmLine,
 } from '../../domain/messaging/clubNotice';
 import {
-  filterMembersForBalances,
-  lilaClubNumber,
-} from '../../domain/accounting/memberBalances';
+  clubMailMemberQuery,
+  clubMailSearchMissMessage,
+  presentMemberPicker,
+} from '../../domain/messaging/clubMailSearch';
+import { filterMembersForBalances } from '../../domain/accounting/memberBalances';
 import {
   mergeMembersById,
   rankMemberSearchHit,
@@ -39,24 +40,12 @@ const EMPTY_PICK = {
   familyId: '',
 };
 
-function memberHitLine(member) {
-  const nro = lilaClubNumber(member);
-  const dni = String(member?.documentNumber || member?.dni || '').replace(/\D/g, '');
-  const bits = [
-    nro ? `N° ${nro}` : '',
-    dni ? `DNI ${dni}` : '',
-    member?.email || '',
-    member?.phone || member?.phoneAlt || '',
-    member?.familyGroupName || '',
-  ].filter(Boolean);
-  return bits.join(' · ') || member?.tier || '';
-}
-
 function remoteNeedle(query, pick) {
-  const q = String(query || '').trim();
-  if (q) return q;
-  const nro = String(pick.memberNumber || '').replace(/\D/g, '');
-  if (nro) return nro;
+  const parsed = clubMailMemberQuery(query);
+  if (parsed.kind === 'number') return parsed.canonical;
+  if (parsed.kind === 'text') return parsed.text;
+  const nro = clubMailMemberQuery(String(pick.memberNumber || '').replace(/\D/g, ''));
+  if (nro.kind === 'number') return nro.canonical;
   const dni = String(pick.dni || '').replace(/\D/g, '');
   if (dni) return dni;
   const name = [pick.lastName, pick.firstName].map((part) => String(part || '').trim()).filter(Boolean).join(' ');
@@ -89,6 +78,7 @@ export default function NoticeComposeCard({
   const [confirmSend, setConfirmSend] = useState(false);
   const [lookupQuery, setLookupQuery] = useState('');
   const [lookupHits, setLookupHits] = useState([]);
+  const [lookupNote, setLookupNote] = useState('');
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
   const [ok, setOk] = useState('');
@@ -173,14 +163,16 @@ export default function NoticeComposeCard({
         return id && !seen.has(id);
       })
       : [];
+    const rankQuery = clubMailMemberQuery(q).kind === 'number' ? clubMailMemberQuery(q).canonical : q;
     return [...local, ...extra]
-      .toSorted((a, b) => rankMemberSearchHit(a, q) - rankMemberSearchHit(b, q))
+      .toSorted((a, b) => rankMemberSearchHit(a, rankQuery) - rankMemberSearchHit(b, rankQuery))
       .slice(0, 16);
   }, [directory, memberPick, memberQuery, remoteHits]);
 
   const selectedLabel = recipientId ? recipientLabel(recipientId, directory) : '';
   const selectedMember = directory.find((m) => m.memberId === recipientId) || null;
-  const selectedHasMail = Boolean(deliverableEmail(selectedMember?.email));
+  const selectedCard = selectedMember ? presentMemberPicker(selectedMember) : null;
+  const selectedHasMail = Boolean(selectedCard?.hasDeliverableMail);
   const channels = [sendDm ? 'mensaje interno' : '', sendMail ? 'mail' : ''].filter(Boolean).join(' y ');
   const confirmLine = noticeConfirmLine({
     audience,
@@ -280,15 +272,19 @@ export default function NoticeComposeCard({
   };
 
   const lookupMember = async () => {
-    const query = lookupQuery.trim();
-    if (query.length < 2) return;
+    const parsed = clubMailMemberQuery(lookupQuery);
+    if (parsed.kind === 'empty' || parsed.text.length < 2) return;
     setBusy('lookup');
     setError('');
+    setLookupNote('');
     try {
-      const data = await repos.lookupClubMailMember(query);
-      setLookupHits(data?.hits || []);
+      const data = await repos.lookupClubMailMember(parsed.kind === 'number' ? parsed.canonical : parsed.text);
+      const hits = data?.hits || [];
+      setLookupHits(hits);
+      setLookupNote(hits.length ? '' : (data?.message || clubMailSearchMissMessage(parsed)));
     } catch (err) {
       setLookupHits([]);
+      setLookupNote('');
       setError(err?.message || 'No se pudo buscar ese socio.');
     } finally {
       setBusy('');
@@ -479,7 +475,7 @@ export default function NoticeComposeCard({
                     <small>Seleccionado</small>
                     <strong>{selectedLabel}</strong>
                     {sendMail ? (
-                      <em>{selectedHasMail ? selectedMember.email : 'Sin mail real'}</em>
+                      <em>{selectedHasMail ? selectedCard.maskedEmail : 'Sin mail real'}</em>
                     ) : null}
                   </span>
                   <button
@@ -570,22 +566,30 @@ export default function NoticeComposeCard({
                   ) : null}
                   <div className="ops-notice-hits">
                     {filteredMembers.length === 0 ? (
-                      <p>{remoteBusy ? 'Buscando en el padrón…' : 'No se encontraron socios con ese criterio.'}</p>
-                    ) : filteredMembers.map((m) => (
-                      <button
-                        key={m.memberId}
-                        type="button"
-                        onClick={() => {
-                          setRecipientId(m.memberId);
-                          setMemberQuery('');
-                          setMemberPick(EMPTY_PICK);
-                          dropReview();
-                        }}
-                      >
-                        <strong>{m.name}</strong>
-                        <span>{memberHitLine(m)}</span>
-                      </button>
-                    ))}
+                      <p>
+                        {remoteBusy
+                          ? 'Buscando en el padrón…'
+                          : (clubMailSearchMissMessage(memberQuery.trim() || memberPick.memberNumber)
+                            || 'No se encontraron socios con ese criterio.')}
+                      </p>
+                    ) : filteredMembers.map((m) => {
+                      const card = presentMemberPicker(m);
+                      return (
+                        <button
+                          key={m.memberId}
+                          type="button"
+                          onClick={() => {
+                            setRecipientId(m.memberId);
+                            setMemberQuery('');
+                            setMemberPick(EMPTY_PICK);
+                            dropReview();
+                          }}
+                        >
+                          <strong>{card.name || m.name}</strong>
+                          <span>{card.detail}</span>
+                        </button>
+                      );
+                    })}
                   </div>
                 </>
               )}
@@ -716,7 +720,7 @@ export default function NoticeComposeCard({
                   <input
                     className="form-input"
                     value={lookupQuery}
-                    onChange={(e) => setLookupQuery(e.target.value)}
+                    onChange={(e) => { setLookupQuery(e.target.value); setLookupNote(''); }}
                     placeholder="Buscar un socio por nombre o número"
                     aria-label="Buscar por qué entra o queda afuera"
                   />
@@ -740,6 +744,7 @@ export default function NoticeComposeCard({
                     ))}
                   </ul>
                 ) : null}
+                {lookupNote ? <p role="status">{lookupNote}</p> : null}
                 <button type="button" className="btn btn-secondary btn-sm" onClick={() => setShowLetter((open) => !open)}>
                   {showLetter ? 'Ocultar el correo' : 'Vista previa del correo'}
                 </button>
