@@ -38,6 +38,100 @@ revoke insert, update, delete on public.family_link_audits from anon, authentica
 grant select on public.family_link_audits to authenticated;
 grant all on public.family_link_audits to service_role;
 
+-- Camina la cadena de titulares con tope de profundidad y nodos visitados.
+-- Simula member -> proposed y detecta ciclos (A->A, A<->B, A->B->C->A, ...) y cadenas rotas.
+create or replace function public.family_link_chain_probe(
+  p_member_number text,
+  p_proposed_principal text,
+  p_max_depth integer default 16
+)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_member text := nullif(regexp_replace(coalesce(p_member_number, ''), '\D', '', 'g'), '');
+  v_proposed text := nullif(regexp_replace(coalesce(p_proposed_principal, ''), '\D', '', 'g'), '');
+  v_max integer := greatest(1, least(coalesce(p_max_depth, 16), 32));
+  v_current text;
+  v_next text;
+  v_self text;
+  v_visited text[] := array[]::text[];
+  v_depth integer := 0;
+  v_row public.members;
+begin
+  if v_member is null or v_proposed is null then
+    return jsonb_build_object('cycle', false, 'incomplete', false, 'path', '[]'::jsonb);
+  end if;
+  if v_member = v_proposed then
+    return jsonb_build_object(
+      'cycle', true,
+      'incomplete', false,
+      'self', true,
+      'path', jsonb_build_array(v_member),
+      'cycleAt', v_member
+    );
+  end if;
+
+  -- Tras el cambio, el socio apunta al propuesto: seed visitado = socio.
+  v_visited := array[v_member];
+  v_current := v_proposed;
+
+  while v_current is not null and v_depth < v_max loop
+    if v_current = any (v_visited) then
+      return jsonb_build_object(
+        'cycle', true,
+        'incomplete', false,
+        'self', false,
+        'path', to_jsonb(v_visited),
+        'cycleAt', v_current
+      );
+    end if;
+
+    v_visited := v_visited || v_current;
+
+    select * into v_row
+    from public.members
+    where member_number = v_current;
+
+    if not found then
+      return jsonb_build_object(
+        'cycle', false,
+        'incomplete', true,
+        'path', to_jsonb(v_visited),
+        'missing', v_current
+      );
+    end if;
+
+    v_self := v_row.member_number;
+    v_next := nullif(btrim(coalesce(v_row.meta ->> 'familyPrincipalNumber', '')), '');
+    if v_next is null or v_next = v_self then
+      return jsonb_build_object(
+        'cycle', false,
+        'incomplete', false,
+        'path', to_jsonb(v_visited)
+      );
+    end if;
+
+    v_current := v_next;
+    v_depth := v_depth + 1;
+  end loop;
+
+  return jsonb_build_object(
+    'cycle', true,
+    'incomplete', false,
+    'path', to_jsonb(v_visited),
+    'cycleAt', v_current,
+    'maxDepth', true
+  );
+end;
+$$;
+
+revoke all on function public.family_link_chain_probe(text, text, integer) from public, anon;
+grant execute on function public.family_link_chain_probe(text, text, integer) to authenticated;
+
 create or replace function public.preview_family_link_change(
   p_member_number text,
   p_proposed_principal text
@@ -53,10 +147,13 @@ declare
   v_member_number text := nullif(regexp_replace(coalesce(p_member_number, ''), '\D', '', 'g'), '');
   v_proposed_number text := nullif(regexp_replace(coalesce(p_proposed_principal, ''), '\D', '', 'g'), '');
   v_current text;
+  v_proposed_points_to text;
   v_origin jsonb := '[]'::jsonb;
   v_destination jsonb := '[]'::jsonb;
   v_errors jsonb := '[]'::jsonb;
   v_warnings jsonb := '[]'::jsonb;
+  v_probe jsonb;
+  v_path_label text;
 begin
   if auth.uid() is null then
     raise exception 'Tenés que estar logueado.';
@@ -102,12 +199,36 @@ begin
         'message', format('No existe el titular Nº %s en el padrón.', v_proposed_number)
       ));
     else
-      if nullif(btrim(coalesce(v_proposed.meta ->> 'familyPrincipalNumber', '')), '') = v_member_number then
+      v_proposed_points_to := nullif(btrim(coalesce(v_proposed.meta ->> 'familyPrincipalNumber', '')), '');
+      if v_proposed_points_to is not null and v_proposed_points_to is distinct from v_proposed_number then
         v_errors := v_errors || jsonb_build_array(jsonb_build_object(
-          'code', 'circular_link',
-          'message', format('El titular Nº %s ya apunta a Nº %s. Eso formaría un ciclo.', v_proposed_number, v_member_number)
+          'code', 'proposed_is_dependent',
+          'message', format(
+            'El Nº %s es integrante del hogar de Nº %s. Indicá el titular real de ese hogar, no un integrante.',
+            v_proposed_number, v_proposed_points_to
+          )
         ));
       end if;
+
+      v_probe := public.family_link_chain_probe(v_member_number, v_proposed_number, 16);
+      if coalesce((v_probe ->> 'cycle')::boolean, false) then
+        select string_agg(x, ' -> ')
+        into v_path_label
+        from jsonb_array_elements_text(coalesce(v_probe -> 'path', '[]'::jsonb)) as t(x);
+        if v_probe ? 'cycleAt' then
+          v_path_label := coalesce(v_path_label, '') || ' -> ' || (v_probe ->> 'cycleAt');
+        end if;
+        v_errors := v_errors || jsonb_build_array(jsonb_build_object(
+          'code', 'circular_link',
+          'message', format('Ese vínculo formaría un ciclo familiar (%s).', coalesce(v_path_label, v_proposed_number))
+        ));
+      elsif coalesce((v_probe ->> 'incomplete')::boolean, false) then
+        v_warnings := v_warnings || jsonb_build_array(jsonb_build_object(
+          'code', 'incomplete_chain',
+          'message', 'Hay una referencia histórica incompleta en la cadena del titular propuesto (Nº ausente en el padrón).'
+        ));
+      end if;
+
       if v_proposed.status is distinct from 'active' then
         v_warnings := v_warnings || jsonb_build_array(jsonb_build_object(
           'code', 'proposed_inactive',
@@ -126,7 +247,7 @@ begin
 
   v_warnings := v_warnings || jsonb_build_array(jsonb_build_object(
     'code', 'admin_link_only',
-    'message', 'Este cambio modifica el vínculo administrativo del hogar. No altera saldos, cuotas, pagos ni la responsabilidad de cobro por sí solo.'
+    'message', 'Este cambio modifica el vínculo administrativo del hogar. No altera saldos, cuotas, pagos ni reservas. Los cobros futuros del integrante siguen mirando la cuenta del titular apuntado (modelo de hogar).'
   ));
 
   select coalesce(jsonb_agg(jsonb_build_object(
@@ -166,7 +287,8 @@ begin
     'destinationHousehold', v_destination,
     'errors', v_errors,
     'warnings', v_warnings,
-    'financialNote', 'Sin impacto financiero directo: no se tocan saldos, cuotas, asientos ni reservas.'
+    'financialNote', 'Sin impacto financiero directo: no se tocan saldos, cuotas, asientos ni reservas. No se reasignan débitos ni cargos históricos.',
+    'chainProbe', coalesce(v_probe, '{}'::jsonb)
   );
 end;
 $$;
@@ -191,11 +313,14 @@ declare
   v_proposed_number text := nullif(regexp_replace(coalesce(p_proposed_principal, ''), '\D', '', 'g'), '');
   v_reason text := nullif(btrim(coalesce(p_reason, '')), '');
   v_current text;
+  v_proposed_points_to text;
   v_group_name text;
   v_actor_name text;
   v_actor_email text;
   v_audit_id uuid;
   v_balance numeric;
+  v_probe jsonb;
+  v_path_label text;
 begin
   if auth.uid() is null then
     raise exception 'Tenés que estar logueado.';
@@ -258,8 +383,20 @@ begin
     raise exception 'No existe el titular Nº % en el padrón.', v_proposed_number;
   end if;
 
-  if nullif(btrim(coalesce(v_proposed.meta ->> 'familyPrincipalNumber', '')), '') = v_member_number then
-    raise exception 'El titular Nº % ya apunta a Nº %. Eso formaría un ciclo.', v_proposed_number, v_member_number;
+  v_proposed_points_to := nullif(btrim(coalesce(v_proposed.meta ->> 'familyPrincipalNumber', '')), '');
+  if v_proposed_points_to is not null and v_proposed_points_to is distinct from v_proposed_number then
+    raise exception
+      'El Nº % es integrante del hogar de Nº %. Indicá el titular real de ese hogar, no un integrante.',
+      v_proposed_number, v_proposed_points_to;
+  end if;
+
+  v_probe := public.family_link_chain_probe(v_member_number, v_proposed_number, 16);
+  if coalesce((v_probe ->> 'cycle')::boolean, false) then
+    select string_agg(x, ' -> ')
+    into v_path_label
+    from jsonb_array_elements_text(coalesce(v_probe -> 'path', '[]'::jsonb)) as t(x);
+    raise exception 'Ese vínculo formaría un ciclo familiar (%).',
+      coalesce(v_path_label, v_proposed_number);
   end if;
 
   if v_proposed.status is distinct from 'active' and not coalesce(p_ack_inactive, false) then
@@ -317,11 +454,13 @@ begin
       'familyGroupName', v_group_name,
       'proposedStatus', v_proposed.status::text,
       'ackInactive', coalesce(p_ack_inactive, false),
-      'outstandingBalanceUnchanged', v_balance
+      'outstandingBalanceUnchanged', v_balance,
+      'chainPath', coalesce(v_probe -> 'path', '[]'::jsonb)
     )
   )
   returning id into v_audit_id;
 
+  -- Si falla el audit general, toda la función hace rollback (incluye el update de meta).
   insert into public.audit_logs (actor_id, action, entity_type, entity_id, payload)
   values (
     auth.uid(),
@@ -389,3 +528,4 @@ grant execute on function public.apply_family_link_change(text, text, text, text
 grant execute on function public.list_family_link_audits(text, integer) to authenticated;
 
 notify pgrst, 'reload schema';
+

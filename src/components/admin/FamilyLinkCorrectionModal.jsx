@@ -67,6 +67,7 @@ export default function FamilyLinkCorrectionModal({
     proposedMember,
     originHousehold,
     destinationHousehold,
+    members,
     reason,
     ackInactiveTitular: ackInactive,
   }), [
@@ -76,6 +77,7 @@ export default function FamilyLinkCorrectionModal({
     proposedMember,
     originHousehold,
     destinationHousehold,
+    members,
     reason,
     ackInactive,
   ]);
