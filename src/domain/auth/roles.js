@@ -169,6 +169,7 @@ export function isAccountingReportSubtab(subTab) {
 
 /** Subpestañas del módulo Operación (tesorería), aparte de Contabilidad general. */
 export const ACCOUNTING_TREASURY_SUBTABS = [
+  'colonia',
   'cash', 'expenses', 'suppliers', 'retenciones', 'other_incomes', 'interest_generators',
   'unidentified', 'galicia', 'prisma', 'debit_moves', 'fixed_expenses', 'balances', 'payment_orders',
   'credit_purchases',
@@ -258,6 +259,21 @@ export function canAccessPool(role) {
   return allowedAdminTabs(role).includes('pool');
 }
 
+/** Operación → Colonia: admin, contador, empleado admin, caja (cobranza acotada). */
+export function canAccessColonia(roleOrRoles) {
+  const keys = collectRoleKeys(roleOrRoles).map((key) => String(key || '').toLowerCase());
+  if (keys.some((key) => ['superadmin', 'admin', 'accountant', 'admin_employee', 'cashier'].includes(key))) {
+    return true;
+  }
+  return allowedAccountingSubtabsForRoles(roleOrRoles).includes('colonia');
+}
+
+/** Cobrar Colonia (mostrador): no implica ver datos médicos ni liquidar cuota. */
+export function canCollectColonia(roleOrRoles) {
+  const keys = collectRoleKeys(roleOrRoles).map((key) => String(key || '').toLowerCase());
+  return keys.some((key) => ['superadmin', 'admin', 'accountant', 'cashier'].includes(key));
+}
+
 /** Quién puede tomar asistencia de disciplinas. */
 export function canTakeAttendance(role) {
   return ['teacher', 'staff', 'admin', 'superadmin'].includes(role);
@@ -345,18 +361,19 @@ export function allowedAccountingSubtabs(role) {
   if (role === 'superadmin' || role === 'accountant' || role === 'admin') {
     return [
       'diary', 'mayor', 'create', 'balance', 'balance_monthly', 'balance_summary', 'balance_liquidation', 'balance_patrimonial', 'results', 'charts', 'acct_reports', 'libre_deuda', 'family_balances', 'member_discounts', 'bonificaciones', 'siap', 'impuestos', 'plan',
+      'colonia',
       'cash', 'expenses', 'suppliers', 'retenciones', 'other_incomes', 'interest_generators',
       'unidentified', 'galicia', 'prisma', 'debit_moves', 'fixed_expenses', 'balances', 'payment_orders',
       'credit_purchases',
     ];
   }
-  // Empleado de administración: solo débitos (Prisma / Galicia / altas-bajas).
+  // Empleado de administración: débitos + Colonia (inscripciones / asistencia).
   if (role === 'admin_employee') {
-    return ['prisma', 'galicia', 'debit_moves'];
+    return ['colonia', 'prisma', 'galicia', 'debit_moves'];
   }
   if (role === 'cashier' || role === 'gate_operator') {
-    // Solo operación de caja; gastos/proveedores/diario viven en Contabilidad (contador/superadmin).
-    return ['cash', 'other_incomes'];
+    // Caja + cobranza Colonia (sin ampliar gastos/proveedores).
+    return ['colonia', 'cash', 'other_incomes'];
   }
   return [];
 }

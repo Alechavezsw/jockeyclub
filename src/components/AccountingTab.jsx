@@ -89,6 +89,7 @@ const MonthlyBalancePanel = lazy(() => import('./erp/MonthlyBalancePanel'));
 const MonthlyBalanceSummaryPanel = lazy(() => import('./erp/MonthlyBalanceSummaryPanel'));
 const LiquidationCcPanel = lazy(() => import('./erp/LiquidationCcPanel'));
 const ResultsChartsPanel = lazy(() => import('./erp/ResultsChartsPanel'));
+const ColoniaTab = lazy(() => import('./admin/ColoniaTab'));
 
 const PANEL_FALLBACK = (
   <div className="glass-card fade-in" style={{ padding: '1.25rem' }}>
@@ -227,6 +228,7 @@ const CAJA_HUB_TABS = [
 ];
 
 const TREASURY_HUB_TABS = [
+  { key: 'colonia', icon: Users, label: 'Colonia' },
   { key: 'debit_moves', icon: CreditCard, label: 'Listados débitos', accent: 'debits' },
   { key: 'expenses', icon: Receipt, label: 'Gastos' },
   { key: 'suppliers', icon: Truck, label: 'Proveedores' },
@@ -1678,6 +1680,12 @@ export default function AccountingTab({
           upsertChartAccount={upsertChartAccount}
           journalEntries={officialJournal}
         />
+      )}
+
+      {subTab === 'colonia' && (
+        <Suspense fallback={PANEL_FALLBACK}>
+          <ColoniaTab roles={roles} role={role} />
+        </Suspense>
       )}
 
       {subTab === 'cash' && openRegister && (

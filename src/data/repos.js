@@ -11,3 +11,4 @@ export * from './repos/profiles.js';
 export * from './repos/applications.js';
 export * from './repos/ledgers.js';
 export * from './repos/fees.js';
+export * from './repos/colonia.js';
