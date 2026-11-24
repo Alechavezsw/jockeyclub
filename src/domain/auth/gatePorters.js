@@ -8,6 +8,7 @@ export const CANONICAL_GATE_PORTERS = [
   { key: 'elias-carrizo', tokens: ['elias', 'carrizo'] },
   { key: 'guillermo-castro', tokens: ['guillermo', 'castro'] },
   { key: 'juan-molina', tokens: ['juan', 'molina'] },
+  { key: 'julio-diaz', tokens: ['julio', 'diaz'] },
   { key: 'rosana-rodriguez', tokens: ['rosana', 'rodriguez'] },
   { key: 'jorge-galdeano', tokens: ['jorge', 'galdeano'] },
 ];
