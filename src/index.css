@@ -32188,3 +32188,73 @@ button.debit-moves-row:disabled {
   .subs-desk-toolbar { align-items: stretch; }
   .subs-desk-search { flex-basis: 100%; }
 }
+
+/* Operacion -> Colonia */
+.colonia-shell { display: grid; gap: 1rem; padding: 0.25rem 0 1.5rem; }
+.colonia-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 1rem; align-items: end; }
+.colonia-head h2 { margin: 0.15rem 0; font-size: clamp(1.5rem, 2vw, 2rem); }
+.colonia-head p { margin: 0.25rem 0 0; color: var(--text-muted); max-width: 52rem; }
+.colonia-nav { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.colonia-nav button {
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  color: var(--text);
+  border-radius: 999px;
+  padding: 0.35rem 0.8rem;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+.colonia-nav button.is-active {
+  background: color-mix(in srgb, var(--accent, #1d4f6e) 18%, var(--surface));
+  border-color: color-mix(in srgb, var(--accent, #1d4f6e) 45%, var(--border));
+  font-weight: 700;
+}
+.colonia-panel {
+  border: 1px solid color-mix(in srgb, var(--border) 75%, transparent);
+  border-radius: 14px;
+  padding: 1rem 1.1rem;
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+}
+.colonia-panel h3 { display: flex; align-items: center; gap: 0.4rem; margin: 0 0 0.75rem; }
+.colonia-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr));
+  gap: 0.65rem;
+}
+.colonia-kpi-grid article {
+  border-radius: 12px;
+  padding: 0.7rem 0.8rem;
+  background: color-mix(in srgb, var(--bg, #0b1220) 6%, var(--surface));
+  display: grid; gap: 0.2rem;
+}
+.colonia-kpi-grid span { font-size: 0.72rem; color: var(--text-muted); }
+.colonia-kpi-grid strong { font-size: 1.05rem; }
+.colonia-grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+.colonia-form, .colonia-form.inline { display: grid; gap: 0.55rem; }
+.colonia-form.inline { grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); }
+.colonia-form label, .colonia-field { display: grid; gap: 0.25rem; font-size: 0.85rem; }
+.colonia-form input, .colonia-form select, .colonia-field input, .colonia-field select {
+  border: 1px solid var(--border); border-radius: 10px; padding: 0.45rem 0.6rem;
+  background: var(--surface); color: var(--text);
+}
+.colonia-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.4rem; }
+.colonia-list button, .colonia-row-actions {
+  width: 100%; text-align: left; border: 1px solid var(--border); border-radius: 10px;
+  padding: 0.55rem 0.7rem; background: transparent; color: inherit; cursor: pointer;
+  display: flex; justify-content: space-between; gap: 0.5rem; align-items: center;
+}
+.colonia-list button span { display: block; color: var(--text-muted); font-size: 0.78rem; }
+.colonia-banner {
+  margin: 0; padding: 0.65rem 0.8rem; border-radius: 10px;
+  background: color-mix(in srgb, #0f766e 12%, transparent); color: inherit;
+}
+.colonia-banner.warn {
+  background: color-mix(in srgb, #b45309 14%, transparent);
+  display: flex; gap: 0.4rem; align-items: flex-start;
+}
+.colonia-errors { margin: 0; padding-left: 1.1rem; color: #b91c1c; }
+.colonia-check { display: flex; gap: 0.45rem; align-items: center; font-size: 0.85rem; }
+.colonia-ficha { display: grid; gap: 0.35rem; }
+@media (max-width: 900px) {
+  .colonia-grid-2 { grid-template-columns: 1fr; }
+}
