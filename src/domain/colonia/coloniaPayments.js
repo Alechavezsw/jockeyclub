@@ -32,7 +32,9 @@ export function validateColoniaPaymentInput({
   enrollmentId,
   operatorConfirmed = false,
   externalReference = '',
+  coloniaMpLive = false,
 } = {}) {
+  const input = { coloniaMpLive };
   const errors = [];
   const key = String(method || '').toLowerCase();
   if (!COLONIA_PAYMENT_METHOD_KEYS.includes(key)) {
@@ -51,10 +53,10 @@ export function validateColoniaPaymentInput({
       message: 'Confirmá el resultado de la terminal/POS antes de acreditar la tarjeta.',
     });
   }
-  if (key === 'mercadopago') {
+  if (key === 'mercadopago' && !input?.coloniaMpLive) {
     errors.push({
       code: 'mp_adapter_pending',
-      message: 'Mercado Pago Colonia está preparado pero requiere autorización de despliegue del adaptador (kind=colonia). No uses el circuito de cuota social.',
+      message: 'Mercado Pago Colonia está preparado pero deshabilitado (colonia_mp_live=false). No uses el circuito de cuota social.',
     });
   }
   if (key === 'transferencia' && !String(externalReference || '').trim()) {
@@ -78,7 +80,10 @@ export function validateColoniaPaymentInput({
 }
 
 export function buildColoniaPaymentDraft(input = {}) {
-  const checked = validateColoniaPaymentInput(input);
+  const checked = validateColoniaPaymentInput({
+    ...input,
+    coloniaMpLive: Boolean(input.coloniaMpLive),
+  });
   if (!checked.ok) {
     const err = new Error(checked.errors[0]?.message || 'Pago inválido');
     err.details = checked.errors;

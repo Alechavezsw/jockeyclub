@@ -137,8 +137,9 @@ async function applyCheckoutPayment(
   const creditStatus = paymentStatus(status);
   const intentMeta = (intent.meta || {}) as Record<string, unknown>;
   const socialKinds = new Set(["dues", "subscription"]);
+  const intentKind = String(intent.kind || "").toLowerCase();
   if (
-    socialKinds.has(String(intent.kind || "").toLowerCase())
+    socialKinds.has(intentKind)
     && isTennisCharge(intent.concept, intentMeta.chargeScope)
   ) {
     return {
@@ -146,6 +147,42 @@ async function applyCheckoutPayment(
       intentId: resolved,
       permanent: true,
     };
+  }
+
+  // Colonia: ramifica al ledger propio. Nunca apply_mp_approved_payment social.
+  if (intentKind === "colonia") {
+    const liveEnv = String(Deno.env.get("COLONIA_MP_LIVE") || "").trim() === "1";
+    const { data: coloniaLive } = await admin.rpc("colonia_mp_is_live");
+    if (!liveEnv || coloniaLive !== true) {
+      return {
+        error: "Mercado Pago Colonia deshabilitado (no se acredita).",
+        intentId: resolved,
+        permanent: true,
+      };
+    }
+    if (!isApprovedCreditStatus(creditStatus)) {
+      return { ok: true, applied: false, status: creditStatus || "pending", intentId: resolved, kind: "colonia" };
+    }
+    if (!currencyIsArs(currency)) {
+      return { error: "Solo se acepta ARS.", intentId: resolved, permanent: true };
+    }
+    const expectedAmount = Number(intent.amount || 0);
+    if (!moneyCentsEqual(expectedAmount, paidAmount)) {
+      return {
+        error: `Monto incorrecto: esperado $${expectedAmount}, recibido $${paidAmount}.`,
+        intentId: resolved,
+        permanent: true,
+      };
+    }
+    const { data, error } = await admin.rpc("colonia_apply_mp_approved_payment", {
+      p_intent_id: resolved,
+      p_provider_payment_id: providerPaymentId,
+      p_amount: paidAmount,
+      p_currency: "ARS",
+      p_status: "approved",
+    });
+    if (error) return { error: error.message, intentId: resolved };
+    return { ok: true, applied: true, intentId: resolved, kind: "colonia", data };
   }
 
   if (!isApprovedCreditStatus(creditStatus)) {

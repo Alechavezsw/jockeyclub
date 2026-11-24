@@ -385,6 +385,88 @@ export async function coloniaReportPortalTransfer({
   return data;
 }
 
+export async function coloniaRegisterExternalGuardian({
+  fullName, email, phone, documentNumber,
+}) {
+  requireCloud();
+  const { data, error } = await sb().rpc('colonia_register_external_guardian', {
+    p_full_name: fullName,
+    p_email: email,
+    p_phone: phone || null,
+    p_document_number: documentNumber || null,
+  });
+  if (error) mapRpcMissing(error, 'No se pudo registrar el responsable externo');
+  return data;
+}
+
+export async function coloniaMarkExternalEmailVerified() {
+  requireCloud();
+  const { data, error } = await sb().rpc('colonia_mark_external_email_verified');
+  if (error) mapRpcMissing(error, 'No se pudo confirmar la verificación de correo');
+  return data;
+}
+
+export async function coloniaSubmitExternalEnrollment({
+  seasonId, student, planKey, idempotencyKey,
+}) {
+  requireCloud();
+  const { data, error } = await sb().rpc('colonia_submit_external_enrollment', {
+    p_season_id: seasonId,
+    p_student: student,
+    p_plan_key: planKey,
+    p_idempotency_key: idempotencyKey || null,
+  });
+  if (error) mapRpcMissing(error, 'No se pudo enviar la inscripción externa');
+  return data;
+}
+
+export async function coloniaListForExternalGuardian() {
+  requireCloud();
+  const { data, error } = await sb().rpc('colonia_list_for_external_guardian');
+  if (error) mapRpcMissing(error, 'No se pudo listar Colonia del responsable externo');
+  return data;
+}
+
+export async function coloniaEnqueueNotification(payload = {}) {
+  requireCloud();
+  const { data, error } = await sb().rpc('colonia_enqueue_notification', {
+    p_kind: payload.kind,
+    p_enrollment_id: payload.enrollmentId || null,
+    p_payment_id: payload.paymentId || null,
+    p_recipient_email: payload.recipientEmail || null,
+    p_recipient_member_id: payload.recipientMemberId || null,
+    p_external_guardian_id: payload.externalGuardianId || null,
+    p_payload: payload.payload || {},
+    p_idempotency_key: payload.idempotencyKey || null,
+    p_dry_run: payload.dryRun !== false,
+  });
+  if (error) mapRpcMissing(error, 'No se pudo encolar la comunicación de Colonia');
+  return data;
+}
+
+export async function coloniaMarkReceiptDelivered({ paymentId, emailId, status }) {
+  requireCloud();
+  const { data, error } = await sb().rpc('colonia_mark_receipt_delivered', {
+    p_payment_id: paymentId,
+    p_email_id: emailId || null,
+    p_status: status || 'sent',
+  });
+  if (error) mapRpcMissing(error, 'No se pudo marcar el comprobante');
+  return data;
+}
+
+export async function getColoniaMpLiveFlag() {
+  requireCloud();
+  const { data, error } = await sb().rpc('colonia_mp_is_live');
+  if (error) {
+    if (String(error?.code || '') === 'PGRST202' || String(error?.code || '') === '42883') {
+      return false;
+    }
+    mapRpcMissing(error, 'No se pudo consultar el flag de MP Colonia');
+  }
+  return Boolean(data);
+}
+
 /** Buscar inscripción / alumno para Caja (staff). */
 export async function searchColoniaEnrollments({ seasonId, query }) {
   requireCloud();

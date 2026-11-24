@@ -278,8 +278,32 @@ Deno.serve(async (req) => {
 
     const body = await req.json().catch(() => ({}));
     const kind = String(body?.kind || "dues");
-    if (!["dues", "pool", "subscription", "booking", "reservation"].includes(kind)) {
+    if (!["dues", "pool", "subscription", "booking", "reservation", "colonia"].includes(kind)) {
       return json(400, { error: "Tipo de cobro inválido." });
+    }
+    // Colonia MP: preparado en código; live solo con env + setting. No desplegar cobros reales sin autorización.
+    if (kind === "colonia") {
+      const liveEnv = String(Deno.env.get("COLONIA_MP_LIVE") || "").trim() === "1";
+      if (!liveEnv) {
+        return json(503, {
+          error: "Mercado Pago Colonia está deshabilitado (COLONIA_MP_LIVE≠1). No se crean cobros reales.",
+          kind: "colonia",
+          enabled: false,
+        });
+      }
+      const adminGate = createClient(supabaseUrl, serviceKey);
+      const { data: coloniaLive } = await adminGate.rpc("colonia_mp_is_live");
+      if (coloniaLive !== true) {
+        return json(503, {
+          error: "Mercado Pago Colonia deshabilitado en app_settings (colonia_mp_live).",
+          kind: "colonia",
+          enabled: false,
+        });
+      }
+      const enrollmentId = String(body?.enrollmentId || body?.meta?.enrollment_id || "").trim();
+      if (!enrollmentId) {
+        return json(400, { error: "Colonia requiere enrollmentId." });
+      }
     }
     const amount = money(body?.amount);
     if (amount <= 0) return json(400, { error: "Importe inválido." });
