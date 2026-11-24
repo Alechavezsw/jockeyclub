@@ -720,6 +720,15 @@ export async function lookupClubMailMember(query) {
   }, 'No se pudo buscar ese socio');
 }
 
+/** Cierra una campaña en duda. No reenvía correos. */
+export async function acknowledgeClubMailHold(campaignId) {
+  await requireMailSession();
+  return invokeFunction('send-club-mail', {
+    action: 'acknowledge',
+    campaignId,
+  }, 'No se pudo dejar constancia de la revisión');
+}
+
 /** Estado de una campaña. Aceptado no es lo mismo que entregado. */
 export async function clubMailCampaignStatus(campaignId) {
   await requireMailSession();

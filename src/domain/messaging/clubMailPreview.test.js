@@ -9,6 +9,7 @@ import {
   clubMailRequestScope,
   decidePreviewClaim,
   interpretResendBatch,
+  resendBatchDisposition,
   scanClubMailAudience,
 } from '../../../supabase/functions/_shared/clubMailAudience.ts';
 
@@ -158,5 +159,38 @@ describe('vista previa de comunicados', () => {
       campaignId: '11111111-1111-1111-1111-111111111111',
     }, new Date('2026-11-23T19:00:00.000Z'));
     expect(expired.status).toBe(409);
+  });
+
+  it('una campaña ya empezada sigue si vence la revisión y no cambia el padrón', () => {
+    const now = new Date('2026-11-23T21:00:00.000Z');
+    const preview = {
+      audience_sha256: 'aaa',
+      body_sha256: 'bbb',
+      expires_at: '2026-11-23T20:00:00.000Z',
+      consumed_at: '2026-11-23T19:30:00.000Z',
+      campaign_id: '11111111-1111-1111-1111-111111111111',
+    };
+    const same = decidePreviewClaim(preview, {
+      audienceSha256: 'aaa',
+      bodySha256: 'bbb',
+      campaignId: preview.campaign_id,
+    }, now);
+    const edited = decidePreviewClaim(preview, {
+      audienceSha256: 'aaa',
+      bodySha256: 'ccc',
+      campaignId: preview.campaign_id,
+    }, now);
+    expect(same).toMatchObject({ ok: true, retry: true });
+    expect(edited.ok).toBe(false);
+  });
+
+  it('sin respuesta de Resend el lote queda en duda y un rechazo explícito no', () => {
+    expect(resendBatchDisposition(null, null, 2).disposition).toBe('uncertain');
+    expect(resendBatchDisposition(409, { message: 'llave distinta' }, 2).disposition).toBe('uncertain');
+    expect(resendBatchDisposition(200, { data: [{ id: 're_1' }] }, 2).disposition).toBe('uncertain');
+    const rejected = resendBatchDisposition(500, { message: 'proveedor caído' }, 2);
+    expect(rejected.disposition).toBe('rejected');
+    expect(rejected.accepted).toBe(0);
+    expect(resendBatchDisposition(200, { data: [{ id: 're_1' }, { id: 're_2' }] }, 2).disposition).toBe('accepted');
   });
 });

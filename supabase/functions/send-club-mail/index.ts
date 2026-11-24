@@ -9,11 +9,13 @@ import {
   bodyFingerprint,
   clubMailAuthDecision,
   clubMailRequestScope,
+  CLUB_MAIL_RESERVED,
+  CLUB_MAIL_UNCERTAIN_MARK,
   decidePreviewClaim,
   deliverableClubEmail,
   explainClubMailMember,
-  interpretResendBatch,
   publicMailCounts,
+  resendBatchDisposition,
   scanClubMailAudience,
 } from "../_shared/clubMailAudience.ts";
 
@@ -77,24 +79,45 @@ function noticeHtml(subject: string, body: string) {
 type Admin = ReturnType<typeof createClient>;
 type Target = { email: string; memberNumber: string };
 
-async function alreadySent(admin: Admin, campaignId: string) {
+async function claimedEmails(admin: Admin, campaignId: string) {
   const done = new Set<string>();
   let from = 0;
   for (;;) {
     const { data, error } = await admin
       .from("club_mail_sends")
-      .select("email, resend_id")
+      .select("email")
       .eq("campaign_id", campaignId)
       .range(from, from + 999);
     if (error) throw new Error(error.message);
     const rows = data || [];
-    for (const row of rows) {
-      if (row.resend_id) done.add(String(row.email || "").toLowerCase());
-    }
+    for (const row of rows) done.add(String(row.email || "").toLowerCase());
     if (rows.length < 1000) break;
     from += 1000;
   }
   return done;
+}
+
+async function openClaim(admin: Admin, campaignId: string) {
+  const { data, error } = await admin
+    .from("club_mail_sends")
+    .select("email")
+    .eq("campaign_id", campaignId)
+    .is("resend_id", null)
+    .or(`email_error.eq.${CLUB_MAIL_RESERVED},email_error.eq.${CLUB_MAIL_UNCERTAIN_MARK},email_error.is.null`)
+    .limit(1);
+  if (error) throw new Error(error.message);
+  return Boolean(data?.length);
+}
+
+async function holdingCampaign(admin: Admin) {
+  const { data, error } = await admin
+    .from("club_mail_campaigns")
+    .select("id")
+    .eq("status", "uncertain")
+    .limit(1)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return data?.id ? String(data.id) : "";
 }
 
 async function sendBatch(
@@ -106,28 +129,31 @@ async function sendBatch(
   html: string,
   batchKey: string,
 ) {
-  if (!prepared.length) return { sent: 0, failed: 0, ids: [] as string[], error: "" };
-  const res = await fetch("https://api.resend.com/emails/batch", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-      "Idempotency-Key": `batch-club-mail/${batchKey}`,
-    },
-    body: JSON.stringify(
-      prepared.map((item) => ({
-        from,
-        to: [item.email],
-        reply_to: ["socios@jockeyclubsj.com.ar"],
-        subject,
-        text,
-        html,
-      })),
-    ),
-  });
-  const payload = await res.json().catch(() => ({})) as { data?: Array<{ id?: string }>; message?: string };
-  const batch = interpretResendBatch(res.status, payload, prepared.length);
-  return { sent: batch.accepted, failed: batch.failed, ids: batch.ids, error: batch.error };
+  if (!prepared.length) return resendBatchDisposition(200, { data: [] }, 0);
+  try {
+    const res = await fetch("https://api.resend.com/emails/batch", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+        "Idempotency-Key": `batch-club-mail/${batchKey}`,
+      },
+      body: JSON.stringify(
+        prepared.map((item) => ({
+          from,
+          to: [item.email],
+          reply_to: ["socios@jockeyclubsj.com.ar"],
+          subject,
+          text,
+          html,
+        })),
+      ),
+    });
+    const payload = await res.json().catch(() => ({})) as { data?: Array<{ id?: string }>; message?: string };
+    return resendBatchDisposition(res.status, payload, prepared.length);
+  } catch {
+    return resendBatchDisposition(null, null, prepared.length);
+  }
 }
 
 async function recordBatch(
@@ -245,6 +271,23 @@ Deno.serve(async (req) => {
         note: "Aceptado por Resend no significa que el correo ya llegó.",
       });
     }
+    if (action === "acknowledge") {
+      if (!/^[0-9a-f-]{36}$/i.test(campaignId)) return json(400, { error: "Campaña inválida." });
+      const { data, error } = await admin
+        .from("club_mail_campaigns")
+        .update({ status: "failed", finished_at: new Date().toISOString() })
+        .eq("id", campaignId)
+        .eq("status", "uncertain")
+        .select("id")
+        .maybeSingle();
+      if (error) return json(500, { error: error.message });
+      if (!data) return json(404, { error: "No hay una campaña en duda con ese número." });
+      return json(200, {
+        ok: true,
+        campaignId,
+        note: "Quedó revisada. No se reenvió ningún correo.",
+      });
+    }
     if (action !== "preview" && action !== "send") return json(400, { error: "Acción desconocida." });
     if (!subject || !text) return json(400, { error: "Completá asunto y mensaje." });
     if (action === "send" && !/^[0-9a-f-]{36}$/i.test(campaignId)) return json(400, { error: "Campaña inválida." });
@@ -285,18 +328,20 @@ Deno.serve(async (req) => {
         .select("id, expires_at")
         .single();
       if (error) return json(500, { error: error.message });
+      const holdCampaignId = await holdingCampaign(admin);
       return json(200, {
         ok: true,
         previewId: data.id,
         expiresAt: data.expires_at,
         from: DEFAULT_FROM,
         counts: publicMailCounts(live),
+        holdCampaignId: holdCampaignId || null,
       });
     }
 
     const from = Deno.env.get("RESEND_FROM") || DEFAULT_FROM;
     const html = noticeHtml(subject, text);
-    const done = await alreadySent(admin, campaignId);
+    const done = await claimedEmails(admin, campaignId);
     const counts = { sent: 0, failed: 0, skipped: done.size, more: false, confirmed: 0 };
     const ready: Target[] = [];
 
@@ -317,6 +362,16 @@ Deno.serve(async (req) => {
         campaignId,
       });
       if (!decision.ok) return json(decision.status, { error: decision.error });
+      if (!decision.retry) {
+        const hold = await holdingCampaign(admin);
+        if (hold) {
+          return json(409, {
+            error: `Hay un envío en duda (${hold}). Revisalo antes de mandar otro.`,
+            campaignId: hold,
+            uncertain: true,
+          });
+        }
+      }
       if (audience === "one" && live.recipients === 0) {
         return json(400, {
           error: live.excludedByBaja
@@ -359,6 +414,17 @@ Deno.serve(async (req) => {
         });
         if (campaignError) return json(500, { error: campaignError.message });
         }
+      }
+      if (await openClaim(admin, campaignId)) {
+        await admin.from("club_mail_campaigns").update({
+          status: "uncertain",
+          finished_at: new Date().toISOString(),
+        }).eq("id", campaignId);
+        return json(409, {
+          error: `El lote quedó en duda (${campaignId}). No lo reenvío hasta que se revise.`,
+          campaignId,
+          uncertain: true,
+        });
       }
       counts.confirmed = live.recipients;
       const pending = live.targets.filter((target) => !done.has(target.email));
@@ -410,36 +476,69 @@ Deno.serve(async (req) => {
     const htmlBody = html;
     for (let i = 0; i < outgoing.length; i += BATCH) {
       const chunk = outgoing.slice(i, i + BATCH);
+      const { data: claimedRows, error: claimRowsError } = await admin.rpc("claim_club_mail_batch", {
+        p_campaign_id: campaignId,
+        p_subject: subject,
+        p_sender: senderId,
+        p_rows: chunk.map((item) => ({ email: item.email, memberNumber: item.memberNumber || "" })),
+      });
+      if (claimRowsError) return json(500, { error: claimRowsError.message });
+      const ownedEmails = new Set((claimedRows || []).map((row: { email?: string }) => String(row.email || "").toLowerCase()));
+      const owned = chunk.filter((item) => ownedEmails.has(item.email));
+      if (!owned.length) continue;
       const batch = await sendBatch(
-        chunk,
+        owned,
         apiKey,
         from,
         subject,
         text,
         htmlBody,
-        `${campaignId}/${chunk[0].email}/${chunk.length}`,
+        `${campaignId}/${owned[0].email}/${owned.length}`,
       );
-      await recordBatch(admin, campaignId, subject, senderId, chunk, batch.ids, batch.error);
-      counts.sent += batch.sent;
-      counts.failed += batch.failed;
+      if (batch.disposition === "uncertain") {
+        await admin.from("club_mail_sends").update({ email_error: CLUB_MAIL_UNCERTAIN_MARK })
+          .eq("campaign_id", campaignId)
+          .in("email", owned.map((item) => item.email))
+          .is("resend_id", null);
+        await admin.from("club_mail_campaigns").update({
+          status: "uncertain",
+          finished_at: new Date().toISOString(),
+        }).eq("id", campaignId);
+        return json(409, {
+          error: `${batch.error} Campaña ${campaignId}.`,
+          campaignId,
+          uncertain: true,
+        });
+      }
+      try {
+        await recordBatch(admin, campaignId, subject, senderId, owned, batch.ids, batch.error);
+      } catch {
+        await admin.from("club_mail_sends").update({ email_error: CLUB_MAIL_UNCERTAIN_MARK })
+          .eq("campaign_id", campaignId)
+          .in("email", owned.map((item) => item.email))
+          .is("resend_id", null);
+        await admin.from("club_mail_campaigns").update({
+          status: "uncertain",
+          finished_at: new Date().toISOString(),
+        }).eq("id", campaignId);
+        return json(409, {
+          error: `Resend aceptó el lote y no pude guardar los identificadores. No lo reenvío. Campaña ${campaignId}.`,
+          campaignId,
+          uncertain: true,
+        });
+      }
+      if (batch.disposition === "accepted") counts.sent += batch.accepted;
+      else counts.failed += owned.length;
     }
 
     if (audience === "all" || audience === "one") {
-      const { data: camp } = await admin
-        .from("club_mail_campaigns")
-        .select("attempt_count, accepted_count, error_count")
-        .eq("id", campaignId)
-        .maybeSingle();
-      const accepted = (Number(camp?.accepted_count) || 0) + counts.sent;
-      const errors = (Number(camp?.error_count) || 0) + counts.failed;
-      const status = counts.more ? "sending" : errors && accepted ? "partial" : errors ? "failed" : "accepted";
-      await admin.from("club_mail_campaigns").update({
-        accepted_count: accepted,
-        error_count: errors,
-        attempt_count: (Number(camp?.attempt_count) || 0) + 1,
-        status,
-        finished_at: counts.more ? null : new Date().toISOString(),
-      }).eq("id", campaignId);
+      const { error: progressError } = await admin.rpc("record_club_mail_progress", {
+        p_campaign_id: campaignId,
+        p_accepted: counts.sent,
+        p_failed: counts.failed,
+        p_more: counts.more,
+      });
+      if (progressError) return json(500, { error: progressError.message });
     }
 
     return json(200, {

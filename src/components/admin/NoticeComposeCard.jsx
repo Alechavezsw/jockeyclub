@@ -264,6 +264,21 @@ export default function NoticeComposeCard({
     }
   };
 
+  const acknowledgeHold = async () => {
+    if (!preview?.holdCampaignId) return;
+    setBusy('hold');
+    setError('');
+    try {
+      await repos.acknowledgeClubMailHold(preview.holdCampaignId);
+      setPreview((current) => (current ? { ...current, holdCampaignId: null } : current));
+      setOk('Quedó la constancia. No se reenvió ningún correo.');
+    } catch (err) {
+      setError(err?.message || 'No se pudo dejar constancia.');
+    } finally {
+      setBusy('');
+    }
+  };
+
   const lookupMember = async () => {
     const query = lookupQuery.trim();
     if (query.length < 2) return;
@@ -305,6 +320,10 @@ export default function NoticeComposeCard({
     }
     if (sendMail && !preview?.previewId) {
       setError('Revisá los destinatarios antes de enviar.');
+      return;
+    }
+    if (sendMail && preview?.holdCampaignId) {
+      setError('Hay un envío en duda. Dejá constancia de esa revisión antes de mandar otro.');
       return;
     }
     if (sendMail && !confirmSend) {
@@ -658,6 +677,16 @@ export default function NoticeComposeCard({
             </button>
             {preview?.counts ? (
               <>
+                {preview.holdCampaignId ? (
+                  <div className="ops-notice-confirm" role="status">
+                    <p>
+                      Hay un envío en duda ({preview.holdCampaignId}). No sale otro hasta dejar constancia. Eso no reenvía correos.
+                    </p>
+                    <button type="button" className="btn btn-secondary btn-sm" onClick={acknowledgeHold} disabled={Boolean(busy)}>
+                      {busy === 'hold' ? 'Guardando…' : 'Dejar constancia, sin reenviar'}
+                    </button>
+                  </div>
+                ) : null}
                 <dl className="ops-mail-ledger">
                   {[
                     ['Socios operativos', preview.counts.operational],
@@ -728,6 +757,7 @@ export default function NoticeComposeCard({
                   <input
                     type="checkbox"
                     checked={confirmSend}
+                    disabled={Boolean(preview.holdCampaignId)}
                     onChange={(e) => setConfirmSend(e.target.checked)}
                   />
                   Confirmo el envío a {preview.counts.recipients} {preview.counts.recipients === 1 ? 'dirección' : 'direcciones'}.
@@ -754,7 +784,7 @@ export default function NoticeComposeCard({
           <button
             type="submit"
             className="btn btn-primary"
-            disabled={Boolean(busy) || (sendMail && (!preview?.previewId || !confirmSend))}
+            disabled={Boolean(busy) || (sendMail && (!preview?.previewId || !confirmSend || Boolean(preview?.holdCampaignId)))}
           >
             <Send size={16} />
             {busy === 'send'

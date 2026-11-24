@@ -5,6 +5,8 @@ export const CLUB_MAIL_BATCH = 100;
 export const CLUB_MAIL_MAX_BATCHES = 6;
 export const CLUB_MAIL_PREVIEW_MS = 30 * 60 * 1000;
 export const CLUB_MAIL_FROM = "Jockey Club San Juan <socios@jockeyclubsj.com.ar>";
+export const CLUB_MAIL_RESERVED = "reservado";
+export const CLUB_MAIL_UNCERTAIN_MARK = "incierto";
 
 export function clubMailCap() {
   return CLUB_MAIL_BATCH * CLUB_MAIL_MAX_BATCHES;
@@ -211,17 +213,17 @@ export type PreviewRow = {
   campaign_id?: string | null;
 };
 
-/** Si el padrón o el texto cambiaron, no se envía. Un segundo click del mismo lote sigue. */
+/**
+ * Si el padrón o el texto cambiaron, no se envía.
+ * Una campaña ya empezada puede seguir después del vencimiento, con el mismo texto y el mismo padrón.
+ * Una revisión vencida que nadie confirmó no sale.
+ */
 export function decidePreviewClaim(
   preview: PreviewRow | null,
   request: { audienceSha256: string; bodySha256: string; campaignId: string },
   now = new Date(),
 ) {
   if (!preview) return { ok: false, status: 404, retry: false, error: "No está esa revisión. Volvé a contar los destinatarios." };
-  const expires = new Date(String(preview.expiresAt || preview.expires_at || 0));
-  if (!(expires.getTime() > now.getTime())) {
-    return { ok: false, status: 409, retry: false, error: "La revisión venció. Volvé a contar los destinatarios." };
-  }
   const audience = String(preview.audienceSha256 || preview.audience_sha256 || "");
   const body = String(preview.bodySha256 || preview.body_sha256 || "");
   if (audience !== request.audienceSha256 || body !== request.bodySha256) {
@@ -232,6 +234,10 @@ export function decidePreviewClaim(
   if (consumed) {
     if (campaignId && campaignId === request.campaignId) return { ok: true, status: 200, retry: true, error: "" };
     return { ok: false, status: 409, retry: false, error: "Esa revisión ya se usó para un envío." };
+  }
+  const expires = new Date(String(preview.expiresAt || preview.expires_at || 0));
+  if (!(expires.getTime() > now.getTime())) {
+    return { ok: false, status: 409, retry: false, error: "La revisión venció. Volvé a contar los destinatarios." };
   }
   return { ok: true, status: 200, retry: false, error: "" };
 }
@@ -253,6 +259,49 @@ export function interpretResendBatch(
   }
   const accepted = ids.filter(Boolean).length;
   return { accepted, failed: Math.max(prepared - accepted, 0), ids, error: "" };
+}
+
+/**
+ * Sin respuesta, o con una respuesta que no identifica cada correo, el lote queda en duda.
+ * Un rechazo explícito de Resend no se reintenta solo: la fila queda y otro proceso no la vuelve a tomar.
+ */
+export function resendBatchDisposition(
+  status: number | null,
+  payload: { data?: Array<{ id?: string }>; message?: string } | null,
+  prepared: number,
+) {
+  if (status == null) {
+    return {
+      disposition: "uncertain" as const,
+      accepted: 0,
+      failed: 0,
+      ids: [] as string[],
+      error: "Resend no respondió. El lote queda en duda y no se reenvía solo.",
+    };
+  }
+  if (status === 409) {
+    return {
+      disposition: "uncertain" as const,
+      accepted: 0,
+      failed: 0,
+      ids: [] as string[],
+      error: "Resend ya registró ese lote con otra carga. No lo reenvío.",
+    };
+  }
+  const batch = interpretResendBatch(status, payload, prepared);
+  if (status < 200 || status >= 300) {
+    return { disposition: "rejected" as const, ...batch };
+  }
+  if (batch.accepted !== prepared || batch.ids.length !== prepared || batch.ids.some((id) => !id)) {
+    return {
+      disposition: "uncertain" as const,
+      accepted: batch.accepted,
+      failed: batch.failed,
+      ids: batch.ids,
+      error: "Resend no devolvió un identificador por cada correo. No reenvío ese lote.",
+    };
+  }
+  return { disposition: "accepted" as const, accepted: batch.accepted, failed: 0, ids: batch.ids, error: "" };
 }
 
 export function explainClubMailMember(row: ClubMailRow | null, siblingNumbers: string[] = [], today = clubToday()) {

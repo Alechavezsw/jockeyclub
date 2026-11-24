@@ -50,6 +50,18 @@ beforeAll(async () => {
     do $$ begin create role authenticated nologin; exception when duplicate_object then null; end $$;
     do $$ begin create role service_role nologin; exception when duplicate_object then null; end $$;
     create or replace function public.has_staff_access() returns boolean language sql stable as $$ select false $$;
+    create table if not exists public.club_mail_sends (
+      id uuid primary key default gen_random_uuid(),
+      campaign_id uuid not null,
+      email text not null,
+      member_number text,
+      subject text not null,
+      resend_id text,
+      email_error text,
+      sender_id uuid,
+      created_at timestamptz not null default now(),
+      unique (campaign_id, email)
+    );
   `);
   await query(migrationSql);
 }, 120_000);
@@ -112,5 +124,35 @@ describe('permisos de la revisión de mail', () => {
     );
     expect(first.rowCount).toBe(1);
     expect(second.rowCount).toBe(0);
+  });
+
+  it('la reserva de un correo no se entrega dos veces y anon no puede ejecutarla', async () => {
+    expect(migrationSql.includes('fee_ledger')).toBe(false);
+    expect(migrationSql.includes('payments')).toBe(false);
+    expect(migrationSql.includes('journal')).toBe(false);
+    const campaignId = '33333333-3333-3333-3333-333333333333';
+    const first = await query(
+      `select email from public.claim_club_mail_batch($1, 'Aviso', null, $2::jsonb)`,
+      [campaignId, JSON.stringify([{ email: 'Titular@club.com', memberNumber: '1' }])],
+    );
+    const second = await query(
+      `select email from public.claim_club_mail_batch($1, 'Aviso', null, $2::jsonb)`,
+      [campaignId, JSON.stringify([{ email: 'titular@club.com', memberNumber: '1' }])],
+    );
+    expect(first.rows.map((row) => row.email)).toEqual(['titular@club.com']);
+    expect(second.rowCount).toBe(0);
+
+    const client = await pool.connect();
+    try {
+      await client.query('begin');
+      await client.query('set local role anon');
+      await expect(client.query(
+        `select email from public.claim_club_mail_batch($1, 'Aviso', null, '[]'::jsonb)`,
+        [campaignId],
+      )).rejects.toThrow(/permission denied/i);
+      await client.query('rollback');
+    } finally {
+      client.release();
+    }
   });
 });

@@ -1,6 +1,6 @@
 -- Revisión de un comunicado y el resultado que Resend aceptó.
--- No se aplica en producción con este PR.
 -- accepted_count es la aceptación del proveedor, no la entrega en la bandeja.
+-- No toca pagos, cuotas, saldos, asientos ni ajustes.
 
 create table if not exists public.club_mail_previews (
   id uuid primary key default gen_random_uuid(),
@@ -31,7 +31,7 @@ create table if not exists public.club_mail_campaigns (
   created_at timestamptz not null default now(),
   finished_at timestamptz,
   status text not null default 'sending',
-  constraint club_mail_campaigns_status_chk check (status in ('sending', 'accepted', 'partial', 'failed'))
+  constraint club_mail_campaigns_status_chk check (status in ('sending', 'accepted', 'partial', 'failed', 'uncertain'))
 );
 
 comment on column public.club_mail_campaigns.accepted_count is
@@ -60,3 +60,65 @@ create policy club_mail_campaigns_staff_read
   for select
   to authenticated
   using ((select public.has_staff_access()));
+
+-- Reserva el correo antes de llamar a Resend. La segunda transacción no recibe la fila.
+create or replace function public.claim_club_mail_batch(
+  p_campaign_id uuid,
+  p_subject text,
+  p_sender uuid,
+  p_rows jsonb
+) returns table (email text, member_number text)
+language sql
+security definer
+set search_path = public
+as $$
+  insert into public.club_mail_sends (
+    campaign_id, email, member_number, subject, resend_id, email_error, sender_id
+  )
+  select
+    p_campaign_id,
+    lower(item->>'email'),
+    nullif(item->>'memberNumber', ''),
+    p_subject,
+    null,
+    'reservado',
+    p_sender
+  from jsonb_array_elements(coalesce(p_rows, '[]'::jsonb)) item
+  where coalesce(item->>'email', '') <> ''
+  on conflict (campaign_id, email) do nothing
+  returning club_mail_sends.email, club_mail_sends.member_number;
+$$;
+
+create or replace function public.record_club_mail_progress(
+  p_campaign_id uuid,
+  p_accepted integer,
+  p_failed integer,
+  p_more boolean
+) returns void
+language sql
+security definer
+set search_path = public
+as $$
+  update public.club_mail_campaigns
+  set accepted_count = accepted_count + greatest(p_accepted, 0),
+      error_count = error_count + greatest(p_failed, 0),
+      attempt_count = attempt_count + 1,
+      status = case
+        when status = 'uncertain' then status
+        when p_more then 'sending'
+        when (error_count + greatest(p_failed, 0)) > 0
+          and (accepted_count + greatest(p_accepted, 0)) > 0 then 'partial'
+        when (error_count + greatest(p_failed, 0)) > 0 then 'failed'
+        else 'accepted'
+      end,
+      finished_at = case
+        when status = 'uncertain' or p_more then finished_at
+        else now()
+      end
+  where id = p_campaign_id;
+$$;
+
+revoke all on function public.claim_club_mail_batch(uuid, text, uuid, jsonb) from public, anon, authenticated;
+revoke all on function public.record_club_mail_progress(uuid, integer, integer, boolean) from public, anon, authenticated;
+grant execute on function public.claim_club_mail_batch(uuid, text, uuid, jsonb) to service_role;
+grant execute on function public.record_club_mail_progress(uuid, integer, integer, boolean) to service_role;
