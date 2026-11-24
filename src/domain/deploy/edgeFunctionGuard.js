@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { stripTypeScriptTypes } from 'node:module';
 import { dirname, join, relative, resolve, sep } from 'node:path';
+import { authorizeEdgePayload, payloadFromPackage } from './edgeFunctionRelease.js';
 
 const REMOTE_SPEC = /^(?:npm:|jsr:|https?:|node:)/;
 const LOCAL_EXT = ['.ts', '.tsx', '.js', '.mjs', '.jsx'];
@@ -212,14 +213,12 @@ export function checkEdgeFunctions(functionsDir) {
   return { ok: results.every((item) => item.ok), results };
 }
 
-/** El publicador solo corre cuando el paquete está completo. */
+/** El publicador solo corre cuando el envío es idéntico al paquete leído del disco. */
 export function releaseEdgeDeploy(prepared, upload) {
-  if (!prepared?.ok || !prepared.manifest?.files?.length) {
-    return {
-      deployed: false,
-      cancelled: true,
-      problems: prepared?.problems?.length ? prepared.problems : ['Paquete inválido. No se publica.'],
-    };
+  const payload = payloadFromPackage(prepared);
+  const decision = authorizeEdgePayload(prepared, payload);
+  if (!decision.ok) {
+    return { deployed: false, cancelled: true, problems: decision.problems };
   }
   if (!prepared.manifest.files.some((file) => file.name === 'index.ts')) {
     return { deployed: false, cancelled: true, problems: ['El paquete no incluye index.ts. No se publica.'] };
@@ -227,10 +226,6 @@ export function releaseEdgeDeploy(prepared, upload) {
   if (typeof upload !== 'function') {
     return { deployed: false, cancelled: true, problems: ['No hay un publicador. No se publica.'] };
   }
-  upload({
-    slug: prepared.slug,
-    files: prepared.files,
-    manifest: prepared.manifest,
-  });
+  upload(payload);
   return { deployed: true, cancelled: false, manifest: prepared.manifest, problems: [] };
 }

@@ -31,6 +31,7 @@ import {
   shouldOfferVitalicio,
 } from '../../domain/members/membership';
 import { canRemoveDuesSurcharge, canVoidDuesPayment } from '../../domain/auth/roles';
+import { profileEmailDisplay } from '../../domain/messaging/clubMailSearch';
 import { useAuth } from '../../context/AuthContext';
 import { formatDateTimeAR, formatInstantAR, todayISODateAR } from '../../lib/arDate';
 import { formatPaymentWhen, paymentWhenStamp } from '../../domain/members/paymentHistory';
@@ -1105,7 +1106,8 @@ export default function MemberProfilePanel({
   const phoneHref = member.phone
     ? `https://wa.me/${String(member.phone).replace(/\D/g, '')}`
     : null;
-  const mailHref = member.email ? `mailto:${member.email}` : null;
+  const shownMail = profileEmailDisplay(member.email, { selfService });
+  const mailHref = shownMail.href || null;
   const addressLine = [
     member.address,
     [member.city, member.province].filter(Boolean).join(', '),
@@ -1397,7 +1399,7 @@ export default function MemberProfilePanel({
               <div className="mp-contact-grid">
                 <ContactRow icon={Phone} label="WhatsApp" value={member.phone} href={phoneHref} />
                 <ContactRow icon={Phone} label="Tel. alternativo" value={member.phoneAlt} />
-                <ContactRow icon={Mail} label="Email" value={member.email} href={mailHref} />
+                <ContactRow icon={Mail} label="Email" value={shownMail.text || null} href={mailHref} />
                 <ContactRow icon={MapPin} label="Domicilio" value={addressLine || null} />
               </div>
             </section>

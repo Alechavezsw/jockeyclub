@@ -16,3 +16,4 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: node scripts/edge-function-guard.mjs
+      - run: node scripts/deploy-edge-function.mjs --check

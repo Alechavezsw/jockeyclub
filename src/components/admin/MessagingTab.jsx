@@ -23,6 +23,7 @@ import {
   recipientLabel,
 } from '../../domain/messaging/messages';
 import { groupMailCampaigns } from '../../domain/messaging/clubNotice';
+import { visibleMailboxAddress } from '../../domain/messaging/clubMailSearch';
 import { useAuth } from '../../context/AuthContext';
 import { repos } from '../../data/bootstrap';
 import NoticeComposeCard from './NoticeComposeCard';
@@ -639,7 +640,7 @@ export default function MessagingTab({
                               <span>
                                 <b className="ops-msg-nro">Nº {nro}</b>
                                 {' · '}
-                                {thread.from || 'Sin remitente'}
+                                {visibleMailboxAddress(thread.from)}
                               </span>
                               <span>{formatWhen(thread.receivedAt)}</span>
                             </div>
@@ -656,7 +657,7 @@ export default function MessagingTab({
                         <small>
                           Nº {threadNumbers.get(String(selectedThread.id)) || '—'}
                           {' · '}
-                          {selectedThread.from}
+                          {visibleMailboxAddress(selectedThread.from, '')}
                         </small>
                         <h4>{selectedThread.subject}</h4>
                         {threadEmails.length === 0 ? (
@@ -899,7 +900,7 @@ export default function MessagingTab({
                               {' · '}
                               {mdBox === 'out'
                                 ? recipientLabel(msg.recipientId, members)
-                                : msg.sender}
+                                : visibleMailboxAddress(msg.sender)}
                             </span>
                             <span>{msg.date}</span>
                           </div>
@@ -920,7 +921,7 @@ export default function MessagingTab({
                             {' · '}
                             {mdBox === 'out'
                               ? `Para: ${recipientLabel(selected.recipientId, members)}`
-                              : selected.sender}
+                              : visibleMailboxAddress(selected.sender, '')}
                           </small>
                           <h4>{selected.subject}</h4>
                         </div>

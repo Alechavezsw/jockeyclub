@@ -13,6 +13,7 @@ import {
   noticeConfirmLine,
 } from '../../domain/messaging/clubNotice';
 import {
+  clubMailMemberHits,
   clubMailMemberQuery,
   clubMailSearchMissMessage,
   presentMemberPicker,
@@ -44,8 +45,9 @@ function remoteNeedle(query, pick) {
   const parsed = clubMailMemberQuery(query);
   if (parsed.kind === 'number') return parsed.canonical;
   if (parsed.kind === 'text') return parsed.text;
-  const nro = clubMailMemberQuery(String(pick.memberNumber || '').replace(/\D/g, ''));
+  const nro = clubMailMemberQuery(String(pick.memberNumber || '').trim());
   if (nro.kind === 'number') return nro.canonical;
+  if (nro.kind === 'text') return nro.text;
   const dni = String(pick.dni || '').replace(/\D/g, '');
   if (dni) return dni;
   const name = [pick.lastName, pick.firstName].map((part) => String(part || '').trim()).filter(Boolean).join(' ');
@@ -151,19 +153,30 @@ export default function NoticeComposeCard({
       firstName: memberPick.firstName,
       lastName: memberPick.lastName,
       dni: memberPick.dni,
-      memberNumber: memberPick.memberNumber,
+      memberNumber: '',
       familyId: memberPick.familyId,
       status: 'all',
+      query: '',
     };
-    const local = filterMembersForBalances(directory, { ...fields, query: q });
+    const apply = (rows) => {
+      let list = filterMembersForBalances(rows, fields);
+      if (String(memberPick.memberNumber || '').trim()) {
+        list = clubMailMemberHits(list, memberPick.memberNumber);
+      }
+      if (q) list = clubMailMemberHits(list, q);
+      return list;
+    };
+    const local = apply(directory);
     const seen = new Set(local.map((row) => String(row.memberId || '')));
-    const extra = q
-      ? filterMembersForBalances(remoteHits, fields).filter((row) => {
+    const extra = (q || String(memberPick.memberNumber || '').trim())
+      ? apply(remoteHits).filter((row) => {
         const id = String(row.memberId || '');
         return id && !seen.has(id);
       })
       : [];
-    const rankQuery = clubMailMemberQuery(q).kind === 'number' ? clubMailMemberQuery(q).canonical : q;
+    const rankSource = q || memberPick.memberNumber;
+    const parsedRank = clubMailMemberQuery(rankSource);
+    const rankQuery = parsedRank.kind === 'number' ? parsedRank.canonical : rankSource;
     return [...local, ...extra]
       .toSorted((a, b) => rankMemberSearchHit(a, rankQuery) - rankMemberSearchHit(b, rankQuery))
       .slice(0, 16);
