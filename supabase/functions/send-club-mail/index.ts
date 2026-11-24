@@ -4,7 +4,6 @@ import {
   CLUB_MAIL_BATCH,
   CLUB_MAIL_FROM,
   CLUB_MAIL_MAX_BATCHES,
-  CLUB_MAIL_PAGE,
   CLUB_MAIL_PREVIEW_MS,
   bodyFingerprint,
   clubMailAuthDecision,
@@ -26,7 +25,6 @@ const corsHeaders = {
 
 const DEFAULT_FROM = CLUB_MAIL_FROM;
 const LOGO_SRC = "https://jockeyclubsj.com.ar/logo-jockey-club.png";
-const PAGE = CLUB_MAIL_PAGE;
 const BATCH = CLUB_MAIL_BATCH;
 const MAX_BATCHES = CLUB_MAIL_MAX_BATCHES;
 

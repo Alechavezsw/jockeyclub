@@ -40,8 +40,8 @@ comment on column public.club_mail_campaigns.accepted_count is
 alter table public.club_mail_previews enable row level security;
 alter table public.club_mail_campaigns enable row level security;
 
-revoke all on table public.club_mail_previews from public, anon;
-revoke all on table public.club_mail_campaigns from public, anon;
+revoke all on table public.club_mail_previews from public, anon, authenticated;
+revoke all on table public.club_mail_campaigns from public, anon, authenticated;
 grant select on table public.club_mail_previews to authenticated;
 grant select on table public.club_mail_campaigns to authenticated;
 grant select, insert, update on table public.club_mail_previews to service_role;
