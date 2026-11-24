@@ -37,7 +37,7 @@ describe('canAccessAdmin', () => {
   it('los roles operativos acceden al panel; el socio no; el profesor solo Colonia', () => {
     expect(canAccessAdmin('member')).toBe(false);
     expect(canAccessAdmin('teacher')).toBe(true);
-    expect(allowedAdminTabs('teacher')).toEqual(['operation']);
+    expect(allowedAdminTabs('teacher')).toEqual(['colonia']);
     for (const role of ['staff', 'cashier', 'accountant', 'admin', 'superadmin', 'gate_operator', 'pool_operator', 'admin_employee', 'hr']) {
       expect(canAccessAdmin(role)).toBe(true);
     }

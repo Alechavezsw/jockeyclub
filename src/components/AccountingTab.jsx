@@ -1684,7 +1684,7 @@ export default function AccountingTab({
 
       {subTab === 'colonia' && (
         <Suspense fallback={PANEL_FALLBACK}>
-          <ColoniaTab roles={roles} role={role} />
+          <ColoniaTab roles={roles} role={role} members={members} />
         </Suspense>
       )}
 

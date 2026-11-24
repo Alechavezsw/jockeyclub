@@ -16,14 +16,56 @@ import {
   planAmountFor,
 } from '../domain/colonia/coloniaTariffs';
 import {
+  buildMemberColoniaHome,
   buildPortalEnrollmentPayload,
-  coloniaEnrollmentBalance,
+  coloniaBadgeForHouseholdMember,
   coloniaPortalHeroCopy,
   coloniaStatusLabel,
   portalEnabledPlans,
   validatePortalEnrollmentWizard,
 } from '../domain/colonia/coloniaPortal';
 import { todayISODateAR } from '../lib/arDate';
+
+function PortalDonut({ parts, total }) {
+  const sum = parts.reduce((acc, part) => acc + part.value, 0);
+  const radius = 42;
+  const circumference = 2 * Math.PI * radius;
+  let walked = 0;
+  return (
+    <figure className="colonia-donut">
+      <svg viewBox="0 0 120 120" role="img" aria-label="Estado de tus inscripciones de Colonia">
+        <circle cx="60" cy="60" r={radius} fill="none" stroke="#e4efe8" strokeWidth="14" />
+        {sum > 0 ? parts.map((part) => {
+          const length = (part.value / sum) * circumference;
+          const dash = `${length} ${circumference - length}`;
+          const turn = (walked / sum) * 360 - 90;
+          walked += part.value;
+          if (!part.value) return null;
+          return (
+            <circle
+              key={part.label}
+              cx="60"
+              cy="60"
+              r={radius}
+              fill="none"
+              stroke={part.color}
+              strokeWidth="14"
+              strokeDasharray={dash}
+              transform={`rotate(${turn} 60 60)`}
+            />
+          );
+        }) : null}
+        <text x="60" y="58" textAnchor="middle" className="colonia-donut-num">{total}</text>
+        <text x="60" y="74" textAnchor="middle" className="colonia-donut-cap">tuyos</text>
+      </svg>
+      <figcaption>
+        {parts.map((part) => (
+          <span key={part.label}><i style={{ background: part.color }} />{part.label}<b>{part.value}</b></span>
+        ))}
+      </figcaption>
+    </figure>
+  );
+}
 
 function money(n) {
   return new Intl.NumberFormat('es-AR', {
@@ -207,6 +249,13 @@ export default function ColoniaPortalView({
     };
   }, [student.memberKind, planKey]);
 
+  const home = useMemo(() => buildMemberColoniaHome(enrollments), [enrollments]);
+  const { mine, dueTotal, paidTotal, nextLabel } = home;
+  const statusParts = home.statusParts.map((part, index) => ({
+    ...part,
+    color: ['#e7a23a', '#1a7a8c', '#8ea197'][index],
+  }));
+
   async function refreshList() {
     if (!member?.id) return;
     const listed = await repos.coloniaListForMember(member.id);
@@ -324,36 +373,64 @@ export default function ColoniaPortalView({
 
       {mode === 'home' ? (
         <>
-          <section className="colonia-hero">
-            <h2>{hero.title}</h2>
-            <p>{hero.enrollmentWindow}</p>
-            <p>{hero.start}</p>
-            <p>{hero.ages}</p>
-            <p>{hero.schedule}</p>
-            <p>{hero.activities}</p>
-            <p>{hero.inscriptionNote}</p>
-            <p className="muted">Tarifas para socios según configuración vigente. Cuota social y Colonia son cuentas separadas.</p>
-          </section>
+          <header className="colonia-hero-band">
+            <div className="colonia-hero-copy">
+              <p className="colonia-kicker">Tu Colonia</p>
+              <h2 className="serif-font">{hero.title}</h2>
+              <p>{hero.schedule} {hero.ages}</p>
+              <p>{hero.enrollmentWindow}</p>
+            </div>
+            <div className="colonia-wrist" aria-label="Horario">
+              <span>09:00</span>
+              <i aria-hidden="true" />
+              <span>13:00</span>
+              <small>lun a vie</small>
+            </div>
+          </header>
 
-          <section>
-            <h3>Mis inscripciones</h3>
-            {!enrollments.length ? (
-              <p className="muted">Todavía no hay solicitudes de Colonia a tu nombre.</p>
+          <div className="colonia-report-board">
+            <article className="colonia-money is-due">
+              <span>Te falta</span>
+              <strong>{money(dueTotal)}</strong>
+            </article>
+            <article className="colonia-money is-paid">
+              <span>Ya pagaste</span>
+              <strong>{money(paidTotal)}</strong>
+            </article>
+            <article className="colonia-chart-card">
+              <h4>Tus inscripciones</h4>
+              <PortalDonut parts={statusParts} total={enrollments.length} />
+            </article>
+            <article className="colonia-chart-card">
+              <h4>El mes que viene</h4>
+              <p className="colonia-next-month">{nextLabel}</p>
+              <ul className="colonia-next-list">
+                {mine.filter((item) => item.nextAmount > 0).map((item) => (
+                  <li key={item.row.id}>
+                    <span>{item.row.student_name}</span>
+                    <b>{money(item.nextAmount)}</b>
+                  </li>
+                ))}
+                {!mine.some((item) => item.nextAmount > 0) ? (
+                  <li className="muted">No hay una cuota mensual próxima. Si falta saldo, está en «Te falta».</li>
+                ) : null}
+              </ul>
+            </article>
+          </div>
+
+          <section className="colonia-panel">
+            <h3>Grupo familiar</h3>
+            {!household.length ? (
+              <p className="muted">No encontramos integrantes del grupo. Podés cargar al alumno al inscribir.</p>
             ) : (
-              <ul className="colonia-enroll-list">
-                {enrollments.map((row) => {
-                  const bal = coloniaEnrollmentBalance(row);
+              <ul className="colonia-kid-grid">
+                {household.map((person) => {
+                  const badge = coloniaBadgeForHouseholdMember(person, enrollments, seasonView);
                   return (
-                    <li key={row.id}>
-                      <div>
-                        <strong>{row.student_name}</strong>
-                        <div className="muted">
-                          {coloniaStatusLabel(row.status)} · Plan {row.plan_key} · Saldo {money(bal.balance)}
-                        </div>
-                      </div>
-                      <button type="button" className="btn btn-secondary btn-sm" onClick={() => openAccount(row.id)}>
-                        <Wallet size={14} /> Cuenta
-                      </button>
+                    <li key={person.id || person.memberId}>
+                      <strong>{person.name || person.full_name}</strong>
+                      <span>Nº {person.memberId || '—'}</span>
+                      <em className={`is-${badge.tone}`}>{badge.label}</em>
                     </li>
                   );
                 })}
@@ -361,7 +438,28 @@ export default function ColoniaPortalView({
             )}
           </section>
 
-          <div className="colonia-actions">
+          <section className="colonia-panel">
+            <h3>Mis inscripciones</h3>
+            {!enrollments.length ? (
+              <p className="muted">Todavía no hay solicitudes de Colonia a tu nombre.</p>
+            ) : (
+              <ul className="colonia-enroll-list">
+                {mine.map(({ row, bal, nextAmount }) => (
+                  <li key={row.id}>
+                    <div>
+                      <strong>{row.student_name}</strong>
+                      <div className="muted">
+                        {coloniaStatusLabel(row.status)} · {row.plan_key} · Saldo {money(bal.balance)}
+                        {nextAmount > 0 ? ` · ${nextLabel} ${money(nextAmount)}` : ''}
+                      </div>
+                    </div>
+                    <button type="button" className="btn btn-secondary btn-sm" onClick={() => openAccount(row.id)}>
+                      <Wallet size={14} /> Cuenta
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
             <button
               type="button"
               className="btn btn-primary"
@@ -371,22 +469,16 @@ export default function ColoniaPortalView({
                 setError('');
               }}
             >
-              <Baby size={16} /> Inscribir hijo / integrante
+              <Baby size={16} /> Inscribir hijo
             </button>
-          </div>
+          </section>
 
-          <section className="colonia-pay-info">
-            <h3>Medios de pago</h3>
-            <ul>
-              <li>Efectivo en administración</li>
-              <li>Transferencia bancaria (informás comprobante; acredita al verificar)</li>
-              <li>POSNET presencial en caja</li>
-              <li>
-                Mercado Pago Colonia:
-                {' '}
-                {COLONIA_MP_ENABLED ? 'habilitado' : 'próximamente (aún no activo)'}
-              </li>
-            </ul>
+          <section className="colonia-pay-pills" aria-label="Medios de pago">
+            <span>Efectivo</span>
+            <span>Transferencia</span>
+            <span>Pago POS</span>
+            <span>Débito</span>
+            <span>{COLONIA_MP_ENABLED ? 'Mercado Pago' : 'Mercado Pago pronto'}</span>
           </section>
         </>
       ) : null}
@@ -565,8 +657,8 @@ export default function ColoniaPortalView({
       ) : null}
 
       {mode === 'account' ? (
-        <section className="colonia-account">
-          <h3>Cuenta Colonia</h3>
+        <section className="colonia-panel">
+          <h3>Tu cuenta de Colonia</h3>
           <p className="muted">Independiente de la cuota social. Los saldos no se compensan entre sí.</p>
           <h4>Cargos</h4>
           <ul>

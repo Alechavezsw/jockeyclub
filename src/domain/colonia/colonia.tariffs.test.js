@@ -9,6 +9,7 @@ import {
 } from './coloniaTariffs';
 import {
   assertColoniaFinanceIsolation,
+  buildColoniaAccountRows,
   buildColoniaEnrollmentsCsv,
   buildColoniaReceipt,
   summarizeColoniaAccount,
@@ -109,6 +110,30 @@ describe('colonia domain', () => {
     expect(summary.balanceDue).toBe(150000);
   });
 
+  it('separa quien falta, quien pagó y el mes que viene en Colonia', () => {
+    const rows = buildColoniaAccountRows({
+      enrollments: [
+        { id: 'a', status: 'pendiente', plan_key: 'cuota', student: { member_kind: 'socio', full_name: 'Ana' } },
+        { id: 'b', status: 'confirmada', plan_key: 'temporada', student: { member_kind: 'socio', full_name: 'Bruno' } },
+      ],
+      charges: [
+        { enrollment_id: 'a', amount: 150000, status: 'posted' },
+        { enrollment_id: 'b', amount: 390000, status: 'posted' },
+      ],
+      payments: [
+        { enrollment_id: 'b', amount: 390000, status: 'confirmed' },
+      ],
+      tariffs: COLONIA_OFFICIAL_TARIFFS_2026_2027,
+      periodicity: null,
+    });
+    const ana = rows.find((row) => row.enrollment.id === 'a');
+    const bruno = rows.find((row) => row.enrollment.id === 'b');
+    expect(ana.status).toBe('falta');
+    expect(ana.owed).toBe(150000);
+    expect(bruno.status).toBe('pago');
+    expect(bruno.nextAmount).toBe(0);
+  });
+
   it('medios de pago: efectivo confirma, transferencia pendiente, MP bloqueado hasta deploy', () => {
     const cash = validateColoniaPaymentInput({
       method: 'efectivo',
@@ -183,7 +208,7 @@ describe('colonia domain', () => {
     expect(canViewColoniaFinance('teacher')).toBe(false);
     expect(canManageColoniaHealth('teacher')).toBe(false);
     expect(canManageColoniaHealth('admin')).toBe(true);
-    expect(allowedAdminTabs('teacher')).toEqual(['operation']);
+    expect(allowedAdminTabs('teacher')).toEqual(['colonia']);
     expect(allowedAccountingSubtabs('teacher')).toEqual(['colonia']);
     expect(canAccessColonia('gate')).toBe(false);
     expect(canAccessColonia('admin')).toBe(true);

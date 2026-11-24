@@ -120,6 +120,7 @@ export const ALL_ADMIN_TABS = [
   'bookings',
   'disciplines',
   'pool',
+  'colonia',
   'access',
   'gate_income',
   'concessions',
@@ -205,6 +206,7 @@ const FRONT_DESK_TABS = [
   'subscriptions',
   'bookings',
   'pool',
+  'colonia',
   'teachers',
   'events',
   'alerts',
@@ -316,14 +318,14 @@ export function allowedAdminTabs(role) {
     return [...ADMIN_TABS_NO_ACCOUNTING, 'accounting', 'books', 'informes', 'caja', 'operation'];
   }
   if (role === 'accountant') {
-    return ['dashboard', 'jev', 'dues', 'subscriptions', 'concessions', 'accounting', 'books', 'informes', 'caja', 'operation', 'reports', 'events'];
+    return ['dashboard', 'jev', 'dues', 'subscriptions', 'concessions', 'colonia', 'accounting', 'books', 'informes', 'caja', 'operation', 'reports', 'events'];
   }
   // Operador de portería: caja + portería / ingresos.
   if (role === 'gate_operator') {
     return ['dashboard', 'jev', 'members', 'pool', 'access', 'gate_income', 'caja'];
   }
   if (role === 'cashier') {
-    return ['dashboard', 'jev', 'members', 'dues', 'subscriptions', 'access', 'gate_income', 'caja', 'operation', 'events'];
+    return ['dashboard', 'jev', 'members', 'dues', 'subscriptions', 'colonia', 'access', 'gate_income', 'caja', 'operation', 'events'];
   }
   // Empleado de administración: el mostrador, más los débitos. Pileta no arma archivos.
   if (role === 'admin_employee') {
@@ -337,11 +339,11 @@ export function allowedAdminTabs(role) {
     return ['dashboard', 'staff', 'alerts'];
   }
   if (role === 'staff') {
-    return ['dashboard', 'jev', 'bookings', 'disciplines', 'pool', 'access', 'staff', 'events', 'alerts', 'claims', 'news', 'operation'];
+    return ['dashboard', 'jev', 'bookings', 'disciplines', 'pool', 'colonia', 'access', 'staff', 'events', 'alerts', 'claims', 'news', 'operation'];
   }
-  // Profesor: solo Operación → Colonia (asistencia).
+  // Profesor: asistencia de Colonia.
   if (role === 'teacher') {
-    return ['operation'];
+    return ['colonia'];
   }
   return [];
 }
