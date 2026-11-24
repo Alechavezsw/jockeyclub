@@ -687,18 +687,58 @@ export async function sendPaymentReceiptEmail({
 }
 
 /** Comunicado por mail (uno o a todos). Reintenta mientras queden lotes. */
+async function requireMailSession() {
+  const { data: sessionData } = await sb().auth.getSession();
+  if (!sessionData?.session?.access_token) {
+    throw new Error('Sesión vencida. Volvé a entrar.');
+  }
+}
+
+/** Cuenta el padrón en el servidor. No envía correos. */
+export async function previewClubMail({
+  subject,
+  text,
+  audience = 'all',
+  memberNumber = '',
+} = {}) {
+  await requireMailSession();
+  return invokeFunction('send-club-mail', {
+    action: 'preview',
+    subject,
+    text,
+    audience,
+    memberNumber,
+  }, 'No se pudo revisar los destinatarios');
+}
+
+/** Motivo de un socio, sin la lista completa de correos. */
+export async function lookupClubMailMember(query) {
+  await requireMailSession();
+  return invokeFunction('send-club-mail', {
+    action: 'lookup',
+    query,
+  }, 'No se pudo buscar ese socio');
+}
+
+/** Estado de una campaña. Aceptado no es lo mismo que entregado. */
+export async function clubMailCampaignStatus(campaignId) {
+  await requireMailSession();
+  return invokeFunction('send-club-mail', {
+    action: 'status',
+    campaignId,
+  }, 'No se pudo leer la campaña');
+}
+
 export async function sendClubMailCampaign({
   subject,
   text,
   audience = 'all',
   memberNumber = '',
   campaignId,
+  previewId = '',
   onProgress,
 } = {}) {
-  const { data: sessionData } = await sb().auth.getSession();
-  if (!sessionData?.session?.access_token) {
-    throw new Error('Sesión no válida. Volvé a iniciar sesión.');
-  }
+  await requireMailSession();
   let id = campaignId || (typeof crypto !== 'undefined' && crypto.randomUUID
     ? crypto.randomUUID()
     : `camp-${Date.now()}`);
@@ -710,11 +750,13 @@ export async function sendClubMailCampaign({
   let lastError = '';
   while (more && guard < 40) {
     const data = await invokeFunction('send-club-mail', {
+      action: 'send',
       subject,
       text,
       audience,
       memberNumber,
       campaignId: id,
+      previewId,
     }, 'No se pudo enviar el mail');
     const progress = accumulateClubMailProgress(
       { sent, failed, skipped, campaignId: id },

@@ -11,6 +11,7 @@ import {
   alertDeliverySummary,
   alertDmRecipient,
   alertMailAudience,
+  alertMailNeedsPadronPreview,
   buildAlertDmMessage,
 } from '../../domain/alerts/alertDelivery';
 import { repos } from '../../data/bootstrap';
@@ -132,7 +133,9 @@ export default function AlertsPanel({
         }
       }
 
-      if (notifyMail && isSupabaseConfigured) {
+      if (notifyMail && isSupabaseConfigured && alertMailNeedsPadronPreview(form.audience)) {
+        bits.mailPadron = true;
+      } else if (notifyMail && isSupabaseConfigured) {
         try {
           const mailed = await repos.sendClubMailCampaign({
             subject: String(form.title || '').trim(),

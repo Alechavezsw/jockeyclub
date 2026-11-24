@@ -12001,6 +12001,83 @@ a.ops-outline-btn {
 .ops-notice-sendbar .btn-primary {
   margin-left: auto;
 }
+.ops-mail-review {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+.ops-mail-ledger {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.45rem;
+  margin: 0;
+}
+.ops-mail-ledger div {
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--border-glass);
+  border-radius: 0.7rem;
+  background: color-mix(in srgb, var(--bg-secondary) 75%, transparent);
+}
+.ops-mail-ledger dt {
+  margin: 0;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+.ops-mail-ledger dd {
+  margin: 0.15rem 0 0;
+  font-variant-numeric: tabular-nums;
+  font-size: 1.15rem;
+  font-weight: 700;
+}
+.ops-mail-ledger div:last-child {
+  border-color: color-mix(in srgb, var(--emerald-accent, #096755) 45%, var(--border-glass));
+}
+.ops-mail-shared,
+.ops-mail-hits {
+  margin: 0;
+  padding-left: 1rem;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+.ops-mail-hits li {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 0.35rem;
+}
+.ops-mail-letter {
+  padding: 1rem 1.1rem 0.4rem;
+  border: 1px solid #d8c7a4;
+  background: #fffdf8;
+  color: #3f3830;
+}
+.ops-mail-letter p:first-child {
+  margin: 0;
+  font-size: 0.68rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: #8a7340;
+}
+.ops-mail-letter h4 {
+  margin: 0.2rem 0 0.6rem;
+  color: #096755;
+}
+.ops-mail-letter h5 {
+  margin: 0.8rem 0 0.35rem;
+}
+.ops-mail-letter p {
+  white-space: pre-wrap;
+}
+.ops-mail-confirm {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  font-size: 0.86rem;
+}
+@media (max-width: 640px) {
+  .ops-mail-ledger {
+    grid-template-columns: 1fr;
+  }
+}
 .ops-msg {
   display: flex;
   flex-direction: column;

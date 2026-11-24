@@ -107,7 +107,7 @@ describe('destinatarios de send-club-mail', () => {
       'utf8',
     );
     expect(source).toContain('has_staff_access');
-    expect(source).toContain('clubMailStaffAllowed(staff)');
-    expect(source).toContain('Solo el personal del club puede enviar comunicados.');
+    expect(source).toContain('clubMailAuthDecision');
+    expect(source).toContain('Revisá los destinatarios antes de enviar.');
   });
 });
