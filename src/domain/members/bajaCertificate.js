@@ -100,6 +100,7 @@ export function buildReactivacionCertificate({
   detail = '',
   presentedOn = '',
   amount = 0,
+  owedMonthsLabel = '',
   actorName = '',
   registeredAt = '',
   tierLabel = '',
@@ -114,6 +115,7 @@ export function buildReactivacionCertificate({
   const note = String(detail || '').trim();
   const fecha = formatBajaLongDate(presentedOn);
   const monto = formatBajaMoney(amount);
+  const meses = String(owedMonthsLabel || '').trim();
   const bajaMotivo = String(member.bajaMotivo || member.meta?.bajaMotivo || '').trim();
   const bajaCuando = formatBajaLongDate(member.bajaPresentada || member.meta?.bajaPresentada || member.bajaFecha || '');
   const quien = String(
@@ -137,6 +139,7 @@ export function buildReactivacionCertificate({
     bajaMotivo ? `Baja anterior: ${bajaMotivo}${bajaCuando && bajaCuando !== '—' ? `, presentada el ${bajaCuando}` : ''}.` : '',
     `Fecha de la reactivación: ${fecha}.`,
     `Monto del saldo: ${monto}.`,
+    meses ? `Meses que debe: ${meses}.` : '',
     quien ? `Registró la reactivación: ${quien}.` : '',
     cuando && cuando !== '—' ? `Fecha y hora del registro: ${cuando}.` : '',
     'Se extiende el presente certificado a los efectos que hubiera lugar.',

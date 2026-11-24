@@ -40,6 +40,7 @@ describe('certificado de baja', () => {
       reasonLabel: 'Regularizó situación',
       presentedOn: '2026-12-02',
       amount: 148000,
+      owedMonthsLabel: 'Septiembre de 2026, Octubre de 2026 y Noviembre de 2026',
       actorName: 'Luis Admin',
       registeredAt: '2026-12-02T14:10:00.000Z',
       club: { name: 'Jockey Club San Juan' },
@@ -49,6 +50,7 @@ describe('certificado de baja', () => {
     expect(text).toContain('Licencia');
     expect(text).toContain('Luis Admin');
     expect(text).toContain('11:10');
+    expect(text).toContain('Meses que debe: Septiembre de 2026, Octubre de 2026 y Noviembre de 2026');
     expect(certificate.fileName).toBe('certificado-reactivacion-1200.pdf');
   });
 });

@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Search, Filter, Plus, Check, CheckCircle2, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Trash2, Users, UserMinus, UserPlus, X, CreditCard, Camera, FileDown, FileSpreadsheet, Pencil, KeyRound, MoreVertical } from 'lucide-react';
-import { duesOnJoin, isDuesExemptMember, joinFeeAmountForMember, pinDuesDueDate, quotaHeadline, toWhatsAppPhone } from '../../domain/members/dues';
+import { collectionPeriodChoices, duesOnJoin, isDuesExemptMember, joinFeeAmountForMember, pinDuesDueDate, quotaHeadline, toWhatsAppPhone } from '../../domain/members/dues';
+import { duesMonthsPhrase } from '../../domain/members/duesImputations';
 import { persistDuesCollection, recordDuesCollection } from '../../domain/members/memberPayments';
 import { deliverPaymentReceipt } from '../../domain/payments/deliverPaymentReceipt';
 import { exportMembersExcel } from '../../domain/members/exportMembersExcel';
@@ -1198,12 +1199,18 @@ export default function MembersTab({
       if (full) member = full;
     }
     const saved = await commitLifecycle(member, 'activate', payload);
+    const certificateMember = saved || member;
+    const owedMonthsLabel = String(payload.owedMonthsLabel || '').trim()
+      || duesMonthsPhrase(
+        collectionPeriodChoices(certificateMember, new Date()).map((row) => String(row.dueOn).slice(0, 10)),
+      );
     const certificate = buildReactivacionCertificate({
-      member: saved || member,
+      member: certificateMember,
       reasonLabel: payload.reasonLabel,
       detail: payload.detail,
       presentedOn: payload.presentedOn,
       amount: payload.amount,
+      owedMonthsLabel,
       actorName: saved?.reactivateActorName || actorName,
       registeredAt: saved?.reactivateRegistradaAt,
       tierLabel: getTierDisplayName(payload.member.tier, tierCatalog),
