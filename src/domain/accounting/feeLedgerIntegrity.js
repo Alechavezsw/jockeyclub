@@ -47,9 +47,21 @@ export function adminReconcileNote(member, periodYm) {
   if (key && /conciliado administrativamente/i.test(String(meta[key] || ''))) {
     return String(meta[key]);
   }
+  // Solo regularización plena. La parcial NUNCA marca el período como cubierto.
   const rows = Array.isArray(meta.feeLedgerAdminReconcile) ? meta.feeLedgerAdminReconcile : [];
   const hit = rows.find((row) => asYm(row?.period) === periodYm);
-  return hit ? String(hit.reason || 'conciliado administrativamente') : '';
+  if (hit) return String(hit.reason || 'conciliado administrativamente');
+  return '';
+}
+
+/** ¿Hay regularización parcial (sigue pending) para el período? */
+export function adminPartialReconcileNote(member, periodYm) {
+  const meta = member?.meta && typeof member.meta === 'object' ? member.meta : {};
+  const rows = Array.isArray(meta.feeLedgerAdminPartialReconcile)
+    ? meta.feeLedgerAdminPartialReconcile
+    : [];
+  const hit = rows.find((row) => asYm(row?.period) === periodYm);
+  return hit ? String(hit.reason || 'regularizado_parcialmente') : '';
 }
 
 /**
@@ -111,6 +123,8 @@ export function periodIsCoveredOperationally(member, periodYm, {
   expectedCapital = null,
 } = {}) {
   if (!periodYm) return false;
+  // Regularización parcial: no está totalmente pagado.
+  if (adminPartialReconcileNote(member, periodYm)) return false;
   if (adminReconcileNote(member, periodYm)) return true;
   const covered = coveredThroughYm(member);
   if (covered && covered >= periodYm) return true;
@@ -138,7 +152,8 @@ export function periodLedgerStatus(member, line, {
   const collected = money(Number(line?.collected) || 0);
   const source = String(line?.source || '');
   const adminNote = adminReconcileNote(member, periodYm);
-  if (adminNote || /admin_reconciled/i.test(source)) {
+  // Conciliación admin plena solo si no queda pending. Parcial (pending > 0) sigue exigible.
+  if ((adminNote || /admin_reconciled/i.test(source)) && pending <= EPS) {
     return PERIOD_STATUS.CONCILIADO_ADMIN;
   }
   if (isLilaSource(source) && pending <= EPS && collected > EPS) {

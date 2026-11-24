@@ -26,6 +26,12 @@ import {
   JOIN_FEE_DUE_ON,
   JOIN_FEE_LABEL,
 } from './duesImputations';
+import {
+  collectionChoicesFromFeeLedger,
+  feeLedgerPendingCapital,
+  listFeeLedgerAdminReconcileClears,
+  socialExigibleCapitalForCollect,
+} from './duesCollectObligations';
 
 const DAY_MS = 86400000;
 
@@ -945,6 +951,8 @@ export function listAdminOperationalClears(member) {
     member?.meta?.adminOperationalClear,
     ...(Array.isArray(member?.adminOperationalClears) ? member.adminOperationalClears : []),
     ...(Array.isArray(member?.meta?.adminOperationalClears) ? member.meta.adminOperationalClears : []),
+    // Regularizaciones admin del auxiliar (oct full / nov parcial, batch 2026-11-24).
+    ...listFeeLedgerAdminReconcileClears(member),
   ];
   const out = [];
   const seen = new Set();
@@ -1757,24 +1765,29 @@ function capitalOwedForChoices(member, chargeScope = 'all') {
   const lila = lilaUnpaidCapital(member);
   // Abono tenis: no usar el unpaidCapital mezclado (cuota + tenis).
   if (scope === 'addon') return 0;
+
+  // Fuente operativa: ledger pending / ficha. Nunca reinsuflar con unpaidCapital viejo.
+  if (scope === 'social') {
+    const socialExigible = socialExigibleCapitalForCollect(member);
+    if (socialExigible > 0.01) return socialExigible;
+  }
+
   const resolveOwed = (capital) => {
     const unpaid = money(Math.max(0, capital));
     if (!(balance > 0.01) || !(unpaid > balance + 0.01)) return unpaid;
-    const monthly = money(duesAmountForMember(member) || 0) || unpaid;
-    const gap = money(unpaid - balance);
-    if (gap + 0.01 >= money(monthly * 0.5)) return balance;
-    return unpaid;
+    // Si unpaidCapital supera la ficha, manda la ficha (metadata histórica).
+    return balance;
   };
   // Cuota social: si Lila guardó cuota+tenis juntos, restar el abono de los meses abiertos.
   if (scope === 'social' && lila != null) {
-    const tennis = money(duesTennisAbonoAmountForAccount(member));
-    const openN = Array.isArray(member?.duesOpenPeriods) && member.duesOpenPeriods.length
-      ? member.duesOpenPeriods.length
-      : 1;
-    const socialCap = tennis > 0.01 ? money(Math.max(0, lila - tennis * openN)) : money(Math.max(0, lila));
+    const tennis = money(
+      feeLedgerPendingCapital(member, { chargeScope: 'abono_tenis' })
+      || duesTennisAbonoAmountForAccount(member),
+    );
+    const socialCap = tennis > 0.01 ? money(Math.max(0, lila - tennis)) : money(Math.max(0, lila));
     return resolveOwed(socialCap);
   }
-  // Corte Lila / tarifa: lift chico OK; hueco grande = desync → ficha.
+  // Corte Lila / tarifa: si contradice la ficha, manda la ficha.
   if (lila != null) return resolveOwed(lila);
   const surcharge = money(Math.max(0, Number(member?.unpaidSurcharges) || 0));
   if (surcharge > 0.01 && balance > surcharge + 0.01) return money(balance - surcharge);
@@ -2166,6 +2179,22 @@ export function collectionPeriodChoices(member, today = new Date(), { chargeScop
   const scopeOpts = { chargeScope };
   const paidSet = memberCoveredDueOns(member, scopeOpts);
   const operationalOwed = socialDuesStoredBalance(member);
+  const scope = normalizeDuesChargeScope(chargeScope);
+
+  // Auxiliar con pending + ficha > 0: remanente real post-regularización (p. ej. nov $42.000).
+  // Evita caer a tarifa llena + 10 % por unpaidCapital histórico.
+  // Si ficha = 0, el pending del auxiliar es conciliación histórica — no reabre cobro.
+  const fichaBalance = money(Math.max(0, Number(member?.outstandingBalance) || 0));
+  if ((scope === 'social' || scope === 'all') && fichaBalance > 0.01) {
+    const ledgerChoices = collectionChoicesFromFeeLedger(member, paidOn, { chargeScope: 'social' });
+    if (ledgerChoices?.length) {
+      const filtered = ledgerChoices.filter((row) => !dueOnAlreadyCovered(row.dueOn, paidSet));
+      if (filtered.length) return rewriteJoinFeeRows(member, filtered);
+      // Ledger presentaba períodos pero todos cubiertos por pagos: no reconstruir tarifa.
+      if (feeLedgerPendingCapital(member, { chargeScope: 'social' }) <= 0.01) return [];
+    }
+  }
+
   const storedChoices = choicesFromStoredOpenPeriods(member, paidOn, paidSet, scopeOpts);
   // [] = períodos hidratados y nada exigible (p. ej. remanente con clear admin).
   // null = sin snapshot → se puede reconstruir desde saldo/nextDue.

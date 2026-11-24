@@ -70,6 +70,7 @@ import {
   isAppPaymentBookingRequest,
   isOpenAppPaymentRequest,
   listOpenAppPaymentRequests,
+  parseAppPaymentAmountLabel,
   withAppPaymentHandled,
   withAppPaymentRead,
 } from '../../domain/members/appPaymentRequests';
@@ -1454,8 +1455,13 @@ export default function MembersWithAppPanel({
           initialMethod={collectRequest ? appPaymentRequestCollectMethod(collectRequest) : null}
           initialBankId={collectRequest ? appPaymentRequestBankId(collectRequest) : null}
           seedReceipt={collectRequest ? appPaymentRequestReceipt(collectRequest) : null}
+          seedRequestAmount={collectRequest
+            ? (parseAppPaymentAmountLabel(appPaymentRequestAmountLabel(collectRequest))
+              ?? collectRequest?.meta?.amount
+              ?? null)
+            : null}
           sourceNotice={collectRequest
-            ? `Solicitud de pago desde la app · ${appPaymentRequestMethodLabel(collectRequest)}`
+            ? `Solicitud de pago desde la app · ${appPaymentRequestMethodLabel(collectRequest)} · ${appPaymentRequestAmountLabel(collectRequest) || ''}`.trim()
             : ''}
         />
       ) : null}
