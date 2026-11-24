@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  accumulateClubMailProgress,
   deliverableEmail,
   mailAudienceCount,
   groupMailCampaigns,
@@ -24,6 +25,41 @@ describe('clubNotice', () => {
       { status: 'active', email: '' },
     ]);
     expect(counts).toEqual({ withMail: 1, withoutMail: 2 });
+  });
+
+  it('cuenta como el padrón: baja futura sí, baja vigente no, y un correo una sola vez', () => {
+    const today = new Date('2026-11-23T15:00:00-03:00');
+    const counts = mailAudienceCount([
+      { status: 'active', email: 'titular@club.com', memberId: '1' },
+      { status: 'active', email: 'familiar@club.com', memberId: '2', meta: { familyPrincipalNumber: '1' } },
+      { status: 'inactive', email: 'futuro@club.com', bajaFecha: '2026-12-01', meta: { bajaFecha: '2026-12-01' } },
+      { status: 'active', email: 'baja@club.com', bajaFecha: '2026-11-23', meta: { bajaFecha: '2026-11-23' } },
+      { status: 'inactive', email: 'efectiva@club.com', bajaFecha: '2026-10-01', meta: { bajaFecha: '2026-10-01' } },
+      { status: 'active', email: 'Titular@club.com', memberId: '9' },
+      { status: 'active', email: '' },
+    ], today);
+    expect(counts).toEqual({ withMail: 3, withoutMail: 1 });
+  });
+
+  it('el reintento no suma dos veces los envíos ya registrados', () => {
+    const first = accumulateClubMailProgress(
+      { sent: 0, failed: 0, skipped: 0, campaignId: 'camp' },
+      { sent: 600, failed: 0, skipped: 0, more: true, campaignId: 'camp' },
+    );
+    const second = accumulateClubMailProgress(first, {
+      sent: 400,
+      failed: 1,
+      skipped: 600,
+      more: false,
+      campaignId: 'camp',
+    });
+    expect(second).toEqual({
+      sent: 1000,
+      failed: 1,
+      skipped: 600,
+      more: false,
+      campaignId: 'camp',
+    });
   });
 
   it('arma el texto de confirmación', () => {
