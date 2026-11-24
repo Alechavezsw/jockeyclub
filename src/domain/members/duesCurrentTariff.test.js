@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { appMonthlyDebtForMember } from '../accounting/appMonthlyDebts';
 import { collectionDiscount, collectionPreview } from './memberPayments';
-import { collectionPeriodChoices, collectionTennisPeriodChoices } from './dues';
+import { collectionPeriodChoices, collectionTennisPeriodChoices, duesAmountForMember } from './dues';
 import {
   collectionChoicesFromFeeLedger,
   socialExigibleCapitalForCollect,
@@ -66,7 +66,33 @@ const SILVIA_LEDGER = [
   }),
 ];
 
-function silvia() {
+const SILVIA_HISTORY = [
+  ['10632', '2026-01-01', 'Cuota', 'Enero del 2026', 50000],
+  ['10632', '2026-01-01', 'Pago', '', -50000],
+  ['10632', '2026-02-01', 'Cuota', 'Febrero del 2026', 50000],
+  ['10632', '2026-02-11', 'Recargo de Cuota (FIJO)', 'Febrero del 2026', 2000],
+  ['10632', '2026-03-01', 'Cuota', 'Marzo del 2026', 50000],
+  ['10632', '2026-03-11', 'Recargo de Cuota (FIJO)', 'Marzo del 2026', 2000],
+  ['10632', '2026-04-01', 'Cuota', 'Abril del 2026', 50000],
+  ['10632', '2026-04-11', 'Recargo de Cuota (FIJO)', 'Abril del 2026', 2000],
+  ['10632', '2026-05-01', 'Cuota', 'Mayo del 2026', 60000],
+  ['10632', '2026-05-01', 'Otros', 'Actualizacion de Cuotas Febrero+Marzo+Abril 2026', 30000],
+  ['10632', '2026-05-11', 'Recargo de Cuota (FIJO)', 'Mayo del 2026', 2000],
+  ['10632', '2026-05-28', 'Pago', 'Cuota Ene+Feb+Mar+Abr+ Mayo 2026 +vto', -248000],
+  ['10632', '2026-06-01', 'Cuota', 'Junio del 2026', 60000],
+  ['10632', '2026-06-11', 'Recargo de Cuota (FIJO)', 'Junio del 2026', 2000],
+  ['10632', '2026-07-01', 'Cuota', 'Julio del 2026', 60000],
+  ['10632', '2026-07-11', 'Recargo de Cuota (FIJO)', 'Julio del 2026', 2000],
+  ['10632', '2026-08-01', 'Cuota', 'Agosto del 2026', 60000],
+  ['10632', '2026-08-10', 'Pago', 'Cuota Junio y Julio', -124000],
+  ['10632', '2026-08-11', 'Recargo de Cuota (FIJO)', 'Agosto del 2026', 2000],
+  ['10632', '2026-09-01', 'Cuota', 'Septiembre del 2026', 60000],
+  ['10632', '2026-09-10', 'Recargo de Cuota (10.00 %)', 'Septiembre del 2026', 6000],
+  ['10632', '2026-10-01', 'Cuota', 'Octubre del 2026', 70000],
+  ['10632', '2026-10-10', 'Recargo de Cuota (10.00 %)', 'Octubre del 2026', 7000],
+];
+
+function silvia(history = null) {
   return {
     memberId: '10632',
     memberNumber: '10632',
@@ -77,6 +103,7 @@ function silvia() {
     nextDueDate: null,
     cuotaCategories: ['SOCIO FAMILIAR'],
     feeLedgerLines: SILVIA_LEDGER,
+    accessinHistory: history,
     paymentHistory: [],
   };
 }
@@ -174,29 +201,82 @@ function luciano() {
 }
 
 describe('cuota a tarifa vigente, por mes', () => {
-  it('10632: octubre y noviembre a $77.000; el ajuste de $135.000 no es un mes', () => {
-    const member = silvia();
+  it('10632 verificada en LILA: agosto a noviembre a $77.000, sin sumar otra vez los $135.000', () => {
+    const member = silvia(SILVIA_HISTORY);
     const before = member.outstandingBalance;
     const choices = collectionPeriodChoices(member, TODAY, { chargeScope: 'social' });
-    expect(choices.map((row) => row.dueOn)).toEqual(['2026-10-10', '2026-11-10']);
-    expect(choices.map((row) => row.capital)).toEqual([70000, 70000]);
-    expect(choices.map((row) => row.surcharge)).toEqual([7000, 7000]);
-    expect(choices.map((row) => row.payable)).toEqual([77000, 77000]);
-    expect(choices.some((row) => row.dueOn.startsWith('2026-08') || row.dueOn.startsWith('2026-09'))).toBe(false);
-    const held = unreconciledHistoricalBalance(member);
-    expect(held.amount).toBe(135000);
+    expect(choices.map((row) => row.dueOn)).toEqual([
+      '2026-08-10',
+      '2026-09-10',
+      '2026-10-10',
+      '2026-11-10',
+    ]);
+    expect(choices.every((row) => row.capital === 70000 && row.surcharge === 7000 && row.payable === 77000)).toBe(true);
+    expect(choices.filter((row) => row.fromAccessinHistory).map((row) => row.dueOn)).toEqual([
+      '2026-08-10',
+      '2026-09-10',
+    ]);
+    expect(choices.find((row) => row.dueOn === '2026-08-10').originalCapital).toBe(60000);
+    const payable = choices.reduce((sum, row) => sum + row.payable, 0);
+    expect(payable).toBe(308000);
+    expect(payable - member.outstandingBalance).toBe(33000);
+    const held = unreconciledHistoricalBalance(member, TODAY);
+    expect(held.explained).toBe(135000);
+    expect(held.amount).toBe(0);
     expect(held.selectable).toBe(false);
     expect(socialExigibleCapitalForCollect(member)).toBe(140000);
     expect(member.outstandingBalance).toBe(before);
     const preview = collectionPreview(member, TODAY, { chargeScope: 'social' });
-    expect(preview.quota).toBe(140000);
-    expect(preview.surcharge).toBe(14000);
-    expect(preview.cash).toBe(154000);
+    expect(preview.quota).toBe(280000);
+    expect(preview.surcharge).toBe(28000);
+    expect(preview.cash).toBe(308000);
     const debt = appMonthlyDebtForMember(member, { today: TODAY });
-    expect(debt.totalDebt).toBe(154000);
-    expect(debt.unallocated).toBe(135000);
-    expect(debt.reconciliationHold).toBe(true);
-    expect(debt.months).toHaveLength(2);
+    expect(debt.months.map((row) => row.dueOn)).toEqual(choices.map((row) => row.dueOn));
+    expect(debt.totalDebt).toBe(308000);
+    expect(debt.unallocated).toBe(0);
+    expect(debt.reconciliationHold).toBe(false);
+  });
+
+  it('10632 sin historial no inventa agosto ni septiembre y deja los $135.000 aparte', () => {
+    const member = silvia();
+    const choices = collectionPeriodChoices(member, TODAY, { chargeScope: 'social' });
+    expect(choices.map((row) => row.dueOn)).toEqual(['2026-10-10', '2026-11-10']);
+    const held = unreconciledHistoricalBalance(member, TODAY);
+    expect(held.amount).toBe(135000);
+    expect(held.explained).toBe(0);
+    expect(member.outstandingBalance).toBe(275000);
+  });
+
+  it('la tarifa del cobro no usa la tarifa histórica del mes', () => {
+    const member = {
+      memberId: 'amet-1',
+      memberNumber: 'amet-1',
+      name: 'Socio AMET',
+      tier: 'socio_familiar_amet',
+      outstandingBalance: 58500,
+      cuotaCategories: ['SOCIO FAMILIAR (AMET)'],
+      feeLedgerLines: [
+        line({
+          member_number: 'amet-1',
+          line_date: '2026-08-01',
+          type_label: 'Cuota (SOCIO FAMILIAR AMET)',
+          description: 'Agosto del 2026',
+          amount: 58500,
+          collected: 0,
+          pending: 58500,
+          source: 'liquidation',
+        }),
+      ],
+      paymentHistory: [],
+    };
+    const historical = duesAmountForMember(member, new Date('2026-08-10T12:00:00'), { chargeScope: 'social' });
+    const current = duesAmountForMember(member, TODAY, { chargeScope: 'social' });
+    expect(current).not.toBe(historical);
+    const choices = collectionPeriodChoices(member, TODAY, { chargeScope: 'social' });
+    expect(choices).toHaveLength(1);
+    expect(choices[0].dueOn).toBe('2026-08-10');
+    expect(choices[0].capital).toBe(current);
+    expect(choices[0].originalCapital).toBe(58500);
   });
 
   it('10632 con agosto y septiembre verificados en el libro: cuatro meses y el saldo no se reescribe', () => {
@@ -242,6 +322,14 @@ describe('cuota a tarifa vigente, por mes', () => {
     expect(socialExigibleCapitalForCollect(member) + 12000).toBe(54000);
     const mp = collectionPreview(member, TODAY, { chargeScope: 'social' });
     expect(mp.cash).toBe(42000);
+    const withHistory = luciano();
+    withHistory.accessinHistory = [
+      ['100132', '2026-09-01', 'Cuota', 'Septiembre del 2026', 70000],
+      ['100132', '2026-09-01', 'Pago', '2026-09-01', -60000],
+    ];
+    const socialWithHistory = collectionPeriodChoices(withHistory, TODAY, { chargeScope: 'social' });
+    expect(socialWithHistory.map((row) => row.dueOn)).toEqual(['2026-11-10']);
+    expect(socialWithHistory[0].capital).toBe(42000);
   });
 
   it('saldo cero y mes cubierto no reabren deuda por un vencimiento viejo', () => {

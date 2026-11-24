@@ -13,6 +13,7 @@ import {
 import { todayISODateAR } from '../lib/arDate';
 import { isSupabaseConfigured } from '../lib/supabase';
 import { repos } from '../data/bootstrap';
+import { accessinHistoryForMember } from '../domain/accounting/accessinMemberHistory';
 
 function standingFromRpc(raw) {
   if (!raw) return null;
@@ -129,9 +130,13 @@ export function useMemberDuesStanding(member) {
   const memberForHistory = useMemo(() => {
     if (!member) return member;
     const base = remoteFicha ? { ...member, ...remoteFicha } : member;
-    const withLedger = remoteLedger.length
+    const withLedgerBase = remoteLedger.length
       ? { ...base, feeLedgerLines: remoteLedger }
       : base;
+    const accessinHistory = accessinHistoryForMember(withLedgerBase);
+    const withLedger = accessinHistory.length && withLedgerBase.accessinHistory !== accessinHistory
+      ? { ...withLedgerBase, accessinHistory }
+      : withLedgerBase;
     if (isDuesExemptMember(withLedger)) {
       return {
         ...withLedger,

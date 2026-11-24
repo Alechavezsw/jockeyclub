@@ -20,6 +20,7 @@ import {
   feeLedgerPendingCapital,
   unreconciledHistoricalBalance,
 } from '../../domain/members/duesCollectObligations';
+import { accessinHistoryForMember } from '../../domain/accounting/accessinMemberHistory';
 import { duesMonthsPhrase } from '../../domain/members/duesImputations';
 import { parseAppPaymentAmountLabel } from '../../domain/members/appPaymentRequests';
 import {
@@ -380,7 +381,21 @@ export default function CollectDuesModal({
     return () => { cancelled = true; };
   }, [member?.id, member?.memberId]);
 
-  const account = billingAccountMember(liveMember, members) || liveMember;
+  const accountBase = billingAccountMember(liveMember, members) || liveMember;
+  const historyMemberKey = `${accountBase?.memberNumber || ''}|${accountBase?.memberId || ''}`;
+  const providedHistory = accountBase?.accessinHistory;
+  const accessinHistory = useMemo(
+    () => accessinHistoryForMember({
+      memberNumber: historyMemberKey.split('|')[0],
+      memberId: historyMemberKey.split('|')[1],
+      accessinHistory: providedHistory,
+    }),
+    [historyMemberKey, providedHistory],
+  );
+  const account = useMemo(() => {
+    if (!accessinHistory.length || accountBase?.accessinHistory === accessinHistory) return accountBase;
+    return { ...accountBase, accessinHistory };
+  }, [accountBase, accessinHistory]);
   const separable = !forcedTennis && !forcedSocial && !hydrating && memberHasSeparableAddOn(account);
   const tennisOnly = forcedTennis || (separable && includeTennis && !includeSocial);
   const socialOnly = forcedSocial || (separable && includeSocial && !includeTennis);
@@ -477,6 +492,7 @@ export default function CollectDuesModal({
     account?.paymentHistory,
     account?.duesOpenPeriods,
     account?.feeLedgerLines,
+    account?.accessinHistory,
     account?.meta?.feeLedgerAdminReconcile,
     account?.meta?.feeLedgerAdminPartialReconcile,
   ]);
@@ -1435,19 +1451,44 @@ export default function CollectDuesModal({
                 );
               })}
             </ul>
-            {unreconciledHistoricalBalance(account).amount > 0.009 ? (
-              <div style={{ marginTop: '0.7rem', padding: '0.7rem 0.75rem', borderRadius: 8, border: '1px dashed var(--border-glass)' }}>
-                <p style={{ margin: 0, fontSize: '0.78rem', letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-gold)' }}>
-                  Saldo histórico pendiente de conciliación
-                </p>
-                <p className="tabular-nums" style={{ margin: '0.35rem 0 0', fontWeight: 700 }}>
-                  {formatCurrency(unreconciledHistoricalBalance(account).amount)}
-                </p>
-                <p style={{ margin: '0.35rem 0 0', color: 'var(--text-muted)', fontSize: '0.82rem' }}>
-                  No es una cuota. No entra en este cobro y el saldo de la ficha queda como está hasta que el club lo autorice.
-                </p>
-              </div>
-            ) : null}
+            {(() => {
+              const held = unreconciledHistoricalBalance(account);
+              const recorded = Number(account?.outstandingBalance) || 0;
+              const theoretical = periodChoices.reduce(
+                (sum, row) => sum + (Number(row.payable) || 0),
+                0,
+              );
+              const difference = theoretical - recorded;
+              if (held.explained > 0.009 && Math.abs(difference) > 0.009) {
+                return (
+                  <div style={{ marginTop: '0.7rem', padding: '0.7rem 0.75rem', borderRadius: 8, border: '1px dashed var(--border-glass)' }}>
+                    <p style={{ margin: 0, fontSize: '0.78rem', letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-gold)' }}>
+                      Diferencia con el saldo de la ficha
+                    </p>
+                    <p className="tabular-nums" style={{ margin: '0.35rem 0 0', fontWeight: 700 }}>
+                      {formatCurrency(difference)}
+                    </p>
+                    <p style={{ margin: '0.35rem 0 0', color: 'var(--text-muted)', fontSize: '0.82rem' }}>
+                      El saldo registrado sigue en {formatCurrency(recorded)}. El historial ya asignó {formatCurrency(held.explained)} y ese importe no se suma otra vez.
+                    </p>
+                  </div>
+                );
+              }
+              if (!(held.amount > 0.009)) return null;
+              return (
+                <div style={{ marginTop: '0.7rem', padding: '0.7rem 0.75rem', borderRadius: 8, border: '1px dashed var(--border-glass)' }}>
+                  <p style={{ margin: 0, fontSize: '0.78rem', letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-gold)' }}>
+                    Saldo histórico pendiente de conciliación
+                  </p>
+                  <p className="tabular-nums" style={{ margin: '0.35rem 0 0', fontWeight: 700 }}>
+                    {formatCurrency(held.amount)}
+                  </p>
+                  <p style={{ margin: '0.35rem 0 0', color: 'var(--text-muted)', fontSize: '0.82rem' }}>
+                    No es una cuota. No entra en este cobro y el saldo de la ficha queda como está hasta que el club lo autorice.
+                  </p>
+                </div>
+              );
+            })()}
           </div>
         ) : null}
 

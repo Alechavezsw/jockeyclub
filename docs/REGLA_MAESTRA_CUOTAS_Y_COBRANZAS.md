@@ -6,6 +6,8 @@ Esta regla vale para todo Jockey Connect. Antes de tocar cobranzas, cuotas, impu
 
 Cada mes impago se cobra por separado, con la tarifa vigente de la categoría del socio, más el recargo de ese mes si corresponde.
 
+La fecha del período identifica el mes y su vencimiento. La tarifa se toma con la fecha del cobro. La fecha del mes puede devolver la tarifa histórica y no se usa para valorizar.
+
 Para un socio familiar, la tarifa vigente es $ 70.000. Para un socio individual, $ 40.000. Vitalicio, fundador y comisión no abonan cuota social.
 
 Un mes impago entero se valoriza a esa tarifa. El importe original queda en el libro. La diferencia de tarifa se ve en el cobro y no se escribe sola en el saldo de la ficha.
@@ -42,8 +44,8 @@ Si el teórico de meses verificados no cierra con el saldo, la diferencia queda 
 
 ## Casos que las pruebas cuidan
 
-- 10632 Silvia Lorena Villalba: octubre y noviembre a $ 77.000, y $ 135.000 sin mes. El saldo sigue en $ 275.000. Agosto y septiembre no se inventan.
-- Si el libro trae agosto a noviembre verificados, son cuatro meses de $ 77.000 ($ 308.000). La diferencia de $ 33.000 con la ficha no se escribe sola.
+- 10632 Silvia Lorena Villalba: el historial de LILA verifica agosto y septiembre impagos, además de octubre y noviembre. Después del vencimiento son cuatro meses de $ 77.000 ($ 308.000). El saldo sigue en $ 275.000. La diferencia es $ 33.000 y no se escribe sola. Los $ 135.000 sin mes ya están explicados por ese historial y no se suman otra vez.
+- Sin ese historial, agosto y septiembre no se inventan: quedan octubre, noviembre y el ajuste aparte.
 - 10697: octubre y noviembre a $ 77.000, sin duplicar el recargo ya anotado. El débito no lleva recargo.
 - 100132 Luciano Virhuez: cuota social de noviembre $ 42.000 y abono de tenis $ 12.000. Total $ 54.000.
 - Saldo $ 0 con el mes cubierto: al día, aunque `next_due_date` sea viejo.

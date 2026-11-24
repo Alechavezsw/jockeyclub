@@ -2189,11 +2189,9 @@ export function collectionPeriodChoices(member, today = new Date(), { chargeScop
   if ((scope === 'social' || scope === 'all') && fichaBalance > 0.01 && hasLedger) {
     const ledgerChoices = collectionChoicesFromFeeLedger(member, paidOn, {
       chargeScope: 'social',
-      tariffOf: (dueOn) => duesAmountForMember(
-        member,
-        new Date(`${dueOn}T12:00:00`),
-        { chargeScope: 'social' },
-      ),
+      // La fecha del período identifica el mes y su vencimiento.
+      // La tarifa es la del día del cobro: la del mes puede ser la histórica.
+      tariffOf: () => duesAmountForMember(member, paidOn, { chargeScope: 'social' }),
     });
     const filtered = (ledgerChoices || []).filter((row) => !dueOnAlreadyCovered(row.dueOn, paidSet));
     // El libro dice qué meses existen. Lo que no tiene mes no se convierte en cuotas.

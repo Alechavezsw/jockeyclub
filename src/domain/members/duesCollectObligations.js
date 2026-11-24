@@ -271,8 +271,7 @@ function recordedSurchargeByYm(member) {
   return map;
 }
 
-/** Saldo del libro que no tiene mes. No se cobra como cuota ni se reparte solo. */
-export function unreconciledHistoricalBalance(member) {
+function rawUnassignedAdjustment(member) {
   const lines = [];
   let amount = 0;
   for (const line of ledgerLinesOf(member)) {
@@ -287,7 +286,306 @@ export function unreconciledHistoricalBalance(member) {
       source: String(line?.source || ''),
     });
   }
-  return { amount, lines, selectable: false };
+  return { amount, lines };
+}
+
+const HISTORY_MONTHS = [
+  ['septiembre', '09'],
+  ['setiembre', '09'],
+  ['noviembre', '11'],
+  ['diciembre', '12'],
+  ['febrero', '02'],
+  ['octubre', '10'],
+  ['agosto', '08'],
+  ['enero', '01'],
+  ['marzo', '03'],
+  ['abril', '04'],
+  ['junio', '06'],
+  ['julio', '07'],
+  ['mayo', '05'],
+  ['sep', '09'],
+  ['set', '09'],
+  ['nov', '11'],
+  ['dic', '12'],
+  ['feb', '02'],
+  ['oct', '10'],
+  ['ago', '08'],
+  ['ene', '01'],
+  ['mar', '03'],
+  ['abr', '04'],
+  ['jun', '06'],
+  ['jul', '07'],
+  ['may', '05'],
+];
+
+const HISTORY_MONTH_RE = new RegExp(
+  `\\b(${HISTORY_MONTHS.map(([name]) => name).join('|')})\\b`,
+  'g',
+);
+
+function historyMonthNumber(name) {
+  return HISTORY_MONTHS.find(([label]) => label === name)?.[1] || '';
+}
+
+function plainHistoryText(value) {
+  return String(value || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+}
+
+function historyPeriodsInText(concept, date) {
+  const text = plainHistoryText(concept);
+  const years = [...text.matchAll(/\b(20\d{2})\b/g)].map((match) => match[1]);
+  const year = years.length === 1
+    ? years[0]
+    : (String(date || '').slice(0, 4) || '');
+  if (!year) return [];
+  const found = [];
+  for (const match of text.matchAll(HISTORY_MONTH_RE)) {
+    const month = historyMonthNumber(match[1]);
+    if (month) found.push(`${year}-${month}`);
+  }
+  return [...new Set(found)];
+}
+
+function normalizeHistoryRow(raw) {
+  if (Array.isArray(raw)) {
+    return {
+      date: String(raw[1] || '').slice(0, 10),
+      type: String(raw[2] || ''),
+      concept: String(raw[3] || ''),
+      value: Number(raw[4]) || 0,
+    };
+  }
+  if (!raw || typeof raw !== 'object') return null;
+  return {
+    date: String(raw.date || raw.line_date || raw.lineDate || '').slice(0, 10),
+    type: String(raw.type || raw.line_type || raw.type_label || ''),
+    concept: String(raw.concept || raw.description || ''),
+    value: Number(raw.value ?? raw.amount) || 0,
+  };
+}
+
+function historyRowsOf(member) {
+  const raw = member?.accessinHistory || member?.meta?.accessinHistory;
+  if (!Array.isArray(raw)) return [];
+  return raw.map(normalizeHistoryRow).filter(Boolean);
+}
+
+function historyBlob(row) {
+  return plainHistoryText(`${row.type} ${row.concept}`);
+}
+
+function historyIsSocialRow(row) {
+  const blob = historyBlob(row);
+  if (/tenis|pulsera|reserva|salon|espacio verde|cancha/.test(blob)) return false;
+  if (/^saldo anterior\b/.test(plainHistoryText(row.type))) return false;
+  return /cuota|recargo|pago|bonific|actualizacion/.test(blob);
+}
+
+function emptyHistoryMonth() {
+  return { capital: 0, surcharge: 0, extra: 0, paid: 0 };
+}
+
+function historyRemaining(bucket, field) {
+  const before = field === 'capital'
+    ? 0
+    : field === 'surcharge'
+      ? bucket.capital
+      : bucket.capital + bucket.surcharge;
+  return money(Math.max(0, bucket[field] - Math.max(0, bucket.paid - before)));
+}
+
+function applyHistoryPayment(bucket, amount) {
+  const room = money(bucket.capital + bucket.surcharge + bucket.extra - bucket.paid);
+  const used = money(Math.min(Math.max(0, room), Math.max(0, amount)));
+  bucket.paid = money(bucket.paid + used);
+  return money(Math.max(0, amount - used));
+}
+
+/**
+ * Meses de cuota social según el historial LILA.
+ * Un pago con mes va a esos meses. Uno del mismo día cancela esa cuota.
+ * Lo que no tiene mes no abre un período.
+ */
+export function accessinSocialMonths(rows) {
+  const months = new Map();
+  const ensure = (ym) => {
+    if (!months.has(ym)) months.set(ym, emptyHistoryMonth());
+    return months.get(ym);
+  };
+  const ordered = (Array.isArray(rows) ? rows : [])
+    .map(normalizeHistoryRow)
+    .filter((row) => row && historyIsSocialRow(row))
+    .toSorted((a, b) => {
+      const byDate = a.date.localeCompare(b.date);
+      if (byDate) return byDate;
+      const rank = (row) => (/pago|bonific/.test(plainHistoryText(row.type)) ? 1 : 0);
+      return rank(a) - rank(b);
+    });
+
+  const payments = [];
+  for (const row of ordered) {
+    const type = plainHistoryText(row.type);
+    const periods = historyPeriodsInText(row.concept, row.date);
+    const amount = money(Math.abs(row.value));
+    if (!(amount > EPS)) continue;
+    if (/^cuota\b/.test(type) && row.value > 0) {
+      const ym = periods[0] || asYm(row.date);
+      if (ym) ensure(ym).capital = money(ensure(ym).capital + amount);
+      continue;
+    }
+    if (/recargo/.test(type) && row.value > 0) {
+      const ym = periods[0] || asYm(row.date);
+      if (ym) ensure(ym).surcharge = money(ensure(ym).surcharge + amount);
+      continue;
+    }
+    if (/actualizacion/.test(historyBlob(row)) && row.value > 0 && periods.length) {
+      let left = amount;
+      const named = [...periods].toSorted();
+      named.forEach((ym, index) => {
+        const share = index === named.length - 1 ? left : money(amount / named.length);
+        ensure(ym).extra = money(ensure(ym).extra + share);
+        left = money(Math.max(0, left - share));
+      });
+      continue;
+    }
+    if (row.value < 0 && (/pago|bonific/.test(type) || /bonific/.test(historyBlob(row)))) {
+      payments.push({ ...row, periods, amount });
+    }
+  }
+
+  for (const payment of payments) {
+    let left = payment.amount;
+    const named = payment.periods.filter((ym) => months.has(ym));
+    const targets = named.length
+      ? named
+      : (!plainHistoryText(payment.concept) || plainHistoryText(payment.concept) === payment.date
+        ? [...months.keys()].filter((ym) => asYm(payment.date) === ym)
+        : []);
+    for (const ym of targets.toSorted()) {
+      if (!(left > EPS)) break;
+      left = applyHistoryPayment(months.get(ym), left);
+    }
+  }
+
+  return [...months.entries()]
+    .map(([ym, bucket]) => ({
+      ym,
+      dueOn: dueOnFromPeriodYm(ym, DEFAULT_DUE_DAY),
+      originalCapital: money(bucket.capital),
+      capitalOpen: historyRemaining(bucket, 'capital'),
+      historicalSurcharge: historyRemaining(bucket, 'surcharge'),
+      applied: money(Math.min(bucket.capital, bucket.paid)),
+    }))
+    .filter((row) => row.originalCapital > EPS)
+    .toSorted((a, b) => a.ym.localeCompare(b.ym));
+}
+
+function ledgerSocialCoverage(member) {
+  const covered = new Set();
+  const open = new Set();
+  for (const line of ledgerLinesOf(member)) {
+    if (!feeLedgerLineIsSocial(line)) continue;
+    const ym = linePeriodYm(line);
+    if (!ym) continue;
+    const pending = money(Number(line?.pending) || 0);
+    const collected = money(Number(line?.collected) || 0);
+    const amount = money(Number(line?.amount) || 0);
+    if (pending > EPS) open.add(ym);
+    else if (collected > EPS || amount > EPS) covered.add(ym);
+  }
+  for (const row of listFeeLedgerAdminReconcileClears(member)) {
+    const ym = asYm(row?.dueOn);
+    if (ym) covered.add(ym);
+  }
+  return { covered, open };
+}
+
+function collectionYm(paidOn) {
+  const date = paidOn instanceof Date ? paidOn : new Date(paidOn);
+  if (!Number.isFinite(date.getTime())) return '';
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function unexplainedSocialGap(member) {
+  const outstanding = money(Math.max(0, Number(member?.outstandingBalance) || 0));
+  const social = feeLedgerPendingCapital(member, { chargeScope: 'social' });
+  const tennis = feeLedgerPendingCapital(member, { chargeScope: 'abono_tenis' });
+  let surcharge = 0;
+  for (const line of ledgerLinesOf(member)) {
+    if (!feeLedgerLineIsSurcharge(line)) continue;
+    surcharge = money(surcharge + (Number(line?.pending) || 0));
+  }
+  return money(Math.max(0, outstanding - social - tennis - surcharge));
+}
+
+/**
+ * Meses del historial que explican el saldo sin período.
+ * No reabre un mes cobrado o regularizado y no pasa del saldo sin explicar.
+ */
+export function planHistoryBackedMonths(member, paidOn = new Date()) {
+  const history = accessinSocialMonths(historyRowsOf(member));
+  const gap = unexplainedSocialGap(member);
+  const { covered, open } = ledgerSocialCoverage(member);
+  const currentYm = collectionYm(paidOn);
+  let budget = gap;
+  let consumed = 0;
+  const consume = (amount) => {
+    const used = money(Math.min(budget, amount));
+    if (!(used > EPS)) return false;
+    budget = money(budget - used);
+    consumed = money(consumed + used);
+    return true;
+  };
+
+  for (const row of history) {
+    if (!open.has(row.ym) || covered.has(row.ym)) continue;
+    if (!(row.historicalSurcharge > EPS)) continue;
+    consume(row.historicalSurcharge);
+  }
+
+  const add = [];
+  for (const row of history) {
+    if (!(row.capitalOpen > EPS)) continue;
+    if (covered.has(row.ym) || open.has(row.ym)) continue;
+    if (currentYm && row.ym > currentYm) continue;
+    const cost = money(row.capitalOpen + row.historicalSurcharge);
+    if (cost > budget + EPS) continue;
+    if (!consume(cost)) continue;
+    add.push({
+      dueOn: row.dueOn,
+      capital: row.originalCapital,
+      capitalOpen: row.capitalOpen,
+      collected: row.applied,
+      amount: row.originalCapital,
+      historicalSurcharge: row.historicalSurcharge,
+      source: 'accessin-history',
+    });
+  }
+
+  return { add, consumed, gap };
+}
+
+/**
+ * Saldo del libro que no tiene mes. Si el historial ya lo asigna, no se vuelve a mostrar.
+ * No se cobra como cuota ni se reparte solo.
+ */
+export function unreconciledHistoricalBalance(member, paidOn = new Date()) {
+  const raw = rawUnassignedAdjustment(member);
+  const plan = historyRowsOf(member).length
+    ? planHistoryBackedMonths(member, paidOn)
+    : { consumed: 0, add: [] };
+  const explained = money(Math.min(raw.amount, plan.consumed));
+  const amount = money(Math.max(0, raw.amount - explained));
+  return {
+    amount,
+    explained,
+    lines: amount > EPS ? raw.lines : [],
+    selectable: false,
+    assignedMonths: plan.add.map((row) => row.dueOn),
+  };
 }
 
 /**
@@ -302,7 +600,13 @@ export function collectionChoicesFromFeeLedger(member, paidOn = new Date(), {
   if (!member || isDuesExemptRaw(member) || isFamilyDependent(member)) return null;
   const scope = String(chargeScope || 'social').toLowerCase();
   const tennisScope = scope === 'addon' || scope === 'abono_tenis' || scope === 'tenis';
-  const periods = duesOpenPeriodsFromFeeLedger(member, { chargeScope });
+  const ledgerPeriods = duesOpenPeriodsFromFeeLedger(member, { chargeScope });
+  const historyPeriods = tennisScope ? [] : planHistoryBackedMonths(member, paidOn).add;
+  const seen = new Set(ledgerPeriods.map((row) => String(row.dueOn).slice(0, 7)));
+  const periods = [
+    ...ledgerPeriods,
+    ...historyPeriods.filter((row) => !seen.has(String(row.dueOn).slice(0, 7))),
+  ].toSorted((a, b) => String(a.dueOn).localeCompare(String(b.dueOn)));
   if (!periods.length) return null;
   const recorded = recordedSurchargeByYm(member);
   const allowsLate = !tennisScope && memberAllowsMonthlyLate(member);
@@ -343,6 +647,8 @@ export function collectionChoicesFromFeeLedger(member, paidOn = new Date(), {
       kind: overdue ? 'overdue' : 'upcoming',
       chargeScope: tennisScope ? 'abono_tenis' : 'social',
       fromFeeLedger: true,
+      fromAccessinHistory: row.source === 'accessin-history',
+      historicalSurcharge: money(row.historicalSurcharge || 0),
       partial,
     };
   }).filter((row) => row.capital > EPS);
