@@ -1353,7 +1353,8 @@ export function collectionPreview(member, today = new Date(), {
       : money(selectedChoices.reduce((sum, row) => sum + (Number(row.surcharge) || 0), 0));
     let gross = money(quota + surcharge);
     // Saldo de ficha sin mes entero a tarifa: cobrar el residual, no inventar mes ni crédito.
-    if (!(gross > 0.01) && stored > 0.01) {
+    const ledgerIdentifiesPeriods = Array.isArray(member?.feeLedgerLines) && member.feeLedgerLines.length > 0;
+    if (!(gross > 0.01) && stored > 0.01 && !ledgerIdentifiesPeriods) {
       gross = money(Math.max(0, stored));
     }
     const credit = explicitCredit;

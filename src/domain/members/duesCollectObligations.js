@@ -7,6 +7,7 @@
 import { money } from '../money.js';
 import { duesMonthLabel } from './duesImputations.js';
 import { isFamilyDependent } from './households.js';
+import { DUES_LATE_RATE, DUES_LATE_TIER_IDS } from './tiers.js';
 
 const EPS = 0.009;
 const DEFAULT_DUE_DAY = 10;
@@ -51,30 +52,48 @@ function isDuesExemptRaw(member) {
 
 /** ¿La línea es abono tenis (no cuota social)? */
 export function feeLedgerLineIsTennis(line) {
-  const blob = [
-    line?.type_label,
-    line?.typeLabel,
-    line?.description,
-    line?.source,
-    line?.id,
-  ].map((v) => String(v || '').toLowerCase()).join(' ');
+  const blob = lineBlob(line);
   if (/abono_tenis|abono.?tenis/.test(blob)) return true;
   return /\btenis\b/.test(blob) && !/socio familiar|socio individual|cuota \(socio/.test(blob);
 }
 
 export function feeLedgerLineIsSocial(line) {
   if (!line) return false;
-  if (feeLedgerLineIsTennis(line)) return false;
-  const blob = [
-    line?.type_label,
-    line?.typeLabel,
-    line?.description,
-    line?.source,
-  ].map((v) => String(v || '').toLowerCase()).join(' ');
+  if (feeLedgerLineIsTennis(line) || feeLedgerLineIsSurcharge(line) || feeLedgerLineIsUnassignedAdjustment(line)) {
+    return false;
+  }
+  const blob = lineBlob(line);
   if (/reclasific|contraajuste|sin ingreso/.test(blob)) return false;
   const pending = money(Number(line?.pending) || 0);
   if (/cuota|socio|familiar|individual|amet|liquidat/.test(blob)) return true;
+  if (!linePeriodYm(line)) return false;
   return pending > EPS;
+}
+
+const MONTH_NUMBER = {
+  enero: '01',
+  febrero: '02',
+  marzo: '03',
+  abril: '04',
+  mayo: '05',
+  junio: '06',
+  julio: '07',
+  agosto: '08',
+  septiembre: '09',
+  setiembre: '09',
+  octubre: '10',
+  noviembre: '11',
+  diciembre: '12',
+};
+
+function periodYmFromText(value) {
+  const text = String(value || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+  const match = text.match(/\b(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|setiembre|octubre|noviembre|diciembre)\b(?:\s+(?:de|del))?\s+(20\d{2})/);
+  if (!match) return '';
+  return `${match[2]}-${MONTH_NUMBER[match[1]]}`;
 }
 
 function linePeriodYm(line) {
@@ -84,7 +103,34 @@ function linePeriodYm(line) {
     || line?.date
     || line?.periodYm
     || line?.period,
-  );
+  ) || periodYmFromText(line?.description);
+}
+
+function lineBlob(line) {
+  return [
+    line?.type,
+    line?.type_label,
+    line?.typeLabel,
+    line?.description,
+    line?.source,
+    line?.id,
+  ].map((value) => String(value || '').toLowerCase()).join(' ');
+}
+
+export function feeLedgerLineIsSurcharge(line) {
+  return /recargo/.test(lineBlob(line));
+}
+
+/** Ajuste sin mes: no es una cuota y no se reparte solo. */
+export function feeLedgerLineIsUnassignedAdjustment(line) {
+  if (feeLedgerLineIsSurcharge(line) || feeLedgerLineIsTennis(line)) return false;
+  const blob = lineBlob(line);
+  const dated = asYm(line?.line_date || line?.lineDate || line?.date);
+  if (/reclasific|contraajuste|sin ingreso/.test(blob)) return false;
+  const unassigned = /connect_admin_reconciliation/.test(blob) && !/imputed/.test(blob);
+  const named = /ajuste administrativo/.test(blob);
+  if (!unassigned && !named) return false;
+  return !dated;
 }
 
 /**
@@ -168,10 +214,14 @@ export function duesOpenPeriodsFromFeeLedger(member, { chargeScope = 'social' } 
       dueOn: dueOnFromPeriodYm(ym, DEFAULT_DUE_DAY),
       capital: 0,
       capitalOpen: 0,
+      collected: 0,
+      amount: 0,
       source: 'fee_ledger',
     };
     prev.capitalOpen = money(prev.capitalOpen + pending);
-    prev.capital = money(Math.max(prev.capital, amount > EPS ? amount : pending, prev.capitalOpen));
+    prev.collected = money(prev.collected + (Number(line?.collected) || 0));
+    prev.amount = money(prev.amount + (amount > EPS ? amount : pending));
+    prev.capital = money(Math.max(prev.capital, prev.amount, prev.capitalOpen));
     byYm.set(ym, prev);
   }
   return [...byYm.values()]
@@ -202,36 +252,98 @@ export function socialExigibleCapitalForCollect(member) {
   return 0;
 }
 
+function memberAllowsMonthlyLate(member) {
+  const tier = String(member?.tier || '').trim().toLowerCase();
+  if (!tier) return true;
+  return DUES_LATE_TIER_IDS.has(tier);
+}
+
+function recordedSurchargeByYm(member) {
+  const map = new Map();
+  for (const line of ledgerLinesOf(member)) {
+    if (!feeLedgerLineIsSurcharge(line)) continue;
+    const pending = money(Number(line?.pending) || 0);
+    if (!(pending > EPS)) continue;
+    const ym = linePeriodYm(line);
+    if (!ym) continue;
+    map.set(ym, money((map.get(ym) || 0) + pending));
+  }
+  return map;
+}
+
+/** Saldo del libro que no tiene mes. No se cobra como cuota ni se reparte solo. */
+export function unreconciledHistoricalBalance(member) {
+  const lines = [];
+  let amount = 0;
+  for (const line of ledgerLinesOf(member)) {
+    if (!feeLedgerLineIsUnassignedAdjustment(line)) continue;
+    const pending = money(Number(line?.pending) || 0);
+    if (!(pending > EPS)) continue;
+    amount = money(amount + pending);
+    lines.push({
+      id: String(line?.id || ''),
+      description: String(line?.description || line?.type || line?.type_label || 'Ajuste sin período'),
+      pending,
+      source: String(line?.source || ''),
+    });
+  }
+  return { amount, lines, selectable: false };
+}
+
 /**
- * Choices desde pending del auxiliar.
- * Sin unpaidSurcharges en ficha: no inventa 10 % sobre capital ya regularizado.
+ * Cada mes abierto sale a la tarifa vigente si está impago entero.
+ * Un pago parcial conserva el remanente. Un recargo ya anotado no se vuelve a sumar.
+ * El saldo de ficha no se reescribe.
  */
 export function collectionChoicesFromFeeLedger(member, paidOn = new Date(), {
   chargeScope = 'social',
+  tariffOf = null,
 } = {}) {
   if (!member || isDuesExemptRaw(member) || isFamilyDependent(member)) return null;
+  const scope = String(chargeScope || 'social').toLowerCase();
+  const tennisScope = scope === 'addon' || scope === 'abono_tenis' || scope === 'tenis';
   const periods = duesOpenPeriodsFromFeeLedger(member, { chargeScope });
   if (!periods.length) return null;
-  const unpaidSurcharges = money(Math.max(0, Number(member?.unpaidSurcharges) || 0));
-  const allowLate = unpaidSurcharges > EPS;
+  const recorded = recordedSurchargeByYm(member);
+  const allowsLate = !tennisScope && memberAllowsMonthlyLate(member);
   const rows = periods.map((row) => {
     const dueOn = String(row.dueOn).slice(0, 10);
     const due = new Date(`${dueOn}T12:00:00`);
     const overdue = Number.isFinite(due.getTime()) && due < paidOn;
-    const capital = money(row.capitalOpen);
-    const surcharge = allowLate && overdue ? money(capital * 0.1) : 0;
+    const pending = money(row.capitalOpen);
+    const applied = money(row.collected || 0);
+    const originalCapital = money(row.amount || row.capital || pending);
+    const partial = applied > EPS && pending + EPS < originalCapital;
+    let capital = pending;
+    let tariffUpdate = 0;
+    if (!partial && !tennisScope && typeof tariffOf === 'function') {
+      const tariff = money(tariffOf(dueOn));
+      if (tariff > EPS) {
+        capital = tariff;
+        tariffUpdate = money(Math.max(0, capital - pending));
+      }
+    }
+    const alreadyCharged = money(recorded.get(dueOn.slice(0, 7)) || 0);
+    let surcharge = 0;
+    if (tennisScope) surcharge = 0;
+    else if (alreadyCharged > EPS) surcharge = alreadyCharged;
+    else if (!partial && overdue && allowsLate) surcharge = money(capital * DUES_LATE_RATE);
     return {
       id: dueOn,
       dueOn,
       monthKey: dueOn.slice(0, 7),
       label: duesMonthLabel(dueOn),
       capital,
-      lateBase: allowLate && overdue ? capital : 0,
+      originalCapital,
+      applied,
+      tariffUpdate,
+      lateBase: surcharge > EPS ? capital : 0,
       surcharge,
       payable: money(capital + surcharge),
       kind: overdue ? 'overdue' : 'upcoming',
-      chargeScope: 'social',
+      chargeScope: tennisScope ? 'abono_tenis' : 'social',
       fromFeeLedger: true,
+      partial,
     };
   }).filter((row) => row.capital > EPS);
   return rows.length ? rows : null;
