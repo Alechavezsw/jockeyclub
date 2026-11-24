@@ -450,6 +450,11 @@ export function canManageMembers(roleOrRoles) {
     || keys.includes('admin_employee');
 }
 
+/** Corregir vínculos familiares (misma autoridad de padrón; el backend revalida). */
+export function canCorrectFamilyLinks(roleOrRoles) {
+  return canManageMembers(roleOrRoles);
+}
+
 /**
  * Entregar acceso del portal a un socio (alta de usuario member / reset clave).
  * Cualquier rol de staff del panel: administración, caja, portería, pileta, etc.
