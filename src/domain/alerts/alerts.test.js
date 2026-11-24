@@ -1,12 +1,32 @@
 import { beforeEach, describe, it, expect } from 'vitest';
 import {
   acknowledgeAlert,
+  alertImages,
   createAlert,
   filterAlertsForRole,
   isAlertAcknowledged,
   mergeAlertAcknowledgements,
   syncZondaAlert,
 } from './alerts';
+import { isUuid } from '../../data/repos/shared.js';
+
+describe('alertas manuales', () => {
+  it('el id local no se manda como uuid', () => {
+    const alert = createAlert({ title: 'Pileta', body: 'Cerrada' });
+    expect(alert.id.startsWith('alert-')).toBe(true);
+    expect(isUuid(alert.id)).toBe(false);
+    expect(isUuid('alert-1795563284569-uj95')).toBe(false);
+  });
+
+  it('guarda las fotos en la metadata', () => {
+    const alert = createAlert({
+      title: 'Pileta',
+      body: 'Cerrada',
+      metadata: { images: [{ path: 'alerts/pileta.jpg', name: 'pileta.jpg' }, null] },
+    });
+    expect(alertImages(alert).map((image) => image.path)).toEqual(['alerts/pileta.jpg']);
+  });
+});
 
 describe('filterAlertsForRole', () => {
   // Se crean en beforeEach: el setup congela Date en 2026-11-03 y `createAlert` usa `new Date()`

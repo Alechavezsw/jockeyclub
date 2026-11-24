@@ -1,8 +1,9 @@
-import { useState } from 'react';
-import { BellRing, Mail, Megaphone, MessageSquare, ShieldAlert } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { BellRing, ImagePlus, Mail, Megaphone, MessageSquare, ShieldAlert, X } from 'lucide-react';
 import {
   ALERT_SEVERITY,
   alertDismissKey,
+  alertImages,
   filterAlertsForRole,
   isAlertAcknowledged,
   isAlertVisible,
@@ -15,7 +16,44 @@ import {
   buildAlertDmMessage,
 } from '../../domain/alerts/alertDelivery';
 import { repos } from '../../data/bootstrap';
+import { signAlertImage, uploadAlertImage } from '../../data/storage';
 import { isSupabaseConfigured } from '../../lib/supabase';
+
+const MAX_ALERT_PHOTOS = 6;
+
+function AlertPhotos({ images = [] }) {
+  const list = Array.isArray(images) ? images : [];
+  const imageKey = list.map((image) => image.path || image.url || image.name || '').join('|');
+  const imagesRef = useRef(list);
+  imagesRef.current = list;
+  const [urls, setUrls] = useState([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const current = imagesRef.current;
+    if (!current.length) {
+      setUrls([]);
+      return undefined;
+    }
+    Promise.all(current.map(async (image) => {
+      if (image.url && String(image.url).startsWith('blob:')) return { ...image, src: image.url };
+      const src = image.path ? await signAlertImage(image.path) : (image.url || '');
+      return src ? { ...image, src } : null;
+    })).then((rows) => {
+      if (!cancelled) setUrls(rows.filter(Boolean));
+    });
+    return () => { cancelled = true; };
+  }, [imageKey]);
+
+  if (!urls.length) return null;
+  return (
+    <div className="alerts-photos">
+      {urls.map((image) => (
+        <img key={image.path || image.src} src={image.src} alt={image.name || 'Foto de la alerta'} />
+      ))}
+    </div>
+  );
+}
 
 export function AlertsBanner({
   alerts,
@@ -62,6 +100,7 @@ export function AlertsBanner({
               <div>
                 <div className="alerts-banner-title" style={{ color: sev.color }}>{alert.title}</div>
                 <div className="alerts-banner-body">{alert.body}</div>
+                <AlertPhotos images={alertImages(alert)} />
               </div>
             </div>
             <button
@@ -105,6 +144,7 @@ export default function AlertsPanel({
   const [form, setForm] = useState(EMPTY_FORM);
   const [notifyDm, setNotifyDm] = useState(true);
   const [notifyMail, setNotifyMail] = useState(true);
+  const [photos, setPhotos] = useState([]);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
   const [error, setError] = useState('');
@@ -122,7 +162,14 @@ export default function AlertsPanel({
 
     setBusy(true);
     try {
-      const saved = await publishAlert(form);
+      const images = [];
+      for (const photo of photos) {
+        images.push(await uploadAlertImage(photo.file));
+      }
+      const saved = await publishAlert({
+        ...form,
+        metadata: { images },
+      });
       const bits = { dm: false, mail: false, mailed: null };
 
       if (notifyDm && typeof onSendMessage === 'function') {
@@ -148,6 +195,10 @@ export default function AlertsPanel({
           const detail = err?.message || 'el mail no salió';
           if (bits.dm) {
             setForm(EMPTY_FORM);
+            setPhotos((prev) => {
+              prev.forEach((photo) => URL.revokeObjectURL(photo.preview));
+              return [];
+            });
             setMsg(`Alerta y MD publicados. El mail no: ${detail}`);
             return;
           }
@@ -156,10 +207,18 @@ export default function AlertsPanel({
       } else if (notifyMail && !isSupabaseConfigured) {
         setMsg(alertDeliverySummary({ ...bits, dm: bits.dm }) + ' Mail solo en la nube.');
         setForm(EMPTY_FORM);
+        setPhotos((prev) => {
+          prev.forEach((photo) => URL.revokeObjectURL(photo.preview));
+          return [];
+        });
         return;
       }
 
       setForm(EMPTY_FORM);
+      setPhotos((prev) => {
+        prev.forEach((photo) => URL.revokeObjectURL(photo.preview));
+        return [];
+      });
       setMsg(alertDeliverySummary(bits));
     } catch (err) {
       setError(err?.message || 'No se pudo publicar la alerta.');
@@ -203,6 +262,53 @@ export default function AlertsPanel({
             onChange={(e) => setForm({ ...form, body: e.target.value })}
             disabled={busy}
           />
+          <label className="alerts-photo-add">
+            <ImagePlus size={14} aria-hidden="true" />
+            Adjuntar fotos
+            <input
+              type="file"
+              accept="image/*"
+              multiple
+              disabled={busy || photos.length >= MAX_ALERT_PHOTOS}
+              onChange={(e) => {
+                const files = Array.from(e.target.files || []);
+                e.target.value = '';
+                setError('');
+                setPhotos((prev) => {
+                  const room = MAX_ALERT_PHOTOS - prev.length;
+                  const next = files.slice(0, room).flatMap((file) => {
+                    if (file.type && !file.type.startsWith('image/')) return [];
+                    if (file.size > 10 * 1024 * 1024) return [];
+                    return [{ file, preview: URL.createObjectURL(file), name: file.name }];
+                  });
+                  if (next.length < files.length) {
+                    setError('Solo imágenes de hasta 10 MB, como máximo 6.');
+                  }
+                  return [...prev, ...next];
+                });
+              }}
+            />
+          </label>
+          {photos.length ? (
+            <div className="alerts-photos">
+              {photos.map((photo) => (
+                <figure key={photo.preview}>
+                  <img src={photo.preview} alt={photo.name || 'Foto adjunta'} />
+                  <button
+                    type="button"
+                    aria-label={`Quitar ${photo.name || 'foto'}`}
+                    onClick={() => {
+                      URL.revokeObjectURL(photo.preview);
+                      setPhotos((prev) => prev.filter((item) => item.preview !== photo.preview));
+                    }}
+                    disabled={busy}
+                  >
+                    <X size={12} />
+                  </button>
+                </figure>
+              ))}
+            </div>
+          ) : null}
         </div>
         <div>
           <label className="form-label">Severidad</label>
@@ -291,6 +397,7 @@ export default function AlertsPanel({
                 <div>
                   <strong style={{ color: sev.color }}>{alert.title}</strong>
                   <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{alert.body}</div>
+                  <AlertPhotos images={alertImages(alert)} />
                   <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 4 }}>
                     {alert.source} · {alert.audience} · {live ? 'ACTIVA' : 'Inactiva'}
                   </div>

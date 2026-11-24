@@ -1,12 +1,14 @@
 import { isOperationalMember } from '../members/operationalVisibility';
 
-/** Mail real: se saltean alias de prueba y el dominio que rebota. */
+const CLUB_MAIL_ADDRESS = /^[a-z0-9](?:[a-z0-9._%+-]{0,62}[a-z0-9])?@[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/;
+
+/** Mail real: se saltean alias de prueba, el dominio que rebota y las direcciones rotas. */
 export function deliverableEmail(value) {
-  const email = String(value || '').trim();
-  if (!email.includes('@')) return '';
-  const lower = email.toLowerCase();
+  const lower = String(value || '').trim().toLowerCase();
+  if (!lower || lower.includes(' ') || lower.split('@').length !== 2) return '';
   if (lower.includes('@lila-jockey')) return '';
   if (lower.endsWith('@jockeyclubsj.com')) return '';
+  if (!CLUB_MAIL_ADDRESS.test(lower)) return '';
   return lower;
 }
 

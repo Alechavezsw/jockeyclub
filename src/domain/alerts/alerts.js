@@ -57,6 +57,11 @@ export function filterAlertsForRole(alerts, role = 'member') {
   });
 }
 
+export function alertImages(alert) {
+  const list = alert?.metadata?.images || alert?.images || [];
+  return (Array.isArray(list) ? list : []).filter((item) => item && (item.path || item.url));
+}
+
 export function alertDismissKey(alert) {
   if (!alert) return '';
   if (alert.code) return String(alert.code);

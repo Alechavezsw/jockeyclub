@@ -700,6 +700,7 @@ export async function previewClubMail({
   text,
   audience = 'all',
   memberNumber = '',
+  images = [],
 } = {}) {
   await requireMailSession();
   return invokeFunction('send-club-mail', {
@@ -708,6 +709,7 @@ export async function previewClubMail({
     text,
     audience,
     memberNumber,
+    images,
   }, 'No se pudo revisar los destinatarios');
 }
 
@@ -745,6 +747,7 @@ export async function sendClubMailCampaign({
   memberNumber = '',
   campaignId,
   previewId = '',
+  images = [],
   onProgress,
 } = {}) {
   await requireMailSession();
@@ -766,6 +769,7 @@ export async function sendClubMailCampaign({
       memberNumber,
       campaignId: id,
       previewId,
+      images,
     }, 'No se pudo enviar el mail');
     const progress = accumulateClubMailProgress(
       { sent, failed, skipped, campaignId: id },

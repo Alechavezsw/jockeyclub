@@ -248,6 +248,7 @@ export default function ColoniaTab({
   const [rosterQuery, setRosterQuery] = useState('');
   const [siblingQuery, setSiblingQuery] = useState('');
   const [slotQuery, setSlotQuery] = useState({});
+  const [showFamilyPicker, setShowFamilyPicker] = useState(false);
   const guardianLockedRef = useRef(false);
   const membersRef = useRef(members);
   membersRef.current = members;
@@ -362,6 +363,12 @@ export default function ColoniaTab({
   }
   const formErrors = [...draftValidation.errors, ...extraProblems];
   const formOk = draftValidation.ok && extraProblems.length === 0;
+  const familyFilled = chosenKeys.filter(Boolean).length >= childSlots;
+  const showFamilyList = !familyFilled || showFamilyPicker;
+  const chosenFamilyNames = chosenKeys
+    .map((key) => household.find((row) => memberKey(row) === key))
+    .filter(Boolean)
+    .map((row) => memberDisplayName(row));
 
   useEffect(() => {
     if (student.memberKind !== 'socio') {
@@ -476,6 +483,7 @@ export default function ColoniaTab({
     setHouseholdBusy(false);
     setChosenKeys([]);
     setSlotQuery({});
+    setShowFamilyPicker(false);
   }
 
   function coloniaNoticeText(row) {
@@ -621,6 +629,7 @@ export default function ColoniaTab({
     else if (chosenKeys.length >= childSlots) next = [...chosenKeys.slice(0, childSlots - 1), key];
     else next = [...chosenKeys, key];
     applyChosen(next, household, childSlots);
+    setShowFamilyPicker(false);
   }
 
   function changePlan(nextKey) {
@@ -689,6 +698,7 @@ export default function ColoniaTab({
     setMemberQuery('');
     setMemberHits([]);
     setSlotQuery({});
+    setShowFamilyPicker(false);
     setGuardian({
       ...EMPTY_GUARDIAN,
       fullName: memberDisplayName(row),
@@ -923,6 +933,7 @@ export default function ColoniaTab({
       setChosenKeys([]);
       setExtraStudents([]);
       setSlotQuery({});
+      setShowFamilyPicker(false);
       const en = await repos.listColoniaEnrollments(seasonId);
       setEnrollments(en);
       setSelectedEnrollment(enrollment);
@@ -1197,7 +1208,8 @@ export default function ColoniaTab({
     const query = slotQuery[slot] || '';
     const parsed = clubMailMemberQuery(query);
     const searchReady = parsed.kind === 'number' || (parsed.kind === 'text' && parsed.text.length >= 2);
-    const hits = pupilGroupHits(query);
+    const pupilFilled = Boolean(String(pupil.fullName || '').trim());
+    const hits = pupilFilled && !searchReady ? [] : pupilGroupHits(query);
     const familyName = anchorMember ? memberDisplayName(anchorMember) : '';
     return (
       <div className="colonia-pupil">
@@ -1221,7 +1233,7 @@ export default function ColoniaTab({
               <p className="muted">Primero elegí el socio de arriba. Acá aparecen los de su grupo.</p>
             ) : null}
             {anchorMember && householdBusy ? <p className="muted">Buscando el grupo familiar…</p> : null}
-            {anchorMember && !householdBusy && !hits.length && !searchReady ? (
+            {anchorMember && !householdBusy && !pupilFilled && !hits.length && !searchReady ? (
               <p className="muted">Ese socio no tiene otros integrantes en el grupo. Cargá el alumno a mano.</p>
             ) : null}
             {anchorMember && !householdBusy && searchReady && !hits.length ? (
@@ -1425,38 +1437,47 @@ export default function ColoniaTab({
               ) : null}
               {student.memberKind === 'socio' && anchorMember && !householdBusy && household.length > 1 ? (
                 <div className="colonia-member-search">
-                  <p className="muted">
-                    {childSlots === 1
-                      ? 'Elegí qué hijo del grupo familiar se inscribe.'
-                      : `Elegí ${childSlots} hijos del grupo familiar.`}
-                  </p>
-                  <ul className="colonia-member-hits">
-                    {household.map((row) => {
-                      const key = memberKey(row);
-                      const age = isoBirth(row)
-                        ? ageYearsOn(isoBirth(row), seasonAge.activitiesStartOn)
-                        : null;
-                      return (
-                        <li key={key || row.id}>
-                          <button
-                            type="button"
-                            className={chosenKeys.includes(key) ? 'is-on' : ''}
-                            onClick={() => toggleChild(row)}
-                          >
-                            <strong>{memberDisplayName(row)}</strong>
-                            <span>
-                              {householdRoleLabel(row, familyPrincipalOf(anchorMember) || memberNumberOf(anchorMember))}
-                              {' · Nº '}
-                              {row.memberId || '—'}
-                              {' · DNI '}
-                              {row.documentNumber || '—'}
-                              {age != null ? ` · ${age} años` : ''}
-                            </span>
-                          </button>
-                        </li>
-                      );
-                    })}
-                  </ul>
+                  {showFamilyList ? (
+                    <>
+                      <p className="muted">
+                        {childSlots === 1
+                          ? 'Elegí qué hijo del grupo familiar se inscribe.'
+                          : `Elegí ${childSlots} hijos del grupo familiar.`}
+                      </p>
+                      <ul className="colonia-member-hits">
+                        {household.map((row) => {
+                          const key = memberKey(row);
+                          const age = isoBirth(row)
+                            ? ageYearsOn(isoBirth(row), seasonAge.activitiesStartOn)
+                            : null;
+                          return (
+                            <li key={key || row.id}>
+                              <button
+                                type="button"
+                                className={chosenKeys.includes(key) ? 'is-on' : ''}
+                                onClick={() => toggleChild(row)}
+                              >
+                                <strong>{memberDisplayName(row)}</strong>
+                                <span>
+                                  {householdRoleLabel(row, familyPrincipalOf(anchorMember) || memberNumberOf(anchorMember))}
+                                  {' · Nº '}
+                                  {row.memberId || '—'}
+                                  {' · DNI '}
+                                  {row.documentNumber || '—'}
+                                  {age != null ? ` · ${age} años` : ''}
+                                </span>
+                              </button>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </>
+                  ) : (
+                    <p className="colonia-picked">
+                      {chosenFamilyNames.join(', ') || 'Hijo elegido'}
+                      <button type="button" className="btn" onClick={() => setShowFamilyPicker(true)}>Cambiar</button>
+                    </p>
+                  )}
                   <button type="button" className="btn" onClick={addPupil}>
                     Agregar hijo que no está en el grupo
                   </button>

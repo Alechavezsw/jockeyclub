@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ChevronDown, Mail, MessageSquare, Search, Send, Sparkles, Users, UserRound, X } from 'lucide-react';
+import { ChevronDown, ImagePlus, Mail, MessageSquare, Search, Send, Sparkles, Users, UserRound, X } from 'lucide-react';
 import { askJevCompose } from '../../data/jevChat';
 import { repos } from '../../data/bootstrap';
+import { signAlertImage, uploadAlertImage } from '../../data/storage';
 import { isSupabaseConfigured } from '../../lib/supabase';
 import {
   createMessage,
@@ -77,6 +78,7 @@ export default function NoticeComposeCard({
   const [confirmMass, setConfirmMass] = useState(false);
   const [preview, setPreview] = useState(null);
   const [showLetter, setShowLetter] = useState(false);
+  const [photos, setPhotos] = useState([]);
   const [confirmSend, setConfirmSend] = useState(false);
   const [lookupQuery, setLookupQuery] = useState('');
   const [lookupHits, setLookupHits] = useState([]);
@@ -238,6 +240,29 @@ export default function NoticeComposeCard({
     setConfirmMass(false);
   };
 
+  const mailImageUrls = async () => {
+    const urls = [];
+    for (const photo of photos) {
+      if (photo.url) {
+        urls.push(photo.url);
+        continue;
+      }
+      const uploaded = photo.path
+        ? { path: photo.path }
+        : await uploadAlertImage(photo.file, { folder: 'mail' });
+      const url = await signAlertImage(uploaded.path, 60 * 60 * 24 * 30);
+      if (!url) throw new Error('No se pudo preparar la foto para el correo.');
+      photo.path = uploaded.path;
+      photo.url = url;
+      urls.push(url);
+    }
+    setPhotos((current) => current.map((item) => {
+      const match = photos.find((photo) => photo.preview === item.preview);
+      return match?.url ? { ...item, path: match.path, url: match.url } : item;
+    }));
+    return urls;
+  };
+
   const reviewAudience = async () => {
     setError('');
     setOk('');
@@ -251,11 +276,13 @@ export default function NoticeComposeCard({
     }
     setBusy('review');
     try {
+      const images = await mailImageUrls();
       const data = await repos.previewClubMail({
         subject: subject.trim(),
         text: content.trim(),
         audience,
         memberNumber: audience === 'one' ? recipientId : '',
+        images,
       });
       setPreview(data);
       setShowLetter(true);
@@ -362,12 +389,14 @@ export default function NoticeComposeCard({
       if (sendMail) {
         let mailed;
         try {
+          const images = await mailImageUrls();
           mailed = await repos.sendClubMailCampaign({
             subject: subject.trim(),
             text: content.trim(),
             audience,
             memberNumber: audience === 'one' ? recipientId : '',
             previewId: preview?.previewId,
+            images,
             onProgress: ({ sent, failed, more }) => {
               setProgress(more
                 ? `Enviando mails… ${sent} enviados${failed ? `, ${failed} no salieron` : ''}`
@@ -387,6 +416,10 @@ export default function NoticeComposeCard({
       }
       setSubject('');
       setContent('');
+      setPhotos((current) => {
+        current.forEach((photo) => URL.revokeObjectURL(photo.preview));
+        return [];
+      });
       setAiPrompt('');
       setConfirmMass(false);
       setProgress('');
@@ -688,6 +721,52 @@ export default function NoticeComposeCard({
                 <p>El conteo sale del padrón, no de las fichas abiertas en esta pantalla.</p>
               </div>
             </header>
+            <label className="alerts-photo-add">
+              <ImagePlus size={14} aria-hidden="true" />
+              Adjuntar fotos
+              <input
+                type="file"
+                accept="image/*"
+                multiple
+                disabled={Boolean(busy) || photos.length >= 6}
+                onChange={(e) => {
+                  const files = Array.from(e.target.files || []);
+                  e.target.value = '';
+                  dropReview();
+                  setPhotos((prev) => {
+                    const room = 6 - prev.length;
+                    const next = files.slice(0, room).flatMap((file) => {
+                      if (file.type && !file.type.startsWith('image/')) return [];
+                      if (file.size > 10 * 1024 * 1024) return [];
+                      return [{ file, preview: URL.createObjectURL(file), name: file.name, path: '', url: '' }];
+                    });
+                    if (next.length < files.length) setError('Solo imágenes de hasta 10 MB, como máximo 6.');
+                    return [...prev, ...next];
+                  });
+                }}
+              />
+            </label>
+            {photos.length ? (
+              <div className="alerts-photos">
+                {photos.map((photo) => (
+                  <figure key={photo.preview}>
+                    <img src={photo.preview} alt={photo.name || 'Foto del correo'} />
+                    <button
+                      type="button"
+                      aria-label={`Quitar ${photo.name || 'foto'}`}
+                      onClick={() => {
+                        URL.revokeObjectURL(photo.preview);
+                        dropReview();
+                        setPhotos((prev) => prev.filter((item) => item.preview !== photo.preview));
+                      }}
+                    >
+                      <X size={12} />
+                    </button>
+                  </figure>
+                ))}
+              </div>
+            ) : null}
+            <p className="ops-notice-lead">Las fotos van dentro del correo.</p>
             <button type="button" className="btn btn-secondary" onClick={reviewAudience} disabled={Boolean(busy)}>
               <Search size={14} />
               {busy === 'review' ? 'Contando el padrón…' : 'Revisar destinatarios'}
@@ -769,6 +848,13 @@ export default function NoticeComposeCard({
                     <p>Para {preview.counts.recipients} {preview.counts.recipients === 1 ? 'dirección' : 'direcciones'}</p>
                     <h5>{subject}</h5>
                     <p>{content}</p>
+                    {photos.length ? (
+                      <div className="alerts-photos">
+                        {photos.map((photo) => (
+                          <img key={photo.preview} src={photo.url || photo.preview} alt={photo.name || 'Foto del correo'} />
+                        ))}
+                      </div>
+                    ) : null}
                   </article>
                 ) : null}
                 <label className="ops-mail-confirm">

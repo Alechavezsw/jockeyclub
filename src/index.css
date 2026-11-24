@@ -230,6 +230,55 @@
   color: var(--text-secondary);
 }
 
+.alerts-photo-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.55rem;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.alerts-photo-add input {
+  display: none;
+}
+
+.alerts-photos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.55rem;
+}
+
+.alerts-photos img,
+.alerts-photos figure img {
+  width: 92px;
+  height: 92px;
+  object-fit: cover;
+  border-radius: 8px;
+  display: block;
+}
+
+.alerts-photos figure {
+  position: relative;
+  margin: 0;
+}
+
+.alerts-photos figure button {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(20, 56, 44, 0.82);
+  color: white;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+
 /* Restablecimiento General */
 * {
   margin: 0;
