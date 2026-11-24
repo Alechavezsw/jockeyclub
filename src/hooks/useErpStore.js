@@ -120,6 +120,7 @@ import {
   addConcessionDocument,
   removeConcessionDocument,
   syncConcessionAlerts,
+  clubConcessionSeedsToPersist,
   ensureClubConcessions,
   sanitizeConcessionsList,
 } from '../domain/concessions/concessions';
@@ -554,21 +555,21 @@ export default function useErpStore({
     if (Array.isArray(erp.fixedDiscounts)) setFixedDiscounts(withoutDemoTreasuryRows(erp.fixedDiscounts));
     if (Array.isArray(erp.paymentOrders)) setPaymentOrders(withoutDemoTreasuryRows(erp.paymentOrders));
     if (Array.isArray(erp.concessions)) {
-      const next = ensureClubConcessions(sanitizeConcessionsList(erp.concessions));
+      const loaded = sanitizeConcessionsList(erp.concessions);
+      const next = loaded.length ? ensureClubConcessions(loaded) : loaded;
       concessionsRef.current = next;
       setConcessions(next);
-      if (cloud() && next.length > (erp.concessions?.length || 0)) {
-        const known = new Set((erp.concessions || []).map((row) => String(row.name || '').toLowerCase()));
-        next
-          .filter((row) => !known.has(String(row.name || '').toLowerCase()))
-          .forEach((row) => {
-            void repos.upsertConcession(row).then((saved) => {
-              setConcessions((prev) => {
-                const withoutSeed = prev.filter((c) => c.id !== row.id && c.id !== saved.id);
-                return ensureClubConcessions([...withoutSeed, saved]);
-              });
-            }).catch(() => {});
+      if (cloud()) {
+        clubConcessionSeedsToPersist(loaded).forEach((row) => {
+          void repos.upsertConcession(row).then((saved) => {
+            setConcessions((prev) => {
+              const withoutSeed = prev.filter((c) => c.id !== row.id && c.id !== saved.id);
+              return ensureClubConcessions([...withoutSeed, saved]);
+            });
+          }).catch((err) => {
+            console.error('No se pudo guardar la concesión faltante', row.portalCode || row.name, err?.message || err);
           });
+        });
       }
     }
     if (Array.isArray(erp.alerts)) {

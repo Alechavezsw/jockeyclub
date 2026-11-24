@@ -280,15 +280,55 @@ export const DEFAULT_CONCESSIONS = [
 
 export const DEFAULT_CANON_PAYMENTS = [];
 
+function concessionIdentity(row) {
+  return {
+    name: concessionNameKey(row?.name || row?.concessionaire),
+    portal: String(row?.portalCode || row?.portal_code || '').trim().toUpperCase(),
+    space: String(row?.spaceId || row?.space_id || '').trim(),
+  };
+}
+
+function seedAlreadyStored(seed, identities) {
+  const id = concessionIdentity(seed);
+  if (id.name && identities.names.has(id.name)) return true;
+  if (id.portal && identities.portals.has(id.portal)) return true;
+  if (id.space && identities.spaces.has(id.space)) return true;
+  return false;
+}
+
+function concessionIdentities(list) {
+  const names = new Set();
+  const portals = new Set();
+  const spaces = new Set();
+  for (const row of list) {
+    const id = concessionIdentity(row);
+    if (id.name) names.add(id.name);
+    if (id.portal) portals.add(id.portal);
+    if (id.space) spaces.add(id.space);
+  }
+  return { names, portals, spaces };
+}
+
 /** Completa el padrón de concesiones con los locales del club si faltan. */
 export function ensureClubConcessions(list = []) {
   const cleaned = sanitizeConcessionsList(list);
-  const present = new Set(
-    cleaned.map((row) => concessionNameKey(row?.name || row?.concessionaire)),
-  );
-  const missing = DEFAULT_CONCESSIONS.filter((seed) => !present.has(concessionNameKey(seed.name)));
+  const identities = concessionIdentities(cleaned);
+  const missing = DEFAULT_CONCESSIONS.filter((seed) => !seedAlreadyStored(seed, identities));
   if (!missing.length) return cleaned;
   return [...cleaned, ...missing];
+}
+
+/**
+ * Semillas que faltan en una lista ya leída de la base.
+ * Una lista vacía no se toma como “no hay concesiones”: el shell llega vacío
+ * antes del fetch y un insert repetiría portal_code (409).
+ */
+export function clubConcessionSeedsToPersist(loaded = []) {
+  const rows = sanitizeConcessionsList(loaded);
+  if (!rows.length) return [];
+  const ensured = ensureClubConcessions(rows);
+  const identities = concessionIdentities(rows);
+  return ensured.filter((row) => !seedAlreadyStored(row, identities));
 }
 
 /**

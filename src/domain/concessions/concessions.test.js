@@ -7,6 +7,7 @@ import {
   checklistProgress,
   createCanonPayment,
   createConcession,
+  clubConcessionSeedsToPersist,
   ensureClubConcessions,
   sanitizeConcessionsList,
   exportConcessionsCsv,
@@ -285,5 +286,24 @@ describe('portal code and documents', () => {
     const next = ensureClubConcessions([{ id: 'x', name: 'La Kelita' }]);
     expect(next.some((c) => c.name === 'Paddle')).toBe(true);
     expect(next.filter((c) => /kelita/i.test(c.name))).toHaveLength(1);
+  });
+
+  it('no vuelve a sembrar un local que ya existe por portal o espacio', () => {
+    const stored = [{
+      id: 'db-kelita',
+      name: 'Cantina Kelita',
+      portalCode: 'KEL-1001',
+      spaceId: 'space-kelita',
+    }];
+    const next = ensureClubConcessions(stored);
+    expect(next.filter((row) => row.portalCode === 'KEL-1001' || row.spaceId === 'space-kelita')).toHaveLength(1);
+    expect(clubConcessionSeedsToPersist(stored).map((row) => row.portalCode)).not.toContain('KEL-1001');
+  });
+
+  it('una lista vacía no dispara el alta de las semillas', () => {
+    expect(clubConcessionSeedsToPersist([])).toEqual([]);
+    expect(clubConcessionSeedsToPersist(DEFAULT_CONCESSIONS)).toEqual([]);
+    const missingPaddle = DEFAULT_CONCESSIONS.filter((row) => row.name !== 'Paddle');
+    expect(clubConcessionSeedsToPersist(missingPaddle).map((row) => row.name)).toEqual(['Paddle']);
   });
 });

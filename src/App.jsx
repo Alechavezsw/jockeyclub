@@ -1323,7 +1323,6 @@ function ClubPortal() {
           alertAcks: erpData.alertAcks || [],
           clubEvents: erpData.clubEvents || [],
           eventRegistrations: erpData.eventRegistrations || [],
-          concessions: erpData.concessions || [],
         });
         hydratedRef.current = true;
         setDbHydrated(true);
