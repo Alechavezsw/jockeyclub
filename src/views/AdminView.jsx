@@ -4,7 +4,7 @@ import {
   Users, Calendar, DollarSign, Activity, ShieldAlert,
   BookOpen, Book, ClipboardList, MessageSquare, Phone, Wallet, PieChart,
   FileSpreadsheet, Radio, Database, BellRing, PartyPopper, Trophy, Store, DoorOpen, QrCode, Newspaper, CreditCard,
-  LayoutDashboard, ChevronRight, Briefcase, Headset, Settings, SlidersHorizontal, Building2, Waves, GraduationCap, Sparkles, TicketCheck, Banknote, Smartphone, BadgePercent, BarChart3, CircleDot, NotebookTabs, Menu, X,
+  LayoutDashboard, ChevronRight, Briefcase, Headset, Settings, SlidersHorizontal, Building2, Waves, GraduationCap, Sparkles, TicketCheck, Banknote, Smartphone, BadgePercent, BarChart3, CircleDot, NotebookTabs, Menu, X, Sun,
 } from 'lucide-react';
 import { DEFAULT_POOL_SETTINGS } from '../domain/pool/poolAccess';
 import { DEFAULT_CHART_OF_ACCOUNTS, resolveAccountId } from '../domain/accounting/chartOfAccounts';
@@ -71,6 +71,7 @@ const SystemAdminTab = lazy(() => import('../components/admin/SystemAdminTab'));
 const PortalUserProfilePanel = lazy(() => import('../components/admin/PortalUserProfilePanel'));
 const TeachersTab = lazy(() => import('../components/admin/TeachersTab'));
 const PoolTab = lazy(() => import('../components/admin/PoolTab'));
+const ColoniaTab = lazy(() => import('../components/admin/ColoniaTab'));
 const SubscriptionsPanel = lazy(() => import('../components/admin/SubscriptionsPanel'));
 const JevReviewTab = lazy(() => import('../components/admin/JevReviewTab'));
 const ConcessionsTab = lazy(() => import('../components/admin/ConcessionsTab'));
@@ -99,6 +100,7 @@ const TAB_PREFETCH = {
   dashboard: () => import('../components/admin/AdminDashboardTab'),
   reports: () => import('../components/admin/ReportsTab'),
   pool: () => import('../components/admin/PoolTab'),
+  colonia: () => import('../components/admin/ColoniaTab'),
   jev: () => import('../components/admin/JevReviewTab'),
   concessions: () => import('../components/admin/ConcessionsTab'),
 };
@@ -666,6 +668,7 @@ export default function AdminView({
               { key: 'pool_gate', icon: TicketCheck, label: 'Entrada pileta' },
             ],
           },
+          { key: 'colonia', icon: Sun, label: 'Colonia' },
           { key: 'concessions', icon: Store, label: 'Concesiones' },
         ],
       },
@@ -1199,7 +1202,7 @@ export default function AdminView({
                           onMouseEnter={() => prefetchTab(tab.key)}
                           onFocus={() => prefetchTab(tab.key)}
                           onClick={() => setActiveTab(tab.key)}
-                          className={`admin-rail-item is-sub${isActive ? ' is-active' : ''}${childActive ? ' is-parent-active' : ''}`}
+                          className={`admin-rail-item is-sub${tab.key === 'colonia' ? ' is-colonia' : ''}${isActive ? ' is-active' : ''}${childActive ? ' is-parent-active' : ''}`}
                           aria-current={isActive ? 'page' : undefined}
                           title={tab.label}
                         >
@@ -1246,7 +1249,7 @@ export default function AdminView({
       <div className="admin-main">
       <div className="page-stage">
       {/* Cabecera solo fuera del Inicio (el dashboard ya trae su propia intro) */}
-      {activeTab !== 'dashboard' && activeTab !== 'events' && activeTab !== 'accounting' && activeTab !== 'books' && activeTab !== 'informes' && activeTab !== 'caja' && activeTab !== 'operation' && activeTab !== 'jev' && activeTab !== 'messaging' && activeTab !== 'members_app' && activeTab !== 'members_amet' && activeTab !== 'members_tenis' && activeTab !== 'members_stats' && activeTab !== 'settings_bookings' && activeTab !== 'gate_porter_books' && (
+      {activeTab !== 'dashboard' && activeTab !== 'events' && activeTab !== 'accounting' && activeTab !== 'books' && activeTab !== 'informes' && activeTab !== 'caja' && activeTab !== 'operation' && activeTab !== 'jev' && activeTab !== 'messaging' && activeTab !== 'members_app' && activeTab !== 'members_amet' && activeTab !== 'members_tenis' && activeTab !== 'members_stats' && activeTab !== 'colonia' && activeTab !== 'settings_bookings' && activeTab !== 'gate_porter_books' && (
         <div className="page-header" style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
           <div>
             <h1 className="page-title">{panelMeta.title}</h1>
@@ -1490,6 +1493,10 @@ export default function AdminView({
           paymentPlans={paymentPlans}
           paymentTolerance={duesSettings?.paymentTolerance}
         />
+      )}
+
+      {activeTab === 'colonia' && (
+        <ColoniaTab roles={user?.roles || []} role={userRole} />
       )}
 
       {activeTab === 'members_tenis' && (

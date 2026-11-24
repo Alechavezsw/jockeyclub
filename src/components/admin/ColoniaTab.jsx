@@ -561,16 +561,21 @@ export default function ColoniaTab({ roles = [], role }) {
 
   return (
     <div className="colonia-shell">
-      <header className="colonia-head">
-        <div>
-          <p className="household-integrity-kicker">Operación · actividad adicional</p>
+      <header className="colonia-hero-band">
+        <div className="colonia-hero-copy">
+          <p className="colonia-kicker">Temporada {seasonView.code || '2026-2027'}</p>
           <h2 className="serif-font">Colonia de Verano</h2>
           <p>
-            Independiente de la cuota social. Temporada {seasonView.code || seasonView.name}.
-            {' '}Horario {seasonView.schedule_hours || seasonView.scheduleHours || '09:00-13:00'}, lunes a viernes.
+            Mañanas en el club, de lunes a viernes. La cuenta de Colonia no toca la cuota social.
           </p>
         </div>
-        <label className="colonia-field">
+        <div className="colonia-wrist" aria-label="Horario">
+          <span>09:00</span>
+          <i aria-hidden="true" />
+          <span>13:00</span>
+          <small>lun a vie</small>
+        </div>
+        <label className="colonia-field colonia-season-pick">
           <span>Temporada</span>
           <select
             value={seasonId || ''}

@@ -6,6 +6,7 @@ const ADMIN_SECTIONS = [
   { key: 'members_app', title: 'Socios con app', keywords: 'socios app portal acceso credenciales con app' },
   { key: 'members_amet', title: 'AMET', keywords: 'amet cuota familiar individual vencimiento 18 tarifa 2,5' },
   { key: 'members_tenis', title: 'Tenis', keywords: 'tenis abono cancha padron disciplina 12000' },
+  { key: 'colonia', title: 'Colonia', keywords: 'colonia verano inscripcion natacion chicos temporada' },
   { key: 'members_stats', title: 'Estadísticas', keywords: 'estadisticas edades rango etario ingresos horarios pagos padrón graficos excel pdf jev' },
   { key: 'dues', title: 'Cuotas', keywords: 'cuotas socios liquidacion vencimiento saldos cuentas' },
   { key: 'bookings', title: 'Reservas', keywords: 'reservas canchas turnos libro' },
