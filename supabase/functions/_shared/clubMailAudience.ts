@@ -69,6 +69,16 @@ export type ClubMailReason = "recipient" | "shared" | "missing" | "alias" | "baj
  * El cliente no elige la lista. Solo puede pedir todo el padrón o un número de socio.
  * Cualquier arreglo de correos que viaje en el cuerpo se ignora.
  */
+/** Claves exactas para un número escrito con o sin ceros. No reescribe el padrón. */
+export function clubMailNumberKeys(value: string) {
+  const text = String(value || "").trim();
+  if (!/^\d+$/.test(text)) return [];
+  const bare = text.replace(/^0+/, "") || "0";
+  const keys = new Set<string>();
+  for (let size = bare.length; size <= 8; size += 1) keys.add(bare.padStart(size, "0"));
+  return [...keys];
+}
+
 export function clubMailRequestScope(body: Record<string, unknown> | null | undefined) {
   const raw = String(body?.audience || "all").trim();
   const audience = raw === "one" || raw === "staff" || raw === "admin" ? raw : "all";
