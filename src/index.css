@@ -21356,6 +21356,50 @@ a.ops-outline-btn {
   gap: 0.35rem;
 }
 
+.mp-role-chip {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 0.45rem;
+  padding: 0.12rem 0.45rem;
+  border-radius: 999px;
+  border: 1px solid var(--border-glass);
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  vertical-align: middle;
+  color: var(--text-secondary);
+}
+
+.mp-role-chip.is-titular {
+  color: var(--text-gold);
+  border-color: color-mix(in srgb, var(--primary-gold) 45%, var(--border-glass));
+}
+
+.mp-role-chip.is-integrante {
+  color: var(--text-secondary);
+}
+
+.mp-family-account-hint {
+  grid-column: 1 / -1;
+  margin: 0 0 0.35rem;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  color: var(--text-secondary);
+}
+
+.mp-family-goto-titular {
+  appearance: none;
+  border: 0;
+  background: none;
+  padding: 0;
+  margin: 0;
+  color: var(--text-gold);
+  font: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
 .mp-family-toolbar {
   display: flex;
   justify-content: space-between;

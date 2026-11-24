@@ -305,6 +305,23 @@ export function isFamilyDependent(member) {
   return principal !== self;
 }
 
+/** Rol visible en ficha/banner: no depende del string de parentesco. */
+export function householdRoleLabel(member, principalNumber) {
+  const self = memberNumberOf(member);
+  const principal = String(principalNumber || familyPrincipalOf(member) || '').replace(/\D/g, '');
+  if (self && principal && self === principal) return 'Titular';
+  if (isFamilyDependent(member) || (self && principal && self !== principal)) return 'Integrante';
+  return 'Titular';
+}
+
+/** Texto corto de cuenta/reservas para integrantes (sin montos). */
+export function householdAccountHint(member) {
+  if (!isFamilyDependent(member)) return null;
+  const principal = familyPrincipalOf(member);
+  if (!principal) return 'Cuenta y reservas van al titular (vínculo incompleto).';
+  return `Cuenta y reservas del titular Nº ${principal}.`;
+}
+
 export function isTitularMember(member) {
   return !isFamilyDependent(member);
 }

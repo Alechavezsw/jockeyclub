@@ -65,7 +65,9 @@ import {
   attachHouseholdToMembers,
   detachMemberFromFamilyGroup,
   familyPrincipalOf,
+  householdAccountHint,
   householdMemberAsAdherent,
+  householdRoleLabel,
   isFamilyDependent,
   isFamilyGroupVisibleMember,
   memberNumberOf,
@@ -1329,14 +1331,36 @@ export default function MemberProfilePanel({
             Cargando el grupo familiar desde la base…
           </p>
         ) : !familyRows.length ? (
-          <p className="mp-fact-value muted" style={{ margin: 0 }}>Sin integrantes en el grupo familiar.</p>
+          <p className="mp-fact-value muted" style={{ margin: 0 }}>
+            {isFamilyDependent(member)
+              ? `Sin hogar operativo para el titular Nº ${householdPrincipal || '—'}. Revisá el vínculo.`
+              : 'Este socio no tiene integrantes asociados en el grupo familiar.'}
+          </p>
         ) : (
           <div className="mp-family">
+            {isFamilyDependent(member) && householdAccountHint(member) ? (
+              <p className="mp-family-account-hint">
+                {householdAccountHint(member)}
+                {onOpenMember && familyGroup.titular && memberNumberOf(familyGroup.titular) !== memberNumberOf(member) ? (
+                  <>
+                    {' '}
+                    <button
+                      type="button"
+                      className="mp-family-goto-titular"
+                      onClick={() => onOpenMember(memberNumberOf(familyGroup.titular))}
+                    >
+                      Ir al titular
+                    </button>
+                  </>
+                ) : null}
+              </p>
+            ) : null}
             {familyRows.map((adh) => {
               const selfId = memberNumberOf(member);
               const rowId = String(adh.memberId || '').replace(/\D/g, '');
               const isSelf = rowId && rowId === selfId;
               const source = findMemberByNumber(familySource, adh.memberId);
+              const role = householdRoleLabel(source || adh, householdPrincipal);
               const canOpen = Boolean(onOpenMember && adh.memberId && !isSelf);
               const ageYears = ageFromBirth(adh.birthDate || source?.birthDate);
               return (
@@ -1361,9 +1385,16 @@ export default function MemberProfilePanel({
                     )}
                   </div>
                   <div>
-                    <strong>{adh.name}{isSelf ? ' · Vos' : ''}</strong>
+                    <strong>
+                      {adh.name}{isSelf ? ' · Vos' : ''}
+                      <span className={`mp-role-chip is-${role === 'Titular' ? 'titular' : 'integrante'}`}>
+                        {role}
+                      </span>
+                    </strong>
                     <div className="mp-family-meta">
-                      {adh.relationship || 'Parentesco sin cargar'}
+                      {adh.relationship && adh.relationship !== 'Titular' && adh.relationship !== 'Grupo familiar'
+                        ? adh.relationship
+                        : (role === 'Titular' ? 'Titular del grupo' : 'Parentesco sin cargar')}
                       {adh.memberId ? ` · Nº ${adh.memberId}` : ''}
                       {ageYears != null ? ` · ${ageYears} años` : ''}
                     </div>
@@ -1784,15 +1815,36 @@ export default function MemberProfilePanel({
                 Cargando el grupo familiar desde la base…
               </p>
             ) : !familyRows.length ? (
-              <Empty text="Sin integrantes en el grupo familiar." />
+              <Empty text={isFamilyDependent(member)
+                ? `Sin hogar operativo para el titular Nº ${householdPrincipal || '—'}. Revisá el vínculo.`
+                : 'Este socio no tiene integrantes asociados en el grupo familiar.'}
+              />
             ) : (
               <div className="mp-family">
+                {isFamilyDependent(member) && householdAccountHint(member) ? (
+                  <p className="mp-family-account-hint">
+                    {householdAccountHint(member)}
+                    {onOpenMember && familyGroup.titular && memberNumberOf(familyGroup.titular) !== memberNumberOf(member) ? (
+                      <>
+                        {' '}
+                        <button
+                          type="button"
+                          className="mp-family-goto-titular"
+                          onClick={() => onOpenMember(memberNumberOf(familyGroup.titular))}
+                        >
+                          Ir al titular
+                        </button>
+                      </>
+                    ) : null}
+                  </p>
+                ) : null}
                 {familyRows.map((adh) => {
                   const selfId = memberNumberOf(member);
                   const rowId = String(adh.memberId || '').replace(/\D/g, '');
                   const isSelf = rowId && rowId === selfId;
                   const canOpen = Boolean(onOpenMember && adh.memberId && !isSelf);
                   const source = findMemberByNumber(familySource, adh.memberId);
+                  const role = householdRoleLabel(source || adh, householdPrincipal);
                   const ageYears = ageFromBirth(adh.birthDate || source?.birthDate);
                   return (
                     <div
@@ -1816,14 +1868,21 @@ export default function MemberProfilePanel({
                         )}
                       </div>
                       <div>
-                        <strong>{adh.name}</strong>
+                        <strong>
+                          {adh.name}{isSelf ? ' · Vos' : ''}
+                          <span className={`mp-role-chip is-${role === 'Titular' ? 'titular' : 'integrante'}`}>
+                            {role}
+                          </span>
+                        </strong>
                         <div className="mp-family-meta">
-                          {adh.relationship || 'Parentesco sin cargar'}
+                          {adh.relationship && adh.relationship !== 'Titular' && adh.relationship !== 'Grupo familiar'
+                            ? adh.relationship
+                            : (role === 'Titular' ? 'Titular del grupo' : 'Parentesco sin cargar')}
                           {adh.memberId ? ` · Nº ${adh.memberId}` : ''}
                           {ageYears != null ? ` · ${ageYears} años` : ''}
                           {' · '}
                           {(adh.disciplines || []).join(', ') || 'Sin disciplina'}
-                          {adh.relationship !== 'Titular' && familyChildStanding(source || adh).label ? (
+                          {role !== 'Titular' && familyChildStanding(source || adh).label ? (
                             <span className="mp-family-standing">
                               {familyChildStanding(source || adh).label}
                             </span>
