@@ -196,6 +196,7 @@ describe('publicación autorizada de Edge Functions', () => {
       'a'.repeat(40),
     ], { cwd: repoRoot, encoding: 'utf8' });
     expect(result.status).toBe(1);
-    expect(result.stderr).toMatch(/no pertenece a main/i);
+    // En CI el checkout puede no tener tip de main: igual debe bloquear.
+    expect(result.stderr).toMatch(/no pertenece a main|No hay referencia de main/i);
   });
 });

@@ -63,6 +63,11 @@ function gitIsAncestor(ancestor, tip) {
 
 function mainTips() {
   const tips = [];
+  // En CI un checkout shallow/PR a veces no trae origin/main; lo pedimos best-effort.
+  spawnSync('git', ['fetch', '--no-tags', '--depth=1', 'origin', 'main'], {
+    cwd: rootDir,
+    encoding: 'utf8',
+  });
   for (const ref of ['refs/remotes/origin/main', 'origin/main', 'main']) {
     const tip = spawnSync('git', ['rev-parse', '--verify', ref], {
       cwd: rootDir,
