@@ -1476,34 +1476,6 @@ export default function CollectDuesModal({
                 );
               })}
             </ul>
-            {gate.difference > 0.009 ? (
-              <div style={{ marginTop: '0.7rem', padding: '0.7rem 0.75rem', borderRadius: 8, border: '1px dashed var(--border-glass)' }}>
-                <p style={{ margin: 0, fontSize: '0.78rem', letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-gold)' }}>
-                  Diferencia con el saldo de la ficha
-                </p>
-                <p className="tabular-nums" style={{ margin: '0.35rem 0 0' }}>
-                  Saldo contable {formatCurrency(gate.recordedBalance)}
-                  {' · '}
-                  Cuotas calculadas {formatCurrency(gate.theoretical)}
-                  {' · '}
-                  Diferencia {formatCurrency(gate.difference)}
-                </p>
-                <ul style={{ margin: '0.45rem 0 0', paddingLeft: '1.1rem', color: 'var(--text-muted)', fontSize: '0.82rem' }}>
-                  {gate.lines.map((row) => (
-                    <li key={row.dueOn}>
-                      {row.label}: original {formatCurrency(row.originalCapital)}
-                      {row.tariffUpdate > 0.009 ? `, actualización ${formatCurrency(row.tariffUpdate)}` : ''}
-                      {row.surcharge > 0.009 ? `, recargo ${formatCurrency(row.surcharge)}` : ''}
-                    </li>
-                  ))}
-                </ul>
-                {collectionBlocked ? (
-                  <p role="alert" style={{ margin: '0.45rem 0 0', fontSize: '0.84rem' }}>
-                    {gate.message}
-                  </p>
-                ) : null}
-              </div>
-            ) : null}
             {unreconciledHistoricalBalance(account).amount > 0.009 ? (
               <div style={{ marginTop: '0.7rem', padding: '0.7rem 0.75rem', borderRadius: 8, border: '1px dashed var(--border-glass)' }}>
                 <p style={{ margin: 0, fontSize: '0.78rem', letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-gold)' }}>

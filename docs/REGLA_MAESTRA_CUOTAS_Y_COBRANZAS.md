@@ -54,11 +54,9 @@ Si el teórico de meses verificados no cierra con el saldo, la diferencia queda 
 
 La tarifa vigente sale del catálogo oficial (`app_settings.member_tiers`: `id`, `name`, `monthlyDues`, `isActive`). Si esa tarifa no existe o no está activa, el caso queda en revisión y no se cobra. Un importe en cero no reemplaza una tarifa que falta.
 
-Si las cuotas calculadas superan el saldo de la ficha por una actualización de tarifa, esa diferencia tiene que estar autorizada en la ficha (`meta.duesTariffAuthorization`, con estado `authorized`, fecha o responsable, e importe). Sin esa autorización no se acredita el cobro: ni en efectivo, ni por transferencia, ni con POS, ni con tarjeta, ni mixto, ni a cuenta, ni con Mercado Pago.
+La diferencia entre las cuotas a tarifa vigente y el saldo de la ficha no es un cargo aparte y no frena el cobro. En el caso de Silvia Lorena Villalba el saldo sigue en $ 275.000 y se cobran los cuatro meses. No se muestra ni se exige autorizar esa diferencia de $ 33.000.
 
-El control vive en el dominio y otra vez al insertar el pago. El navegador no autoriza el importe. No se crea una preferencia de Mercado Pago para un importe bloqueado. El saldo no se mueve por una diferencia que no fue autorizada.
-
-El 10 % de un mes que ya está a la tarifa vigente se cobra con el mes. No es una diferencia de conciliación. El abono de tenis no se traba por una diferencia de la cuota social.
+El 10 % de un mes que ya está a la tarifa vigente se cobra con el mes. El abono de tenis no se mezcla con la cuota social.
 
 Los 249 ajustes sin mes siguen sin repartirse solos. Un mes pago o regularizado no se vuelve a abrir.
 

@@ -122,20 +122,24 @@ describe('acreditación bloqueada antes de la RPC', () => {
     registrarCobroPos.mockReset();
   });
 
-  it('no llama a registrar_cobro ni a POS cuando 10632 quiere acreditar $308.000', async () => {
-    await expect(commitDuesCollection(silvia(), payment({
+  it('10632 acredita los $308.000 y el saldo de ficha no se reescribe antes del cobro', async () => {
+    registrarCobro.mockResolvedValue({
+      payment: { id: 'pay-10632', amount: 308000, date: TODAY },
+      outstandingBalance: 0,
+      nextDueDate: '2026-12-10',
+      idempotent: false,
+      imputations: [],
+    });
+    const member = silvia();
+    const saved = await commitDuesCollection(member, payment({
       amount: 308000,
       method: 'transferencia',
       periodDueOns: ['2026-08-10', '2026-09-10', '2026-10-10', '2026-11-10'],
-    }))).rejects.toMatchObject({ code: 'DUES_RECONCILIATION_REQUIRED' });
-    await expect(commitDuesCollection(silvia(), payment({
-      amount: 308000,
-      method: 'tarjeta',
-      periodDueOns: ['2026-08-10', '2026-09-10', '2026-10-10', '2026-11-10'],
-    }))).rejects.toMatchObject({ code: 'DUES_RECONCILIATION_REQUIRED' });
-    expect(registrarCobro).not.toHaveBeenCalled();
-    expect(registrarCobroPos).not.toHaveBeenCalled();
-    expect(silvia().outstandingBalance).toBe(275000);
+    }));
+    expect(registrarCobro).toHaveBeenCalledTimes(1);
+    expect(registrarCobro.mock.calls[0][0].amount).toBe(308000);
+    expect(saved.member.outstandingBalance).toBe(0);
+    expect(member.outstandingBalance).toBe(275000);
   });
 
   it('un reintento y dos cobros simultáneos de 100132 no duplican la imputación', async () => {
@@ -166,17 +170,7 @@ describe('acreditación bloqueada antes de la RPC', () => {
     expect(second.idempotent || first.idempotent).toBe(true);
   });
 
-  it('la migración rechaza en la base un importe social por encima del saldo autorizado', () => {
-    const sql = readFileSync(
-      new URL('../../../supabase/migrations/20261124233000_dues_collection_ceiling.sql', import.meta.url),
-      'utf8',
-    );
-    expect(sql).toMatch(/before insert on public\.member_payments/);
-    expect(sql).toMatch(/v_outstanding \* 1\.1/);
-    expect(sql).toMatch(/duesTariffAuthorization/);
-    expect(sql).toMatch(/revoke all on function public\.enforce_dues_collection_ceiling\(\)/);
-    expect(sql).not.toMatch(/update public\.members/i);
-    expect(sql).not.toMatch(/delete from public\.fee_ledger_lines/i);
+  it('la propuesta de conciliación lee el catálogo y no fija la tarifa', () => {
     const proposal = readFileSync(
       new URL('../../../supabase/migrations/20261124223000_dues_historical_month_proposal.sql', import.meta.url),
       'utf8',

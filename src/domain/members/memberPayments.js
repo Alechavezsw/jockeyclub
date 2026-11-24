@@ -2456,20 +2456,9 @@ export function duesCollectionNeedsPosAtomicCommit(payment) {
   return false;
 }
 
-function authorizedTariffDifference(member) {
-  const raw = member?.duesTariffAuthorization
-    || member?.meta?.duesTariffAuthorization
-    || null;
-  if (!raw || typeof raw !== 'object') return 0;
-  if (String(raw.status || '').toLowerCase() !== 'authorized') return 0;
-  if (!String(raw.authorizedAt || '').trim() && !String(raw.authorizedBy || '').trim()) return 0;
-  const amount = money(raw.difference ?? raw.amount);
-  return amount > 0.009 ? amount : 0;
-}
-
 /**
- * El cobro social no puede usar una diferencia de tarifa que la ficha no tiene autorizada.
- * El abono de tenis no entra en esa diferencia.
+ * El abono de tenis no se cobra por encima de su propio saldo.
+ * Una diferencia de tarifa contra la ficha no frena la cuota social.
  */
 export function duesCollectionGate(member, {
   amount = 0,
@@ -2504,17 +2493,11 @@ export function duesCollectionGate(member, {
   const theoretical = money(choices.reduce((sum, row) => sum + (
     skipSurcharge ? (Number(row.capital) || 0) : (Number(row.payable) || 0)
   ), 0));
-  const tariffGap = money(choices.reduce((sum, row) => sum + (Number(row.tariffUpdate) || 0), 0));
-  const authorized = authorizedTariffDifference(member);
-  // El 10 % de un mes ya a tarifa vigente no es una diferencia. Sí lo es actualizar el capital.
-  const difference = tariffGap > 0.009 ? money(Math.max(0, theoretical - recorded)) : 0;
-  const ceiling = tariffGap > 0.009
-    ? money(recorded + authorized)
-    : money(Math.max(theoretical, recorded));
-  const gapOpen = difference > authorized + 0.01;
-  const aboveCeiling = asked > ceiling + 0.01 && !(recorded <= 0.01 && adelanto && tariffGap <= 0.009);
+  // La diferencia entre la tarifa vigente y el saldo de ficha no es un cargo aparte ni frena el cobro.
+  const difference = 0;
+  const ceiling = money(Math.max(theoretical, recorded));
   const noDebt = asked > 0.009 && theoretical <= 0.009 && recorded <= 0.009 && !adelanto;
-  const blocked = needsReview || (asked > 0.009 && (gapOpen || aboveCeiling || noDebt));
+  const blocked = needsReview || (asked > 0.009 && noDebt);
   const lines = choices.map((row) => ({
     dueOn: row.dueOn,
     label: row.label,
@@ -2524,16 +2507,11 @@ export function duesCollectionGate(member, {
     tariffUpdate: money(row.tariffUpdate),
     payable: money(row.payable),
   }));
-  const formatted = new Intl.NumberFormat('es-AR', {
-    style: 'currency',
-    currency: 'ARS',
-    maximumFractionDigits: 0,
-  }).format(difference);
   let message = '';
   if (needsReview) {
     message = 'Requiere revisión. Falta una tarifa vigente para calcular este cobro.';
   } else if (blocked) {
-    message = `Cobro pendiente de conciliación administrativa. Existe una diferencia de ${formatted} entre las cuotas calculadas y el saldo registrado. Es necesario revisar y autorizar esta diferencia antes de acreditar el cobro`;
+    message = 'No hay deuda de cuota para acreditar.';
   }
   return {
     blocked,
@@ -2542,7 +2520,7 @@ export function duesCollectionGate(member, {
     recordedBalance: recorded,
     theoretical,
     difference,
-    authorized,
+    authorized: 0,
     ceiling,
     lines,
     message,

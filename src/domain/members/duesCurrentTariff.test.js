@@ -380,27 +380,14 @@ describe('cuota a tarifa vigente, por mes', () => {
     expect(discounted.cash).toBe(149000);
   });
 
-  it('10632 no se acredita mientras la diferencia de $33.000 no esté autorizada', () => {
+  it('10632 cobra los cuatro meses y la diferencia de $33.000 no frena el cobro', () => {
     const member = silvia(SILVIA_HISTORY);
-    const blocked = duesCollectionGate(member, { amount: 308000, paidOn: TODAY });
-    expect(blocked.blocked).toBe(true);
-    expect(blocked.recordedBalance).toBe(275000);
-    expect(blocked.theoretical).toBe(308000);
-    expect(blocked.difference).toBe(33000);
-    expect(blocked.message).toMatch(/Cobro pendiente de conciliación administrativa/);
-    expect(blocked.message).toMatch(/33\.000|33,000/);
-    expect(duesCollectionGate(member, { amount: 77000, paidOn: TODAY }).blocked).toBe(true);
-    const authorized = silvia(SILVIA_HISTORY);
-    authorized.meta = {
-      duesTariffAuthorization: {
-        status: 'authorized',
-        difference: 33000,
-        authorizedAt: '2026-11-24',
-        authorizedBy: 'comision',
-      },
-    };
-    expect(duesCollectionGate(authorized, { amount: 308000, paidOn: TODAY }).blocked).toBe(false);
-    expect(duesCollectionGate(authorized, { amount: 308001, paidOn: TODAY }).blocked).toBe(true);
+    const gate = duesCollectionGate(member, { amount: 308000, paidOn: TODAY });
+    expect(gate.blocked).toBe(false);
+    expect(gate.difference).toBe(0);
+    expect(gate.theoretical).toBe(308000);
+    expect(gate.recordedBalance).toBe(275000);
+    expect(member.outstandingBalance).toBe(275000);
   });
 
   it('10697, 100132 y el saldo cero no quedan trabados por una diferencia de tarifa', () => {
