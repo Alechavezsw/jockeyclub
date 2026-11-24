@@ -396,9 +396,12 @@ export function allowedAccountingSubtabs(role) {
   if (role === 'admin_employee') {
     return ['colonia', 'prisma', 'galicia', 'debit_moves'];
   }
-  if (role === 'cashier' || role === 'gate_operator') {
+  if (role === 'cashier') {
     // Caja + cobranza Colonia (sin ampliar gastos/proveedores).
     return ['colonia', 'cash', 'other_incomes'];
+  }
+  if (role === 'gate_operator') {
+    return ['cash', 'other_incomes'];
   }
   if (role === 'teacher' || role === 'staff') {
     return ['colonia'];

@@ -34,9 +34,10 @@ import {
 } from './roles';
 
 describe('canAccessAdmin', () => {
-  it('los roles operativos acceden al panel; el socio y el profesor no', () => {
+  it('los roles operativos acceden al panel; el socio no; el profesor solo Colonia', () => {
     expect(canAccessAdmin('member')).toBe(false);
-    expect(canAccessAdmin('teacher')).toBe(false);
+    expect(canAccessAdmin('teacher')).toBe(true);
+    expect(allowedAdminTabs('teacher')).toEqual(['operation']);
     for (const role of ['staff', 'cashier', 'accountant', 'admin', 'superadmin', 'gate_operator', 'pool_operator', 'admin_employee', 'hr']) {
       expect(canAccessAdmin(role)).toBe(true);
     }
@@ -53,12 +54,12 @@ describe('allowedAdminTabs', () => {
     expect(tabs).toContain('access');
   });
 
-  it('el cajero ve socios y módulo de caja pero no migración', () => {
+  it('el cajero ve socios, caja y Operación→Colonia, pero no migración', () => {
     const tabs = allowedAdminTabs('cashier');
     expect(tabs).toContain('members');
     expect(tabs).toContain('subscriptions');
     expect(tabs).toContain('caja');
-    expect(tabs).not.toContain('operation');
+    expect(tabs).toContain('operation');
     expect(tabs).not.toContain('accounting');
     expect(tabs).toContain('access');
     expect(tabs).not.toContain('migration');
@@ -206,7 +207,7 @@ describe('allowedAdminTabs', () => {
     const tabs = allowedAdminTabs('admin_employee');
     expect(tabs).toContain('members');
     expect(tabs).toContain('operation');
-    expect(allowedAccountingSubtabs('admin_employee')).toEqual(['prisma', 'galicia', 'debit_moves']);
+    expect(allowedAccountingSubtabs('admin_employee')).toEqual(['colonia', 'prisma', 'galicia', 'debit_moves']);
     expect(tabs).not.toContain('system');
   });
 
@@ -237,7 +238,7 @@ describe('allowedAdminTabs', () => {
     expect(allowedAdminTabs('admin')).toContain('accounting');
     expect(allowedAdminTabs('admin')).toContain('caja');
     expect(allowedAdminTabs('cashier')).toContain('caja');
-    expect(allowedAdminTabs('cashier')).not.toContain('operation');
+    expect(allowedAdminTabs('cashier')).toContain('operation');
     expect(allowedAdminTabs('cashier')).not.toContain('books');
     expect(allowedAdminTabs('cashier')).not.toContain('informes');
     expect(allowedAdminTabs('cashier')).not.toContain('accounting');
@@ -328,16 +329,17 @@ describe('canAccessConcessions', () => {
 });
 
 describe('allowedAccountingSubtabs', () => {
-  it('el cajero y el operador de portería ven caja y otros ingresos', () => {
-    expect(allowedAccountingSubtabs('cashier')).toEqual(['cash', 'other_incomes']);
+  it('el cajero ve Colonia + caja; portería solo caja/otros ingresos', () => {
+    expect(allowedAccountingSubtabs('cashier')).toEqual(['colonia', 'cash', 'other_incomes']);
     expect(allowedAccountingSubtabs('gate_operator')).toEqual(['cash', 'other_incomes']);
   });
 
-  it('admin ve libros y caja; el empleado de administración solo débitos', () => {
+  it('admin ve libros y caja; el empleado de administración ve Colonia y débitos', () => {
     expect(allowedAccountingSubtabs('admin')).toContain('diary');
     expect(allowedAccountingSubtabs('admin')).toContain('cash');
     expect(allowedAccountingSubtabs('admin')).toContain('prisma');
-    expect(allowedAccountingSubtabs('admin_employee')).toEqual(['prisma', 'galicia', 'debit_moves']);
+    expect(allowedAccountingSubtabs('admin')).toContain('colonia');
+    expect(allowedAccountingSubtabs('admin_employee')).toEqual(['colonia', 'prisma', 'galicia', 'debit_moves']);
     expect(allowedAccountingSubtabs('admin_employee')).not.toContain('diary');
     expect(allowedAccountingSubtabs('pool_operator')).toEqual([]);
   });
