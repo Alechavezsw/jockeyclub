@@ -156,4 +156,35 @@ describe('publicación autorizada de Edge Functions', () => {
     expect(result.stderr).toMatch(/no intercepta una llamada directa a la API/i);
     expect(result.stderr).toMatch(/No se publica|No se llama a la API/);
   });
+
+  it('el simulacro del comando publica el manifiesto confirmado', () => {
+    const prepared = prepareEdgePackage(repoFunctions, 'send-access-invite');
+    expect(prepared.ok, prepared.problems?.join('\n')).toBe(true);
+    const result = spawnSync(process.execPath, [
+      'scripts/deploy-edge-function.mjs',
+      '--publish',
+      '--simulate',
+      '--slug',
+      'send-access-invite',
+      '--confirm',
+      prepared.manifest.packageSha256,
+    ], { cwd: repoRoot, encoding: 'utf8' });
+    expect(result.status, result.stderr).toBe(0);
+    const body = JSON.parse(result.stdout);
+    expect(body.deployed).toBe(true);
+    expect(body.mode).toBe('simulate');
+    expect(body.packageSha256).toBe(prepared.manifest.packageSha256);
+  });
+
+  it('un commit fuera de main bloquea el comando', () => {
+    const result = spawnSync(process.execPath, [
+      'scripts/deploy-edge-function.mjs',
+      '--slug',
+      'send-access-invite',
+      '--require-main-sha',
+      'a'.repeat(40),
+    ], { cwd: repoRoot, encoding: 'utf8' });
+    expect(result.status).toBe(1);
+    expect(result.stderr).toMatch(/no pertenece a main/i);
+  });
 });

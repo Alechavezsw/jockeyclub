@@ -4,12 +4,10 @@
  * No lee ni escribe la base del club.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import EmbeddedPostgres from 'embedded-postgres';
-import pg from 'pg';
+import { startEmbeddedPostgres, stopEmbeddedPostgres } from '../../test/embeddedPostgresHarness.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '../../..');
 const paymentFn = readFileSync(join(root, 'supabase/tests/fixtures/apply_mp_approved_payment.production.sql'), 'utf8');
@@ -17,7 +15,6 @@ const subscriptionFn = readFileSync(join(root, 'supabase/tests/fixtures/apply_mp
 const migrationSql = readFileSync(join(root, 'supabase/migrations/20261123150000_mp_credit_only_approved_exact.sql'), 'utf8');
 const receiptSql = readFileSync(join(root, 'supabase/migrations/20261123190000_mp_receipt_jobs.sql'), 'utf8');
 
-const PORT = 59600 + Math.floor(Math.random() * 300);
 const MEMBER = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const OTHER = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 let cluster;
@@ -50,17 +47,10 @@ async function ledgerFingerprint() {
 
 describe('cuerpo completo de Mercado Pago', () => {
   beforeAll(async () => {
-    databaseDir = mkdtempSync(join(tmpdir(), 'jockey-mp-full-'));
-    cluster = new EmbeddedPostgres({
-      databaseDir,
-      user: 'postgres',
-      password: 'postgres',
-      port: PORT,
-      persistent: false,
-    });
-    await cluster.initialise();
-    await cluster.start();
-    pool = new pg.Pool({ connectionString: `postgres://postgres:postgres@127.0.0.1:${PORT}/postgres`, max: 4 });
+    const ctx = await startEmbeddedPostgres({ label: 'jockey-mp-full', poolMax: 4 });
+    cluster = ctx.cluster;
+    databaseDir = ctx.databaseDir;
+    pool = ctx.pool;
 
     await query(`
       create role anon nologin;
@@ -288,9 +278,7 @@ describe('cuerpo completo de Mercado Pago', () => {
   }, 180_000);
 
   afterAll(async () => {
-    await pool?.end().catch(() => {});
-    await cluster?.stop().catch(() => {});
-    if (databaseDir) rmSync(databaseDir, { recursive: true, force: true });
+    await stopEmbeddedPostgres({ pool, cluster, databaseDir });
   }, 60_000);
 
   it('rechaza estado, centavos, cero y moneda sobre el cuerpo completo', async () => {

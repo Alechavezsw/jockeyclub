@@ -2,13 +2,11 @@
  * Migración de visibilidad sobre una base vacía. No toca producción.
  */
 import { describe, expect, it, beforeAll, afterAll } from 'vitest';
-import { readFileSync, mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
-import EmbeddedPostgres from 'embedded-postgres';
-import pg from 'pg';
+import { startEmbeddedPostgres, stopEmbeddedPostgres } from '../../test/embeddedPostgresHarness.js';
 import {
   bajaFechaNeedsReview,
   isOperationalMember,
@@ -22,7 +20,6 @@ const migrationSql = readFileSync(
   'utf8',
 );
 
-const PORT = 57432 + Math.floor(Math.random() * 800);
 let cluster;
 let databaseDir;
 let pool;
@@ -273,26 +270,17 @@ function postgrestOrToSql(filter) {
 
 describe('migración de socios inactivos', () => {
   beforeAll(async () => {
-    databaseDir = mkdtempSync(join(tmpdir(), 'jc-inactive-'));
-    cluster = new EmbeddedPostgres({
-      databaseDir,
-      user: 'postgres',
-      password: 'postgres',
-      port: PORT,
-      persistent: false,
-      autoRehydrateSymlinks: true,
-      initdbFlags: ['--encoding=UTF8', '--locale=C'],
+    const ctx = await startEmbeddedPostgres({
+      label: 'jc-inactive',
+      poolMax: 4,
+      clusterOptions: {
+        autoRehydrateSymlinks: true,
+        initdbFlags: ['--encoding=UTF8', '--locale=C'],
+      },
     });
-    await cluster.initialise();
-    await cluster.start();
-    pool = new pg.Pool({
-      host: '127.0.0.1',
-      port: PORT,
-      user: 'postgres',
-      password: 'postgres',
-      database: 'postgres',
-      max: 4,
-    });
+    cluster = ctx.cluster;
+    databaseDir = ctx.databaseDir;
+    pool = ctx.pool;
     await query(schemaSql);
     await query(migrationSql);
     await query('grant usage on schema public to anon, authenticated');
@@ -300,9 +288,7 @@ describe('migración de socios inactivos', () => {
   }, 120_000);
 
   afterAll(async () => {
-    await pool?.end().catch(() => {});
-    await cluster?.stop().catch(() => {});
-    if (databaseDir) rmSync(databaseDir, { recursive: true, force: true });
+    await stopEmbeddedPostgres({ pool, cluster, databaseDir });
   }, 60_000);
 
   async function seed(status, name, extra = {}) {

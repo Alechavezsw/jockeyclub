@@ -3,12 +3,10 @@
  * No lee ni escribe la base del club.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import EmbeddedPostgres from 'embedded-postgres';
-import pg from 'pg';
+import { startEmbeddedPostgres, stopEmbeddedPostgres } from '../../test/embeddedPostgresHarness.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '../../..');
 const grantSql = readFileSync(
@@ -16,7 +14,6 @@ const grantSql = readFileSync(
   'utf8',
 );
 const signature = 'public.impute_dues_account_payment(uuid,uuid,numeric,jsonb,date)';
-const PORT = 57000 + Math.floor(Math.random() * 80);
 
 let cluster;
 let databaseDir;
@@ -27,23 +24,10 @@ function query(text, params) {
 }
 
 beforeAll(async () => {
-  databaseDir = mkdtempSync(join(tmpdir(), 'jockey-imputer-grants-'));
-  cluster = new EmbeddedPostgres({
-    databaseDir,
-    user: 'postgres',
-    password: 'postgres',
-    port: PORT,
-    persistent: false,
-  });
-  await cluster.initialise();
-  await cluster.start();
-  pool = new pg.Pool({
-    host: '127.0.0.1',
-    port: PORT,
-    user: 'postgres',
-    password: 'postgres',
-    database: 'postgres',
-  });
+  const ctx = await startEmbeddedPostgres({ label: 'jockey-imputer-grants' });
+  cluster = ctx.cluster;
+  databaseDir = ctx.databaseDir;
+  pool = ctx.pool;
 
   await query(`
     do $$ begin create role anon nologin; exception when duplicate_object then null; end $$;
@@ -91,9 +75,7 @@ beforeAll(async () => {
 }, 120000);
 
 afterAll(async () => {
-  await pool?.end();
-  await cluster?.stop();
-  if (databaseDir) rmSync(databaseDir, { recursive: true, force: true });
+  await stopEmbeddedPostgres({ pool, cluster, databaseDir });
 });
 
 describe('permisos de impute_dues_account_payment', () => {
