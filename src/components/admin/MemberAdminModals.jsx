@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Copy, Eye, EyeOff, KeyRound, Mail, RefreshCw, Search, X } from 'lucide-react';
+import { Copy, Eye, EyeOff, FileDown, KeyRound, Mail, RefreshCw, Search, X } from 'lucide-react';
 
 function WhatsAppIcon({ size = 16 }) {
   return (
@@ -22,11 +22,44 @@ import {
 import { memberMatchesDirectoryQuery } from '../../domain/members/households';
 import { PADRON_BAJA_OPTIONS } from '../../domain/members/membershipMoves';
 import { money } from '../../domain/money';
+import { appMonthlyDebtForMember } from '../../domain/accounting/appMonthlyDebts';
+import { downloadDuesDebtPdf } from '../../domain/accounting/exportDuesDebtPdf';
 import { collectionPeriodChoices } from '../../domain/members/dues';
-import { duesMonthsPhrase } from '../../domain/members/duesImputations';
+import { duesMonthLabel, duesMonthsPhrase } from '../../domain/members/duesImputations';
 import { todayISODateAR } from '../../lib/arDate';
 import { isSupabaseConfigured } from '../../lib/supabase';
 import { repos } from '../../data/bootstrap';
+
+function reactivateDebtPdfPayload(member) {
+  if (!member) return null;
+  const fromStanding = appMonthlyDebtForMember(member, { today: new Date() });
+  if (fromStanding?.months?.length) return fromStanding;
+  const choices = collectionPeriodChoices(member, new Date());
+  const months = choices.map((row) => ({
+    periodKey: String(row.dueOn).slice(0, 7),
+    periodLabel: row.label || duesMonthLabel(row.dueOn),
+    dueOn: row.dueOn,
+    capital: money(row.capital),
+    interest: money(row.surcharge),
+  }));
+  const capital = months.reduce((sum, row) => sum + money(row.capital), 0);
+  const interest = months.reduce((sum, row) => sum + money(row.interest), 0);
+  const ficha = money(Math.max(0, Number(member.outstandingBalance) || 0));
+  const totalDebt = money(Math.max(ficha, capital + interest));
+  if (!(totalDebt > 0.01) && !months.length) return null;
+  return {
+    memberNumber: member.memberId || member.memberNumber,
+    memberName: member.name,
+    dni: member.documentNumber || member.dni || '',
+    socialFee: member.tier || '',
+    standing: totalDebt > 0.01 ? 'Con saldo' : 'Al día',
+    capital: capital || ficha,
+    interest,
+    unallocated: months.length ? Math.max(0, money(ficha - capital)) : ficha,
+    totalDebt,
+    months,
+  };
+}
 
 /**
  * Modal de motivo (suspender / activar / baja) — queda auditado.
@@ -446,6 +479,7 @@ export function MemberReactivateModal({
   const [detail, setDetail] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [pdfBusy, setPdfBusy] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -458,6 +492,7 @@ export function MemberReactivateModal({
     setDetail('');
     setError('');
     setBusy(false);
+    setPdfBusy(false);
   }, [open, initialMember]);
 
   useEffect(() => {
@@ -550,10 +585,28 @@ export function MemberReactivateModal({
         detail: note,
         presentedOn: fecha,
         amount: saldo,
+        owedMonthsLabel,
       });
     } catch (err) {
       setError(err?.message || 'No se pudo registrar la reactivación.');
       setBusy(false);
+    }
+  };
+
+  const downloadDebtPdf = async () => {
+    if (!selected) {
+      setError('Elegí el socio.');
+      return;
+    }
+    setPdfBusy(true);
+    setError('');
+    try {
+      const debt = reactivateDebtPdfPayload(selected);
+      await downloadDuesDebtPdf({ member: selected, debt, asOf: new Date() });
+    } catch (err) {
+      setError(err?.message || 'No se pudo generar el PDF de meses adeudados.');
+    } finally {
+      setPdfBusy(false);
     }
   };
 
@@ -681,7 +734,7 @@ export function MemberReactivateModal({
           />
         </label>
       </div>
-      <label className="form-group" style={{ display: 'block', marginBottom: '0.85rem' }}>
+      <label className="form-group" style={{ display: 'block', marginBottom: '0.55rem' }}>
         <span className="form-label">Meses que debe</span>
         <textarea
           className="form-input"
@@ -700,8 +753,19 @@ export function MemberReactivateModal({
           style={{ resize: 'none' }}
         />
       </label>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '0.85rem' }}>
+        <button
+          type="button"
+          className="btn btn-secondary btn-sm"
+          onClick={downloadDebtPdf}
+          disabled={busy || pdfBusy || !selected}
+        >
+          <FileDown size={14} aria-hidden="true" />
+          {pdfBusy ? 'PDF…' : 'Descargar PDF de meses'}
+        </button>
+      </div>
       <p style={{ margin: '-0.35rem 0 0.85rem', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-        El saldo y los meses no se editan. Quedan el usuario, la fecha y la hora. La baja anterior no se borra.
+        El saldo y los meses no se editan. Al confirmar también baja el certificado con esos meses. Quedan el usuario, la fecha y la hora. La baja anterior no se borra.
       </p>
 
       <label className="form-group" style={{ display: 'block', marginBottom: '0.85rem' }}>
