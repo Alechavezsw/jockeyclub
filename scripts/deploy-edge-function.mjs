@@ -26,10 +26,12 @@ import {
   payloadFromPackage,
 } from '../src/domain/deploy/edgeFunctionRelease.js';
 import {
+  EDGE_DEPLOY_STATUS,
   createSimulatedEdgeUploader,
   createSupabaseEdgeUploader,
   publishAuthorizedEdgeFunction,
   redactSecrets,
+  summarizeDeployOutcome,
 } from '../src/domain/deploy/edgeFunctionPublisher.js';
 
 const rootDir = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -47,6 +49,7 @@ const confirm = flagValue('--confirm');
 const requireMainSha = normalizeCommitSha(flagValue('--require-main-sha'));
 const publish = args.includes('--publish');
 const simulate = args.includes('--simulate');
+const allowUnverified = args.includes('--allow-unverified');
 const artifactDir = flagValue('--write-artifact') || '';
 
 function gitIsAncestor(ancestor, tip) {
@@ -143,6 +146,10 @@ if (confirm !== prepared.manifest.packageSha256) {
 
 let uploader;
 if (simulate) {
+  // Dry-run: nunca usar credenciales de producción aunque estén en el entorno.
+  if (process.env.SUPABASE_ACCESS_TOKEN || process.env.SUPABASE_PROJECT_REF) {
+    process.stderr.write('Modo --simulate: se ignoran SUPABASE_ACCESS_TOKEN/SUPABASE_PROJECT_REF.\n');
+  }
   uploader = createSimulatedEdgeUploader();
 } else {
   const projectRef = String(process.env.SUPABASE_PROJECT_REF || '').trim();
@@ -163,24 +170,54 @@ if (simulate) {
 const result = await publishAuthorizedEdgeFunction({
   prepared,
   confirm,
+  mode: simulate ? 'simulate' : 'supabase',
+  unverifiedPolicy: allowUnverified ? 'accept' : 'fail',
   upload: (payload) => uploader.upload(payload),
   fetchDeployed: (ctx) => uploader.fetchDeployed(ctx),
 });
 
-if (!result.deployed) {
-  process.stderr.write(result.verifyFailed ? 'Verificación posterior fallida.\n' : 'Publicación bloqueada.\n');
+const summary = summarizeDeployOutcome(result);
+const report = {
+  status: result.status,
+  summary,
+  deployed: result.deployed,
+  slug: prepared.slug,
+  packageSha256: prepared.manifest.packageSha256,
+  limitation: result.limitation || '',
+  uploadResult: result.uploadResult,
+};
+
+if (result.status === EDGE_DEPLOY_STATUS.SIMULATED) {
+  process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+  process.stderr.write('Estado: simulated — no hubo publicación en producción.\n');
+  process.exit(0);
+}
+
+if (result.status === EDGE_DEPLOY_STATUS.PUBLISHED_VERIFIED) {
+  process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+  process.exit(0);
+}
+
+if (result.status === EDGE_DEPLOY_STATUS.PUBLISHED_UNVERIFIED) {
+  process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+  process.stderr.write('Estado: published_unverified — sin verificación byte a byte.\n');
+  if (result.limitation) process.stderr.write(`${result.limitation}\n`);
   for (const problem of result.problems) process.stderr.write(`- ${redactSecrets(problem)}\n`);
   if (result.recovery?.steps?.length) {
     process.stderr.write('Recuperación:\n');
     for (const step of result.recovery.steps) process.stderr.write(`- ${step}\n`);
   }
-  process.exit(result.providerError || result.verifyFailed ? 3 : 2);
+  process.exit(allowUnverified ? 0 : 3);
 }
 
-process.stdout.write(`${JSON.stringify({
-  deployed: true,
-  mode: simulate ? 'simulate' : 'supabase',
-  slug: prepared.slug,
-  packageSha256: prepared.manifest.packageSha256,
-  uploadResult: result.uploadResult,
-}, null, 2)}\n`);
+process.stderr.write(
+  result.verifyFailed ? 'Estado: failed — verificación posterior fallida.\n' : 'Estado: failed — publicación bloqueada.\n',
+);
+for (const problem of result.problems) process.stderr.write(`- ${redactSecrets(problem)}\n`);
+if (result.limitation) process.stderr.write(`${result.limitation}\n`);
+if (result.recovery?.steps?.length) {
+  process.stderr.write('Recuperación:\n');
+  for (const step of result.recovery.steps) process.stderr.write(`- ${step}\n`);
+}
+process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+process.exit(result.providerError || result.verifyFailed ? 3 : 2);

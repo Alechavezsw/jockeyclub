@@ -157,7 +157,7 @@ describe('publicación autorizada de Edge Functions', () => {
     expect(result.stderr).toMatch(/No se publica|No se llama a la API/);
   });
 
-  it('el simulacro del comando publica el manifiesto confirmado', () => {
+  it('el simulacro del comando queda en status=simulated, no published', () => {
     const prepared = prepareEdgePackage(repoFunctions, 'send-access-invite');
     expect(prepared.ok, prepared.problems?.join('\n')).toBe(true);
     const result = spawnSync(process.execPath, [
@@ -168,12 +168,23 @@ describe('publicación autorizada de Edge Functions', () => {
       'send-access-invite',
       '--confirm',
       prepared.manifest.packageSha256,
-    ], { cwd: repoRoot, encoding: 'utf8' });
+    ], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        SUPABASE_ACCESS_TOKEN: 'sbp_should_be_ignored',
+        SUPABASE_PROJECT_REF: 'should-be-ignored',
+      },
+    });
     expect(result.status, result.stderr).toBe(0);
     const body = JSON.parse(result.stdout);
-    expect(body.deployed).toBe(true);
-    expect(body.mode).toBe('simulate');
+    expect(body.status).toBe('simulated');
+    expect(body.deployed).toBe(false);
+    expect(body.summary.published).toBe(false);
+    expect(body.summary.simulated).toBe(true);
     expect(body.packageSha256).toBe(prepared.manifest.packageSha256);
+    expect(result.stderr).toMatch(/simulated/i);
   });
 
   it('un commit fuera de main bloquea el comando', () => {

@@ -132,19 +132,40 @@ jobs:
 
       - run: npm ci
 
-      - name: Publicación simulada del paquete validado
+      - name: Simulacro del paquete validado (nunca publicación)
         env:
-          # Asegura que un dry-run nunca tome credenciales de prod aunque existan en el runner.
+          # Dry-run: sin secretos de production-edge (ese environment solo está en publish).
+          EXPECTED: ${{ needs.validate.outputs.package_sha256 }}
           SUPABASE_ACCESS_TOKEN: ''
           SUPABASE_PROJECT_REF: ''
         run: |
           set -euo pipefail
-          node scripts/deploy-edge-function.mjs \
+          OUT=$(node scripts/deploy-edge-function.mjs \
             --slug "${{ needs.validate.outputs.slug }}" \
             --require-main-sha "${{ needs.validate.outputs.sha }}" \
             --publish \
             --simulate \
-            --confirm "${{ needs.validate.outputs.package_sha256 }}"
+            --confirm "${{ needs.validate.outputs.package_sha256 }}")
+          echo "$OUT"
+          echo "$OUT" | node -e "
+            let s=''; process.stdin.on('data', d => s += d);
+            process.stdin.on('end', () => {
+              const body = JSON.parse(s);
+              if (body.status !== 'simulated') {
+                console.error('El dry-run debe devolver status=simulated, recibió:', body.status);
+                process.exit(1);
+              }
+              if (body.deployed === true || body.summary?.published === true) {
+                console.error('Un simulacro no puede marcarse como publicación.');
+                process.exit(1);
+              }
+              if (body.packageSha256 !== process.env.EXPECTED) {
+                console.error('El simulacro no usó el manifiesto validado.');
+                process.exit(1);
+              }
+              console.log('Simulacro OK — status=simulated');
+            });
+          "
 
   publish:
     name: Publicar en producción
@@ -201,8 +222,28 @@ jobs:
             echo "El paquete del disco divergió del artefacto. No se publica."
             exit 1
           fi
-          node scripts/deploy-edge-function.mjs \
+          OUT=$(node scripts/deploy-edge-function.mjs \
             --slug "${{ needs.validate.outputs.slug }}" \
             --require-main-sha "${{ needs.validate.outputs.sha }}" \
             --publish \
-            --confirm "$EXPECTED"
+            --confirm "$EXPECTED")
+          echo "$OUT"
+          echo "$OUT" | node -e "
+            let s=''; process.stdin.on('data', d => s += d);
+            process.stdin.on('end', () => {
+              const body = JSON.parse(s);
+              if (body.status === 'simulated') {
+                console.error('El job de producción no puede terminar en simulated.');
+                process.exit(1);
+              }
+              if (body.status !== 'published_verified') {
+                console.error('Se exige published_verified; recibido:', body.status, body.limitation || '');
+                process.exit(1);
+              }
+              if (!body.deployed || !body.summary?.verified) {
+                console.error('La publicación no quedó verificada.');
+                process.exit(1);
+              }
+              console.log('Publicación OK — status=published_verified');
+            });
+          "
