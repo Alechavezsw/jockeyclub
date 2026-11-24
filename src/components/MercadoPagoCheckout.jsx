@@ -3,6 +3,7 @@ import { CreditCard, Loader2, QrCode, RefreshCw } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { isSupabaseConfigured } from '../lib/supabase';
 import { createMercadoPagoCheckout, getMercadoPagoIntent } from '../data/repos';
+import { assertDuesCollectionAuthorized } from '../domain/members/memberPayments';
 import { isMpPaidStatus, mpChannelFor } from '../domain/payments/mercadoPago';
 
 function formatCurrency(amount) {
@@ -28,6 +29,7 @@ export default function MercadoPagoCheckout({
   subscribe = false,
   onApproved,
   disabled = false,
+  member = null,
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -65,6 +67,19 @@ export default function MercadoPagoCheckout({
 
   const start = async (nextKind = kind) => {
     if (disabled || busy || amount <= 0) return;
+    if (member && (nextKind === 'dues' || nextKind === 'subscription')) {
+      try {
+        assertDuesCollectionAuthorized(member, {
+          amount,
+          chargeScope: /tenis/i.test(String(concept || '')) && !/cuota social/i.test(String(concept || ''))
+            ? 'abono_tenis'
+            : 'social',
+        });
+      } catch (guardErr) {
+        setError(guardErr.message || 'Cobro pendiente de conciliación administrativa.');
+        return;
+      }
+    }
     if (!isSupabaseConfigured) {
       setError('Mercado Pago necesita el libro conectado.');
       return;

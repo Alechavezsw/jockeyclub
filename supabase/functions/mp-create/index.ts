@@ -342,6 +342,27 @@ Deno.serve(async (req) => {
       }
     }
 
+    if (kind === "dues") {
+      const conceptText = String(body?.concept || "");
+      const tennisOnly = /tenis/i.test(conceptText) && !/cuota social/i.test(conceptText);
+      const outstanding = Number(member.outstanding_balance) || 0;
+      const authRaw = member.meta && typeof member.meta === "object"
+        ? (member.meta as { duesTariffAuthorization?: Record<string, unknown> }).duesTariffAuthorization
+        : null;
+      const authorized = authRaw
+        && String(authRaw.status || "") === "authorized"
+        && (authRaw.authorizedAt || authRaw.authorizedBy)
+        ? Number(authRaw.difference ?? authRaw.amount) || 0
+        : 0;
+      if (!tennisOnly && amount > outstanding + Math.max(0, authorized) + 0.01) {
+        return json(400, {
+          error: "Cobro pendiente de conciliación administrativa. El importe supera el saldo autorizado.",
+          outstanding,
+          authorized: Math.max(0, authorized),
+        });
+      }
+    }
+
     // Adhesión al débito: sin deuda de cuota y una sola abierta por socio.
     if (channel === "subscription" || kind === "subscription") {
       const outstanding = Number(member.outstanding_balance) || 0;

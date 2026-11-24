@@ -620,16 +620,20 @@ export function collectionChoicesFromFeeLedger(member, paidOn = new Date(), {
     const partial = applied > EPS && pending + EPS < originalCapital;
     let capital = pending;
     let tariffUpdate = 0;
+    let needsReview = false;
     if (!partial && !tennisScope && typeof tariffOf === 'function') {
-      const tariff = money(tariffOf(dueOn));
-      if (tariff > EPS) {
-        capital = tariff;
+      const raw = tariffOf(dueOn);
+      const tariff = raw == null ? NaN : Number(raw);
+      if (!Number.isFinite(tariff) || tariff <= EPS) {
+        needsReview = true;
+      } else {
+        capital = money(tariff);
         tariffUpdate = money(Math.max(0, capital - pending));
       }
     }
     const alreadyCharged = money(recorded.get(dueOn.slice(0, 7)) || 0);
     let surcharge = 0;
-    if (tennisScope) surcharge = 0;
+    if (needsReview || tennisScope) surcharge = 0;
     else if (alreadyCharged > EPS) surcharge = alreadyCharged;
     else if (!partial && overdue && allowsLate) surcharge = money(capital * DUES_LATE_RATE);
     return {
@@ -649,6 +653,7 @@ export function collectionChoicesFromFeeLedger(member, paidOn = new Date(), {
       fromFeeLedger: true,
       fromAccessinHistory: row.source === 'accessin-history',
       historicalSurcharge: money(row.historicalSurcharge || 0),
+      needsReview,
       partial,
     };
   }).filter((row) => row.capital > EPS);

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { appMonthlyDebtForMember } from '../accounting/appMonthlyDebts';
-import { collectionDiscount, collectionPreview } from './memberPayments';
+import { collectionDiscount, collectionPreview, duesCollectionGate } from './memberPayments';
+import { setRuntimeTierCatalog } from './tiers';
 import { collectionPeriodChoices, collectionTennisPeriodChoices, duesAmountForMember } from './dues';
 import {
   collectionChoicesFromFeeLedger,
@@ -377,6 +378,89 @@ describe('cuota a tarifa vigente, por mes', () => {
     const discounted = collectionDiscount(preview.cash, { discount: 5000, detail: 'Bonificación de mostrador' });
     expect(preview.quota).toBe(140000);
     expect(discounted.cash).toBe(149000);
+  });
+
+  it('10632 no se acredita mientras la diferencia de $33.000 no esté autorizada', () => {
+    const member = silvia(SILVIA_HISTORY);
+    const blocked = duesCollectionGate(member, { amount: 308000, paidOn: TODAY });
+    expect(blocked.blocked).toBe(true);
+    expect(blocked.recordedBalance).toBe(275000);
+    expect(blocked.theoretical).toBe(308000);
+    expect(blocked.difference).toBe(33000);
+    expect(blocked.message).toMatch(/Cobro pendiente de conciliación administrativa/);
+    expect(blocked.message).toMatch(/33\.000|33,000/);
+    expect(duesCollectionGate(member, { amount: 77000, paidOn: TODAY }).blocked).toBe(true);
+    const authorized = silvia(SILVIA_HISTORY);
+    authorized.meta = {
+      duesTariffAuthorization: {
+        status: 'authorized',
+        difference: 33000,
+        authorizedAt: '2026-11-24',
+        authorizedBy: 'comision',
+      },
+    };
+    expect(duesCollectionGate(authorized, { amount: 308000, paidOn: TODAY }).blocked).toBe(false);
+    expect(duesCollectionGate(authorized, { amount: 308001, paidOn: TODAY }).blocked).toBe(true);
+  });
+
+  it('10697, 100132 y el saldo cero no quedan trabados por una diferencia de tarifa', () => {
+    expect(duesCollectionGate(alejandra(), { amount: 154000, paidOn: TODAY }).blocked).toBe(false);
+    expect(duesCollectionGate(alejandra(), {
+      amount: 140000,
+      paidOn: TODAY,
+      skipSurcharge: true,
+    }).blocked).toBe(false);
+    expect(duesCollectionGate(luciano(), { amount: 42000, paidOn: TODAY }).blocked).toBe(false);
+    expect(duesCollectionGate(luciano(), {
+      amount: 12000,
+      chargeScope: 'abono_tenis',
+      paidOn: TODAY,
+    }).blocked).toBe(false);
+    const clear = {
+      memberId: '101544',
+      memberNumber: '101544',
+      tier: 'socio_familiar',
+      outstandingBalance: 0,
+      feeLedgerLines: [],
+      paymentHistory: [],
+    };
+    expect(duesCollectionGate(clear, { amount: 70000, paidOn: TODAY }).blocked).toBe(true);
+  });
+
+  it('una tarifa editada en el catálogo reemplaza a la oficial, y una tarifa ausente pide revisión', () => {
+    setRuntimeTierCatalog([
+      { id: 'socio_familiar', name: 'SOCIO FAMILIAR', monthlyDues: 75000, isActive: true },
+    ]);
+    try {
+      const choices = collectionPeriodChoices(silvia(SILVIA_HISTORY), TODAY, { chargeScope: 'social' });
+      expect(choices.every((row) => row.capital === 75000)).toBe(true);
+    } finally {
+      setRuntimeTierCatalog([]);
+    }
+    const member = {
+      memberId: 'sin-tarifa',
+      memberNumber: 'sin-tarifa',
+      tier: 'liga_no_socio',
+      outstandingBalance: 50000,
+      cuotaCategories: ['LIGA (No socio)'],
+      feeLedgerLines: [
+        line({
+          member_number: 'sin-tarifa',
+          line_date: '2026-11-01',
+          type_label: 'Cuota (LIGA)',
+          description: 'Noviembre del 2026',
+          amount: 50000,
+          collected: 0,
+          pending: 50000,
+          source: 'liquidation',
+        }),
+      ],
+      paymentHistory: [],
+    };
+    const review = duesCollectionGate(member, { amount: 50000, paidOn: TODAY });
+    expect(review.needsReview).toBe(true);
+    expect(review.blocked).toBe(true);
+    expect(review.message).toMatch(/Requiere revisión/);
   });
 
   it('dos lecturas concurrentes del mismo socio no se pisan', async () => {

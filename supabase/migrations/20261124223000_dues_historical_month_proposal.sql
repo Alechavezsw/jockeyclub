@@ -74,6 +74,9 @@ declare
   share numeric;
   named text[];
 begin
+  if auth.uid() is not null and coalesce(public.has_staff_access(), false) is not true then
+    return;
+  end if;
   for rec in
     select
       elem->>0 as member_number,
@@ -292,39 +295,55 @@ select
   p.applied,
   p.capital_open,
   p.historical_surcharge as recorded_surcharge,
-  case m.tier
-    when 'socio_familiar' then 70000
-    when 'socio_individual' then 40000
-    when 'socio_familiar_amet' then 68250
-    when 'socio_individual_amet' then 39000
-    else null
-  end as current_tariff,
+  catalog.monthly_dues as current_tariff,
   case
+    when catalog.monthly_dues is null then null
     when p.applied > 0.009 and p.capital_open + 0.009 < p.original_capital then 0
     when m.tier in ('socio_familiar', 'socio_individual')
       and (p.period_ym || '-10')::date < current_date
-      then round((
-        case m.tier
-          when 'socio_familiar' then 70000
-          when 'socio_individual' then 40000
-          else 0
-        end
-      ) * 0.1, 2)
+      then round(catalog.monthly_dues * 0.1, 2)
     else 0
   end as current_surcharge,
   coalesce(l.ledger_pending, 0) as ledger_pending,
   coalesce(a.unassigned_adjustment, 0) as unassigned_adjustment,
   coalesce(m.outstanding_balance, 0) as recorded_balance,
   case
+    when catalog.monthly_dues is null and p.capital_open > 0.009 then 'revisar'
     when p.capital_open <= 0.009 then 'cubierto'
     when coalesce(l.ledger_pending, 0) > 0.009 then 'abierto_en_libro'
     when coalesce(a.unassigned_adjustment, 0) > 0.009 then 'propuesto'
     else 'revisar'
-  end as proposal_status
+  end as proposal_status,
+  case
+    when catalog.monthly_dues is null then null
+    else round(catalog.monthly_dues - p.original_capital, 2)
+  end as tariff_difference
 from proposal p
 left join public.members m on m.member_number = p.member_number
 left join adjustment a on a.member_number = p.member_number
-left join ledger l on l.member_number = p.member_number and l.period_ym = p.period_ym;
+left join ledger l on l.member_number = p.member_number and l.period_ym = p.period_ym
+left join lateral (
+  select
+    case
+      when (elem->>'isActive') = 'false' then null
+      when coalesce(elem->>'monthlyDues', '') ~ '^[0-9]+(\.[0-9]+)?$'
+        and (elem->>'monthlyDues')::numeric > 0
+        then (elem->>'monthlyDues')::numeric
+      else null
+    end as monthly_dues
+  from public.app_settings settings
+  cross join lateral jsonb_array_elements(
+    case when jsonb_typeof(settings.value) = 'array' then settings.value else '[]'::jsonb end
+  ) elem
+  where settings.key = 'member_tiers'
+    and elem->>'id' = m.tier
+  limit 1
+) catalog on true;
 
 comment on view public.dues_historical_reconciliation_proposal is
-  'Propuesta de meses según el historial LILA. Solo lectura: no modifica saldos ni ajustes.';
+  'Propuesta de meses según el historial LILA y el catálogo member_tiers. Solo lectura: no modifica saldos ni ajustes.';
+
+revoke all on function public.dues_history_period_keys(text, text) from public, anon;
+revoke all on function public.dues_historical_month_proposal() from public, anon;
+grant execute on function public.dues_history_period_keys(text, text) to authenticated, service_role;
+grant execute on function public.dues_historical_month_proposal() to authenticated, service_role;

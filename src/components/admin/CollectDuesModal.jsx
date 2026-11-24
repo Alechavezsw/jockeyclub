@@ -25,8 +25,10 @@ import { duesMonthsPhrase } from '../../domain/members/duesImputations';
 import { parseAppPaymentAmountLabel } from '../../domain/members/appPaymentRequests';
 import {
   assertMixedPosMoraAllocation,
+  assertDuesCollectionAuthorized,
   collectionDiscount,
   collectionPreview,
+  duesCollectionGate,
   duesMethodNeedsReceipt,
   duesMethodSkipsSurcharge,
   duesMethodUsesBank,
@@ -634,6 +636,19 @@ export default function CollectDuesModal({
     return [...totals.values()];
   }, [selectedRows, account, skipSurcharge, tennisOnly]);
   const quotedAmount = (!tennisOnly && duesExempt) || hydrating ? 0 : split.cash;
+  const gate = useMemo(() => duesCollectionGate(account, {
+    amount: isOnAccount ? (Number(onAccountInput) || 0) : quotedAmount,
+    chargeScope: tennisOnly ? 'abono_tenis' : 'social',
+    skipSurcharge: tennisOnly || duesMethodSkipsSurcharge(method),
+  }), [
+    account,
+    isOnAccount,
+    onAccountInput,
+    quotedAmount,
+    tennisOnly,
+    method,
+  ]);
+  const collectionBlocked = Boolean(gate.blocked);
   const onAccountAmount = money(onAccountInput === '' ? 0 : onAccountInput);
   const amount = isOnAccount ? onAccountAmount : quotedAmount;
   const [discountInput, setDiscountInput] = useState('');
@@ -1029,6 +1044,16 @@ export default function CollectDuesModal({
     }
     if (separable && socialDueOns.length && tennisDueOns.length) {
       setError('Cobrál la cuota social y el abono tenis por separado: dejá marcado solo uno arriba.');
+      return;
+    }
+    try {
+      assertDuesCollectionAuthorized(account, {
+        amount: concession.cash,
+        chargeScope: tennisOnly ? 'abono_tenis' : 'social',
+        skipSurcharge: tennisOnly || duesMethodSkipsSurcharge(method),
+      });
+    } catch (guardErr) {
+      setError(guardErr?.message || 'Cobro pendiente de conciliación administrativa.');
       return;
     }
     const settling = concession.cash > 0.009;
@@ -1451,44 +1476,47 @@ export default function CollectDuesModal({
                 );
               })}
             </ul>
-            {(() => {
-              const held = unreconciledHistoricalBalance(account);
-              const recorded = Number(account?.outstandingBalance) || 0;
-              const theoretical = periodChoices.reduce(
-                (sum, row) => sum + (Number(row.payable) || 0),
-                0,
-              );
-              const difference = theoretical - recorded;
-              if (held.explained > 0.009 && Math.abs(difference) > 0.009) {
-                return (
-                  <div style={{ marginTop: '0.7rem', padding: '0.7rem 0.75rem', borderRadius: 8, border: '1px dashed var(--border-glass)' }}>
-                    <p style={{ margin: 0, fontSize: '0.78rem', letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-gold)' }}>
-                      Diferencia con el saldo de la ficha
-                    </p>
-                    <p className="tabular-nums" style={{ margin: '0.35rem 0 0', fontWeight: 700 }}>
-                      {formatCurrency(difference)}
-                    </p>
-                    <p style={{ margin: '0.35rem 0 0', color: 'var(--text-muted)', fontSize: '0.82rem' }}>
-                      El saldo registrado sigue en {formatCurrency(recorded)}. El historial ya asignó {formatCurrency(held.explained)} y ese importe no se suma otra vez.
-                    </p>
-                  </div>
-                );
-              }
-              if (!(held.amount > 0.009)) return null;
-              return (
-                <div style={{ marginTop: '0.7rem', padding: '0.7rem 0.75rem', borderRadius: 8, border: '1px dashed var(--border-glass)' }}>
-                  <p style={{ margin: 0, fontSize: '0.78rem', letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-gold)' }}>
-                    Saldo histórico pendiente de conciliación
+            {gate.difference > 0.009 ? (
+              <div style={{ marginTop: '0.7rem', padding: '0.7rem 0.75rem', borderRadius: 8, border: '1px dashed var(--border-glass)' }}>
+                <p style={{ margin: 0, fontSize: '0.78rem', letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-gold)' }}>
+                  Diferencia con el saldo de la ficha
+                </p>
+                <p className="tabular-nums" style={{ margin: '0.35rem 0 0' }}>
+                  Saldo contable {formatCurrency(gate.recordedBalance)}
+                  {' · '}
+                  Cuotas calculadas {formatCurrency(gate.theoretical)}
+                  {' · '}
+                  Diferencia {formatCurrency(gate.difference)}
+                </p>
+                <ul style={{ margin: '0.45rem 0 0', paddingLeft: '1.1rem', color: 'var(--text-muted)', fontSize: '0.82rem' }}>
+                  {gate.lines.map((row) => (
+                    <li key={row.dueOn}>
+                      {row.label}: original {formatCurrency(row.originalCapital)}
+                      {row.tariffUpdate > 0.009 ? `, actualización ${formatCurrency(row.tariffUpdate)}` : ''}
+                      {row.surcharge > 0.009 ? `, recargo ${formatCurrency(row.surcharge)}` : ''}
+                    </li>
+                  ))}
+                </ul>
+                {collectionBlocked ? (
+                  <p role="alert" style={{ margin: '0.45rem 0 0', fontSize: '0.84rem' }}>
+                    {gate.message}
                   </p>
-                  <p className="tabular-nums" style={{ margin: '0.35rem 0 0', fontWeight: 700 }}>
-                    {formatCurrency(held.amount)}
-                  </p>
-                  <p style={{ margin: '0.35rem 0 0', color: 'var(--text-muted)', fontSize: '0.82rem' }}>
-                    No es una cuota. No entra en este cobro y el saldo de la ficha queda como está hasta que el club lo autorice.
-                  </p>
-                </div>
-              );
-            })()}
+                ) : null}
+              </div>
+            ) : null}
+            {unreconciledHistoricalBalance(account).amount > 0.009 ? (
+              <div style={{ marginTop: '0.7rem', padding: '0.7rem 0.75rem', borderRadius: 8, border: '1px dashed var(--border-glass)' }}>
+                <p style={{ margin: 0, fontSize: '0.78rem', letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-gold)' }}>
+                  Saldo histórico pendiente de conciliación
+                </p>
+                <p className="tabular-nums" style={{ margin: '0.35rem 0 0', fontWeight: 700 }}>
+                  {formatCurrency(unreconciledHistoricalBalance(account).amount)}
+                </p>
+                <p style={{ margin: '0.35rem 0 0', color: 'var(--text-muted)', fontSize: '0.82rem' }}>
+                  No es una cuota. No entra en este cobro y el saldo de la ficha queda como está hasta que el club lo autorice.
+                </p>
+              </div>
+            ) : null}
           </div>
         ) : null}
 
@@ -2222,7 +2250,8 @@ export default function CollectDuesModal({
               discountDetail={discountDetail}
               memberNumber={account.memberId}
               concept={`${tennisOnly ? 'Abono tenis' : 'Cuota social'} · ${duesMonthsPhrase(selectedDueOns.length ? selectedDueOns : periodChoices.map((row) => String(row.dueOn).slice(0, 10))) || account.name || 'socio'}`}
-              disabled={duesExempt || cash <= 0 || (!selectedDueOns.length && !periodChoices.length) || discountOver || (discountValue > 0.009 && discountDetail.trim().length < 3)}
+              member={account}
+              disabled={collectionBlocked || duesExempt || cash <= 0 || (!selectedDueOns.length && !periodChoices.length) || discountOver || (discountValue > 0.009 && discountDetail.trim().length < 3)}
               onApproved={() => {
                 onConfirm({
                   method: 'mercadopago',
@@ -2257,6 +2286,7 @@ export default function CollectDuesModal({
               disabled={
                 hydrating
                 || submitting
+                || collectionBlocked
                 || readingReceipt
                 || mixReading
                 || (!periodChoices.length)
