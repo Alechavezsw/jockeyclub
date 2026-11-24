@@ -1,15 +1,23 @@
 /**
  * Único procedimiento de publicación de Edge Functions.
  *
- * Por defecto solo lee el repositorio, resuelve dependencias, compila y
- * compara el paquete consigo mismo. No llama a la API.
+ * Por defecto (--check implícito): lee el repositorio, resuelve dependencias,
+ * compila, arma el manifiesto SHA-256 y compara el paquete consigo mismo.
  *
- * --publish exige --confirm con el packageSha256 y, aun así, este comando no
- * adjunta un publicador de red: el token de despliegue tiene que vivir en el
- * CI. Un llamado directo a la API no pasa por este archivo.
+ * --publish exige --slug, --confirm=<packageSha256> y un publicador:
+ *   --simulate  → no llama a la red; guarda el paquete sellado en memoria/archivo
+ *   sin --simulate → usa SUPABASE_ACCESS_TOKEN + SUPABASE_PROJECT_REF (solo CI)
+ *
+ * --require-main-sha=<sha> exige que el SHA sea ancestro de refs/remotes/origin/main
+ * o de la punta local de main.
+ *
+ * Un llamado directo a la API de Supabase no pasa por este archivo.
  */
+import { spawnSync } from 'node:child_process';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { authorizeMainCommit, normalizeCommitSha } from '../src/domain/deploy/edgeCommitGuard.js';
 import { checkEdgeFunctions, prepareEdgePackage } from '../src/domain/deploy/edgeFunctionGuard.js';
 import {
   EDGE_DEPLOY_LIMIT,
@@ -17,18 +25,74 @@ import {
   confirmDeployedEdge,
   payloadFromPackage,
 } from '../src/domain/deploy/edgeFunctionRelease.js';
+import {
+  EDGE_DEPLOY_STATUS,
+  createSimulatedEdgeUploader,
+  createSupabaseEdgeUploader,
+  publishAuthorizedEdgeFunction,
+  redactSecrets,
+  summarizeDeployOutcome,
+} from '../src/domain/deploy/edgeFunctionPublisher.js';
 
-const root = join(dirname(fileURLToPath(import.meta.url)), '..', 'supabase', 'functions');
+const rootDir = join(dirname(fileURLToPath(import.meta.url)), '..');
+const functionsRoot = join(rootDir, 'supabase', 'functions');
 const args = process.argv.slice(2);
-const slugFlag = args.indexOf('--slug');
-const slug = slugFlag >= 0 ? args[slugFlag + 1] : '';
-const confirmFlag = args.indexOf('--confirm');
-const confirm = confirmFlag >= 0 ? args[confirmFlag + 1] : '';
+
+function flagValue(name) {
+  const index = args.indexOf(name);
+  if (index < 0) return '';
+  return String(args[index + 1] || '').trim();
+}
+
+const slug = flagValue('--slug');
+const confirm = flagValue('--confirm');
+const requireMainSha = normalizeCommitSha(flagValue('--require-main-sha'));
 const publish = args.includes('--publish');
+const simulate = args.includes('--simulate');
+const allowUnverified = args.includes('--allow-unverified');
+const artifactDir = flagValue('--write-artifact') || '';
+
+function gitIsAncestor(ancestor, tip) {
+  const result = spawnSync(
+    'git',
+    ['merge-base', '--is-ancestor', ancestor, tip],
+    { cwd: rootDir, encoding: 'utf8' },
+  );
+  return result.status === 0;
+}
+
+function mainTips() {
+  const tips = [];
+  // En CI un checkout shallow/PR a veces no trae origin/main; lo pedimos best-effort.
+  spawnSync('git', ['fetch', '--no-tags', '--depth=1', 'origin', 'main'], {
+    cwd: rootDir,
+    encoding: 'utf8',
+  });
+  for (const ref of ['refs/remotes/origin/main', 'origin/main', 'main']) {
+    const tip = spawnSync('git', ['rev-parse', '--verify', ref], {
+      cwd: rootDir,
+      encoding: 'utf8',
+    });
+    if (tip.status === 0) tips.push(String(tip.stdout || '').trim());
+  }
+  return [...new Set(tips.filter(Boolean))];
+}
+
+if (requireMainSha) {
+  const decision = authorizeMainCommit({
+    sha: requireMainSha,
+    mainTips: mainTips(),
+    isAncestor: gitIsAncestor,
+  });
+  if (!decision.ok) {
+    for (const problem of decision.problems) process.stderr.write(`${problem}\n`);
+    process.exit(1);
+  }
+}
 
 const preparedList = slug
-  ? [prepareEdgePackage(root, slug)]
-  : checkEdgeFunctions(root).results;
+  ? [prepareEdgePackage(functionsRoot, slug)]
+  : checkEdgeFunctions(functionsRoot).results;
 
 let failed = false;
 const manifests = [];
@@ -46,19 +110,119 @@ for (const prepared of preparedList) {
     continue;
   }
   manifests.push(prepared.manifest);
+  if (artifactDir && slug && prepared.slug === slug) {
+    mkdirSync(artifactDir, { recursive: true });
+    writeFileSync(
+      join(artifactDir, 'manifest.json'),
+      `${JSON.stringify(prepared.manifest, null, 2)}\n`,
+      'utf8',
+    );
+    writeFileSync(
+      join(artifactDir, 'files.json'),
+      `${JSON.stringify(prepared.files, null, 2)}\n`,
+      'utf8',
+    );
+  }
 }
 
 if (failed) process.exit(1);
 
-if (publish) {
-  const match = manifests.length === 1 && confirm === manifests[0].packageSha256;
-  process.stderr.write(`${EDGE_DEPLOY_LIMIT}\n`);
-  if (!match) {
-    process.stderr.write('Falta --slug de una sola función y --confirm con su packageSha256. No se publica.\n');
-  } else {
-    process.stderr.write('El paquete coincide, pero este comando no adjunta un publicador de red. No se llama a la API.\n');
-  }
+if (!publish) {
+  process.stdout.write(`${JSON.stringify(manifests, null, 2)}\n`);
+  process.exit(0);
+}
+
+if (manifests.length !== 1 || !slug) {
+  process.stderr.write('Para publicar hace falta --slug de una sola función validada.\n');
   process.exit(2);
 }
 
-process.stdout.write(`${JSON.stringify(manifests, null, 2)}\n`);
+const prepared = preparedList[0];
+if (!confirm) {
+  process.stderr.write('Falta --confirm con el packageSha256 del manifiesto. No se publica.\n');
+  process.stderr.write(`${EDGE_DEPLOY_LIMIT}\n`);
+  process.exit(2);
+}
+if (confirm !== prepared.manifest.packageSha256) {
+  process.stderr.write('La confirmación no es el hash del paquete autorizado. No se publica.\n');
+  process.stderr.write(`${EDGE_DEPLOY_LIMIT}\n`);
+  process.exit(2);
+}
+
+let uploader;
+if (simulate) {
+  // Dry-run: nunca usar credenciales de producción aunque estén en el entorno.
+  if (process.env.SUPABASE_ACCESS_TOKEN || process.env.SUPABASE_PROJECT_REF) {
+    process.stderr.write('Modo --simulate: se ignoran SUPABASE_ACCESS_TOKEN/SUPABASE_PROJECT_REF.\n');
+  }
+  uploader = createSimulatedEdgeUploader();
+} else {
+  const projectRef = String(process.env.SUPABASE_PROJECT_REF || '').trim();
+  const accessToken = String(process.env.SUPABASE_ACCESS_TOKEN || '').trim();
+  if (!projectRef || !accessToken) {
+    process.stderr.write(`${EDGE_DEPLOY_LIMIT}\n`);
+    process.stderr.write('Sin SUPABASE_PROJECT_REF/SUPABASE_ACCESS_TOKEN no hay publicador de red. Usá --simulate.\n');
+    process.exit(2);
+  }
+  try {
+    uploader = createSupabaseEdgeUploader({ projectRef, accessToken });
+  } catch (error) {
+    process.stderr.write(`${redactSecrets(error instanceof Error ? error.message : error)}\n`);
+    process.exit(2);
+  }
+}
+
+const result = await publishAuthorizedEdgeFunction({
+  prepared,
+  confirm,
+  mode: simulate ? 'simulate' : 'supabase',
+  unverifiedPolicy: allowUnverified ? 'accept' : 'fail',
+  upload: (payload) => uploader.upload(payload),
+  fetchDeployed: (ctx) => uploader.fetchDeployed(ctx),
+});
+
+const summary = summarizeDeployOutcome(result);
+const report = {
+  status: result.status,
+  summary,
+  deployed: result.deployed,
+  slug: prepared.slug,
+  packageSha256: prepared.manifest.packageSha256,
+  limitation: result.limitation || '',
+  uploadResult: result.uploadResult,
+};
+
+if (result.status === EDGE_DEPLOY_STATUS.SIMULATED) {
+  process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+  process.stderr.write('Estado: simulated — no hubo publicación en producción.\n');
+  process.exit(0);
+}
+
+if (result.status === EDGE_DEPLOY_STATUS.PUBLISHED_VERIFIED) {
+  process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+  process.exit(0);
+}
+
+if (result.status === EDGE_DEPLOY_STATUS.PUBLISHED_UNVERIFIED) {
+  process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+  process.stderr.write('Estado: published_unverified — sin verificación byte a byte.\n');
+  if (result.limitation) process.stderr.write(`${result.limitation}\n`);
+  for (const problem of result.problems) process.stderr.write(`- ${redactSecrets(problem)}\n`);
+  if (result.recovery?.steps?.length) {
+    process.stderr.write('Recuperación:\n');
+    for (const step of result.recovery.steps) process.stderr.write(`- ${step}\n`);
+  }
+  process.exit(allowUnverified ? 0 : 3);
+}
+
+process.stderr.write(
+  result.verifyFailed ? 'Estado: failed — verificación posterior fallida.\n' : 'Estado: failed — publicación bloqueada.\n',
+);
+for (const problem of result.problems) process.stderr.write(`- ${redactSecrets(problem)}\n`);
+if (result.limitation) process.stderr.write(`${result.limitation}\n`);
+if (result.recovery?.steps?.length) {
+  process.stderr.write('Recuperación:\n');
+  for (const step of result.recovery.steps) process.stderr.write(`- ${step}\n`);
+}
+process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+process.exit(result.providerError || result.verifyFailed ? 3 : 2);

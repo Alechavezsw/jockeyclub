@@ -3,19 +3,16 @@
  * No toca producción.
  */
 import { describe, expect, it, beforeAll, afterAll } from 'vitest';
-import { readFileSync, mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import EmbeddedPostgres from 'embedded-postgres';
-import pg from 'pg';
+import { startEmbeddedPostgres, stopEmbeddedPostgres } from '../../test/embeddedPostgresHarness.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '../../..');
 const migrationSql = readFileSync(
   join(root, 'supabase/migrations/20261124013000_club_mail_preview.sql'),
   'utf8',
 );
-const PORT = 57640 + Math.floor(Math.random() * 400);
 let cluster;
 let databaseDir;
 let pool;
@@ -25,26 +22,16 @@ async function query(text, params) {
 }
 
 beforeAll(async () => {
-  databaseDir = mkdtempSync(join(tmpdir(), 'jockey-mail-preview-'));
-  cluster = new EmbeddedPostgres({
-    databaseDir,
-    user: 'postgres',
-    password: 'postgres',
-    port: PORT,
-    persistent: false,
-    autoRehydrateSymlinks: true,
-    initdbFlags: ['--encoding=UTF8', '--locale=C'],
+  const ctx = await startEmbeddedPostgres({
+    label: 'jockey-mail-preview',
+    clusterOptions: {
+      autoRehydrateSymlinks: true,
+      initdbFlags: ['--encoding=UTF8', '--locale=C'],
+    },
   });
-  await cluster.initialise();
-  await cluster.start();
-  pool = new pg.Pool({
-    host: '127.0.0.1',
-    port: PORT,
-    user: 'postgres',
-    password: 'postgres',
-    database: 'postgres',
-    max: 2,
-  });
+  cluster = ctx.cluster;
+  databaseDir = ctx.databaseDir;
+  pool = ctx.pool;
   await query(`
     do $$ begin create role anon nologin; exception when duplicate_object then null; end $$;
     do $$ begin create role authenticated nologin; exception when duplicate_object then null; end $$;
@@ -67,15 +54,7 @@ beforeAll(async () => {
 }, 120_000);
 
 afterAll(async () => {
-  await pool?.end();
-  await cluster?.stop();
-  if (databaseDir) {
-    try {
-      rmSync(databaseDir, { recursive: true, force: true });
-    } catch {
-      /* Windows puede retener el directorio un instante. */
-    }
-  }
+  await stopEmbeddedPostgres({ pool, cluster, databaseDir });
 });
 
 describe('permisos de la revisión de mail', () => {

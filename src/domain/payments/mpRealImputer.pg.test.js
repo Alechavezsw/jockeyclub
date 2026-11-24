@@ -4,12 +4,10 @@
  * Postgres embebido. No lee ni escribe la base del club.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import EmbeddedPostgres from 'embedded-postgres';
-import pg from 'pg';
+import { startEmbeddedPostgres, stopEmbeddedPostgres } from '../../test/embeddedPostgresHarness.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '../../..');
 const paymentFn = readFileSync(join(root, 'supabase/tests/fixtures/apply_mp_approved_payment.production.sql'), 'utf8');
@@ -18,7 +16,6 @@ const imputerSql = readFileSync(join(root, 'supabase/migrations/20261116140000_f
 const migrationSql = readFileSync(join(root, 'supabase/migrations/20261123150000_mp_credit_only_approved_exact.sql'), 'utf8');
 const receiptSql = readFileSync(join(root, 'supabase/migrations/20261123190000_mp_receipt_jobs.sql'), 'utf8');
 
-const PORT = 58100 + Math.floor(Math.random() * 150);
 const MEMBER = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const OTHER = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 const INTENT = '44444444-4444-4444-8444-444444444444';
@@ -69,17 +66,10 @@ async function fingerprint() {
 
 describe('imputador real y cuerpo completo de Mercado Pago', () => {
   beforeAll(async () => {
-    databaseDir = mkdtempSync(join(tmpdir(), 'jockey-mp-real-'));
-    cluster = new EmbeddedPostgres({
-      databaseDir,
-      user: 'postgres',
-      password: 'postgres',
-      port: PORT,
-      persistent: false,
-    });
-    await cluster.initialise();
-    await cluster.start();
-    pool = new pg.Pool({ connectionString: `postgres://postgres:postgres@127.0.0.1:${PORT}/postgres`, max: 4 });
+    const ctx = await startEmbeddedPostgres({ label: 'jockey-mp-real', poolMax: 4 });
+    cluster = ctx.cluster;
+    databaseDir = ctx.databaseDir;
+    pool = ctx.pool;
 
     await query(`
       create role anon nologin;
@@ -325,9 +315,7 @@ describe('imputador real y cuerpo completo de Mercado Pago', () => {
   }, 180_000);
 
   afterAll(async () => {
-    await pool?.end().catch(() => {});
-    await cluster?.stop().catch(() => {});
-    if (databaseDir) rmSync(databaseDir, { recursive: true, force: true });
+    await stopEmbeddedPostgres({ pool, cluster, databaseDir });
   }, 60_000);
 
   it('un cobro aprobado imputa con el imputador real y no mueve el historial', async () => {

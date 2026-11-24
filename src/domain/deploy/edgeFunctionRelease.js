@@ -112,7 +112,8 @@ export function authorizeEdgePayload(prepared, payload) {
 
 /**
  * Publica solo el paquete leído del disco, y solo si la confirmación es su hash.
- * Sin publicador no llama a ninguna API.
+ * Vuelve a hashear inmediatamente antes del envío. Sin publicador no llama a ninguna API.
+ * Preferí publishAuthorizedEdgeFunction cuando hace falta verificación remota.
  */
 export function publishEdgeFunction({ prepared, confirm, upload } = {}) {
   const payload = payloadFromPackage(prepared);
@@ -133,11 +134,33 @@ export function publishEdgeFunction({ prepared, confirm, upload } = {}) {
       recovery: edgeDeployRecovery(prepared.slug, prepared.manifest),
     };
   }
+  const sealedHash = hashEdgePayload(payload.files).packageSha256;
+  if (sealedHash !== prepared.manifest.packageSha256) {
+    return {
+      deployed: false,
+      cancelled: true,
+      problems: ['El hash del envío no es el del paquete autorizado.'],
+      recovery: edgeDeployRecovery(prepared.slug, prepared.manifest),
+    };
+  }
   if (typeof upload !== 'function') {
     return {
       deployed: false,
       cancelled: true,
       problems: [EDGE_DEPLOY_LIMIT, 'No hay un publicador conectado. No se llama a la API.'],
+      recovery: edgeDeployRecovery(prepared.slug, prepared.manifest),
+    };
+  }
+  // Recalcular desde el mismo arreglo sellado: nada agregado después del hash.
+  const immediate = authorizeEdgePayload(prepared, {
+    slug: payload.slug,
+    files: payload.files.map((file) => ({ name: file.name, content: file.content })),
+  });
+  if (!immediate.ok) {
+    return {
+      deployed: false,
+      cancelled: true,
+      problems: immediate.problems,
       recovery: edgeDeployRecovery(prepared.slug, prepared.manifest),
     };
   }

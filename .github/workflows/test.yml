@@ -4,6 +4,7 @@ on:
   push:
   pull_request:
 
+# Las publicaciones a producción van solo por deploy-edge-functions.yml (manual).
 jobs:
   test:
     runs-on: ubuntu-latest

@@ -1,0 +1,249 @@
+# Procedimiento oficial de publicación de Edge Functions.
+# No corre en push. Solo workflow_dispatch.
+# dry_run=true (default): valida + simulacro sin secretos de producción.
+# dry_run=false: exige environment "production-edge" (aprobadores + secretos).
+name: Deploy Edge Function
+
+on:
+  workflow_dispatch:
+    inputs:
+      slug:
+        description: Edge Function a publicar
+        required: true
+        type: choice
+        options:
+          - admin-create-user
+          - admin-datita-staging
+          - auto-fee-liquidation
+          - club-mail-inbox
+          - jev-chat
+          - mp-create
+          - mp-receipt-retry
+          - mp-repair
+          - mp-webhook
+          - parse-dues-receipt
+          - send-access-invite
+          - send-club-mail
+          - send-due-notices
+          - send-dues-apology
+          - send-import-receipts
+          - send-join-welcome
+          - send-payment-boleto
+          - send-payment-receipt
+      sha:
+        description: Commit SHA autorizado (debe pertenecer a main)
+        required: true
+        type: string
+      dry_run:
+        description: Simular sin publicar en producción
+        required: true
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: edge-deploy-${{ inputs.slug }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Validar paquete
+    runs-on: ubuntu-latest
+    outputs:
+      package_sha256: ${{ steps.manifest.outputs.package_sha256 }}
+      slug: ${{ inputs.slug }}
+      sha: ${{ steps.pin.outputs.sha }}
+    steps:
+      - name: Checkout del commit autorizado
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.sha }}
+          fetch-depth: 0
+
+      - name: Confirmar que el SHA está en main
+        id: pin
+        run: |
+          set -euo pipefail
+          SHA=$(git rev-parse --verify "${{ inputs.sha }}^{commit}")
+          git fetch origin main
+          if ! git merge-base --is-ancestor "$SHA" origin/main; then
+            echo "El commit $SHA no pertenece a origin/main. No se publica."
+            exit 1
+          fi
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "Commit autorizado en main: $SHA"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Pruebas de publicación y guard
+        run: |
+          npx vitest run \
+            src/domain/deploy/edgeFunctionGuard.test.js \
+            src/domain/deploy/edgeFunctionRelease.test.js \
+            src/domain/deploy/edgeFunctionPublisher.test.js \
+            src/domain/deploy/edgeCommitGuard.test.js \
+            src/test/embeddedPostgresHarness.pg.test.js
+
+      - name: Armar paquete, compilar y manifiesto
+        id: manifest
+        run: |
+          set -euo pipefail
+          mkdir -p .edge-package
+          node scripts/deploy-edge-function.mjs \
+            --slug "${{ inputs.slug }}" \
+            --require-main-sha "${{ steps.pin.outputs.sha }}" \
+            --write-artifact .edge-package \
+            > .edge-package/check.json
+          HASH=$(node -e "const m=require('./.edge-package/manifest.json'); process.stdout.write(m.packageSha256)")
+          echo "package_sha256=$HASH" >> "$GITHUB_OUTPUT"
+          echo "Manifiesto packageSha256=$HASH"
+          # No imprimir secretos: este job no tiene tokens de producción.
+
+      - name: Guardar artefacto sellado
+        uses: actions/upload-artifact@v4
+        with:
+          name: edge-package-${{ inputs.slug }}
+          path: .edge-package
+          if-no-files-found: error
+          retention-days: 7
+
+  simulate:
+    name: Simulacro (sin producción)
+    needs: validate
+    if: ${{ inputs.dry_run }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.validate.outputs.sha }}
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Simulacro del paquete validado (nunca publicación)
+        env:
+          # Dry-run: sin secretos de production-edge (ese environment solo está en publish).
+          EXPECTED: ${{ needs.validate.outputs.package_sha256 }}
+          SUPABASE_ACCESS_TOKEN: ''
+          SUPABASE_PROJECT_REF: ''
+        run: |
+          set -euo pipefail
+          OUT=$(node scripts/deploy-edge-function.mjs \
+            --slug "${{ needs.validate.outputs.slug }}" \
+            --require-main-sha "${{ needs.validate.outputs.sha }}" \
+            --publish \
+            --simulate \
+            --confirm "${{ needs.validate.outputs.package_sha256 }}")
+          echo "$OUT"
+          echo "$OUT" | node -e "
+            let s=''; process.stdin.on('data', d => s += d);
+            process.stdin.on('end', () => {
+              const body = JSON.parse(s);
+              if (body.status !== 'simulated') {
+                console.error('El dry-run debe devolver status=simulated, recibió:', body.status);
+                process.exit(1);
+              }
+              if (body.deployed === true || body.summary?.published === true) {
+                console.error('Un simulacro no puede marcarse como publicación.');
+                process.exit(1);
+              }
+              if (body.packageSha256 !== process.env.EXPECTED) {
+                console.error('El simulacro no usó el manifiesto validado.');
+                process.exit(1);
+              }
+              console.log('Simulacro OK — status=simulated');
+            });
+          "
+
+  publish:
+    name: Publicar en producción
+    needs: validate
+    if: ${{ inputs.dry_run == false }}
+    runs-on: ubuntu-latest
+    environment: production-edge
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.validate.outputs.sha }}
+          fetch-depth: 0
+
+      - name: Revalidar ancestro de main
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          git merge-base --is-ancestor "${{ needs.validate.outputs.sha }}" origin/main
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Descargar manifiesto validado
+        uses: actions/download-artifact@v4
+        with:
+          name: edge-package-${{ needs.validate.outputs.slug }}
+          path: .edge-package
+
+      - name: Publicar solo el paquete del disco y verificar
+        env:
+          SUPABASE_PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SUPABASE_PROJECT_REF}" ] || [ -z "${SUPABASE_ACCESS_TOKEN}" ]; then
+            echo "Faltan secretos del environment production-edge."
+            exit 1
+          fi
+          EXPECTED=$(node -e "const m=require('./.edge-package/manifest.json'); process.stdout.write(m.packageSha256)")
+          if [ "$EXPECTED" != "${{ needs.validate.outputs.package_sha256 }}" ]; then
+            echo "El artefacto no coincide con el manifiesto validado."
+            exit 1
+          fi
+          # Relee el repo en el SHA autorizado; no usa código pegado a mano.
+          LIVE=$(node scripts/deploy-edge-function.mjs --slug "${{ needs.validate.outputs.slug }}" \
+            | node -e "let s='';process.stdin.on('data',d=>s+=d);process.stdin.on('end',()=>{const j=JSON.parse(s);process.stdout.write(j[0].packageSha256)})")
+          if [ "$LIVE" != "$EXPECTED" ]; then
+            echo "El paquete del disco divergió del artefacto. No se publica."
+            exit 1
+          fi
+          OUT=$(node scripts/deploy-edge-function.mjs \
+            --slug "${{ needs.validate.outputs.slug }}" \
+            --require-main-sha "${{ needs.validate.outputs.sha }}" \
+            --publish \
+            --confirm "$EXPECTED")
+          echo "$OUT"
+          echo "$OUT" | node -e "
+            let s=''; process.stdin.on('data', d => s += d);
+            process.stdin.on('end', () => {
+              const body = JSON.parse(s);
+              if (body.status === 'simulated') {
+                console.error('El job de producción no puede terminar en simulated.');
+                process.exit(1);
+              }
+              if (body.status !== 'published_verified') {
+                console.error('Se exige published_verified; recibido:', body.status, body.limitation || '');
+                process.exit(1);
+              }
+              if (!body.deployed || !body.summary?.verified) {
+                console.error('La publicación no quedó verificada.');
+                process.exit(1);
+              }
+              console.log('Publicación OK — status=published_verified');
+            });
+          "

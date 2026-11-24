@@ -4,19 +4,16 @@
  * Postgres embebido. No toca la base del club.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import EmbeddedPostgres from 'embedded-postgres';
-import pg from 'pg';
+import { startEmbeddedPostgres, stopEmbeddedPostgres } from '../../test/embeddedPostgresHarness.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '../../..');
 const migration = readFileSync(
   join(root, 'supabase/migrations/20261123230000_subscription_pending_and_debit_capital.sql'),
   'utf8',
 );
-const PORT = 58840 + Math.floor(Math.random() * 80);
 const MEMBER = '41414141-4141-4141-8141-414141414141';
 const PAYMENT = '42424242-4242-4242-8242-424242424242';
 const signature = 'public.impute_dues_account_payment(uuid,uuid,numeric,jsonb,date,boolean)';
@@ -31,17 +28,10 @@ function query(text, params) {
 
 describe('compatibilidad y permisos del imputador', () => {
   beforeAll(async () => {
-    databaseDir = mkdtempSync(join(tmpdir(), 'jockey-mp-compat-'));
-    cluster = new EmbeddedPostgres({
-      databaseDir,
-      user: 'postgres',
-      password: 'postgres',
-      port: PORT,
-      persistent: false,
-    });
-    await cluster.initialise();
-    await cluster.start();
-    pool = new pg.Pool({ connectionString: `postgres://postgres:postgres@127.0.0.1:${PORT}/postgres`, max: 2 });
+    const ctx = await startEmbeddedPostgres({ label: 'jockey-mp-compat' });
+    cluster = ctx.cluster;
+    databaseDir = ctx.databaseDir;
+    pool = ctx.pool;
     await query(`
       do $$ begin create role anon nologin; exception when duplicate_object then null; end $$;
       do $$ begin create role authenticated nologin; exception when duplicate_object then null; end $$;
@@ -119,11 +109,7 @@ describe('compatibilidad y permisos del imputador', () => {
   }, 60_000);
 
   afterAll(async () => {
-    await pool?.end().catch(() => {});
-    await cluster?.stop().catch(() => {});
-    if (databaseDir) {
-      try { rmSync(databaseDir, { recursive: true, force: true }); } catch { /* el directorio puede seguir un instante en Windows */ }
-    }
+    await stopEmbeddedPostgres({ pool, cluster, databaseDir });
   }, 60_000);
 
   it('queda una sola firma y el público no puede ejecutarla', async () => {

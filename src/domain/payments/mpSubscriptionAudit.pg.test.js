@@ -3,12 +3,10 @@
  * Postgres embebido. No lee ni escribe la base de producción.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import EmbeddedPostgres from 'embedded-postgres';
-import pg from 'pg';
+import { startEmbeddedPostgres, stopEmbeddedPostgres } from '../../test/embeddedPostgresHarness.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '../../..');
 const migration = readFileSync(
@@ -16,7 +14,6 @@ const migration = readFileSync(
   'utf8',
 );
 
-const PORT = 58620 + Math.floor(Math.random() * 200);
 const PENDING = '11111111-1111-4111-8111-111111111111';
 const OWNED = '22222222-2222-4222-8222-222222222222';
 const GALICIA = '33333333-3333-4333-8333-333333333333';
@@ -50,17 +47,10 @@ async function subscription(id, memberId) {
 
 describe('auditoría de suscripciones sobre la migración nueva', () => {
   beforeAll(async () => {
-    databaseDir = mkdtempSync(join(tmpdir(), 'jockey-mp-sub-'));
-    cluster = new EmbeddedPostgres({
-      databaseDir,
-      user: 'postgres',
-      password: 'postgres',
-      port: PORT,
-      persistent: false,
-    });
-    await cluster.initialise();
-    await cluster.start();
-    pool = new pg.Pool({ connectionString: `postgres://postgres:postgres@127.0.0.1:${PORT}/postgres`, max: 2 });
+    const ctx = await startEmbeddedPostgres({ label: 'jockey-mp-sub' });
+    cluster = ctx.cluster;
+    databaseDir = ctx.databaseDir;
+    pool = ctx.pool;
     await query(`
       create table public.members (
         id uuid primary key,
@@ -126,11 +116,7 @@ describe('auditoría de suscripciones sobre la migración nueva', () => {
   }, 60_000);
 
   afterAll(async () => {
-    await pool?.end().catch(() => {});
-    await cluster?.stop().catch(() => {});
-    if (databaseDir) {
-      try { rmSync(databaseDir, { recursive: true, force: true }); } catch { /* Windows puede retener el directorio un instante. */ }
-    }
+    await stopEmbeddedPostgres({ pool, cluster, databaseDir });
   }, 60_000);
 
   it('una adhesión pendiente no queda rechazada ni prende el débito', async () => {

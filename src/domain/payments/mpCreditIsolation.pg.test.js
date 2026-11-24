@@ -3,12 +3,10 @@
  * No lee ni escribe la base de producción.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import EmbeddedPostgres from 'embedded-postgres';
-import pg from 'pg';
+import { startEmbeddedPostgres, stopEmbeddedPostgres } from '../../test/embeddedPostgresHarness.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '../../..');
 const migrationSql = readFileSync(
@@ -16,7 +14,6 @@ const migrationSql = readFileSync(
   'utf8',
 );
 
-const PORT = 59000 + Math.floor(Math.random() * 400);
 const MEMBER = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const OTHER = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 let cluster;
@@ -159,26 +156,17 @@ async function insertIntent({
 
 describe('Mercado Pago en PostgreSQL aislado', () => {
   beforeAll(async () => {
-    databaseDir = mkdtempSync(join(tmpdir(), 'jockey-mp-'));
-    cluster = new EmbeddedPostgres({
-      databaseDir,
-      user: 'postgres',
-      password: 'postgres',
-      port: PORT,
-      persistent: false,
-      autoRehydrateSymlinks: true,
-      initdbFlags: ['--encoding=UTF8', '--locale=C'],
+    const ctx = await startEmbeddedPostgres({
+      label: 'jockey-mp',
+      poolMax: 4,
+      clusterOptions: {
+        autoRehydrateSymlinks: true,
+        initdbFlags: ['--encoding=UTF8', '--locale=C'],
+      },
     });
-    await cluster.initialise();
-    await cluster.start();
-    pool = new pg.Pool({
-      host: '127.0.0.1',
-      port: PORT,
-      user: 'postgres',
-      password: 'postgres',
-      database: 'postgres',
-      max: 4,
-    });
+    cluster = ctx.cluster;
+    databaseDir = ctx.databaseDir;
+    pool = ctx.pool;
 
     await query(`
       do $$ begin create role anon nologin; exception when duplicate_object then null; end $$;
@@ -321,9 +309,7 @@ describe('Mercado Pago en PostgreSQL aislado', () => {
   }, 180_000);
 
   afterAll(async () => {
-    await pool?.end().catch(() => {});
-    await cluster?.stop().catch(() => {});
-    if (databaseDir) rmSync(databaseDir, { recursive: true, force: true });
+    await stopEmbeddedPostgres({ pool, cluster, databaseDir });
   }, 60_000);
 
   it('rechaza estados distintos de approved, centavos distintos, cero y monedas que no son ARS', async () => {
