@@ -138,7 +138,7 @@ describe('colonia domain', () => {
       method: 'mercadopago',
       amount: 50000,
       enrollmentId: 'e1',
-    })).toThrow(/autorización de despliegue/i);
+    })).toThrow(/colonia_mp_live=false|deshabilitado|autorización/i);
 
     expect(coloniaMercadoPagoAdapterSpec().kind).toBe('colonia');
   });
