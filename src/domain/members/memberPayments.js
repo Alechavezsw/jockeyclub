@@ -1353,7 +1353,8 @@ export function collectionPreview(member, today = new Date(), {
       : money(selectedChoices.reduce((sum, row) => sum + (Number(row.surcharge) || 0), 0));
     let gross = money(quota + surcharge);
     // Saldo de ficha sin mes entero a tarifa: cobrar el residual, no inventar mes ni crédito.
-    if (!(gross > 0.01) && stored > 0.01) {
+    const ledgerIdentifiesPeriods = Array.isArray(member?.feeLedgerLines) && member.feeLedgerLines.length > 0;
+    if (!(gross > 0.01) && stored > 0.01 && !ledgerIdentifiesPeriods) {
       gross = money(Math.max(0, stored));
     }
     const credit = explicitCredit;
@@ -2456,11 +2457,113 @@ export function duesCollectionNeedsPosAtomicCommit(payment) {
 }
 
 /**
+ * El abono de tenis no se cobra por encima de su propio saldo.
+ * Una diferencia de tarifa contra la ficha no frena la cuota social.
+ */
+export function duesCollectionGate(member, {
+  amount = 0,
+  chargeScope = 'social',
+  paidOn = new Date(),
+  skipSurcharge = false,
+  adelanto = false,
+} = {}) {
+  const scope = String(chargeScope || 'social').toLowerCase();
+  const tennis = scope === 'addon' || scope === 'abono_tenis' || scope === 'tenis';
+  const asked = money(Math.max(0, Number(amount) || 0));
+  const recorded = money(Math.max(0, Number(member?.outstandingBalance) || 0));
+  const when = paidOn instanceof Date ? paidOn : new Date(paidOn);
+  if (tennis) {
+    const choices = collectionTennisPeriodChoices(member, when);
+    const payable = money(choices.reduce((sum, row) => sum + (Number(row.capital) || 0), 0));
+    const blocked = asked > payable + 0.01;
+    return {
+      blocked,
+      tennis: true,
+      recordedBalance: recorded,
+      theoretical: payable,
+      difference: 0,
+      authorized: 0,
+      ceiling: payable,
+      lines: choices,
+      message: blocked ? 'El abono de tenis no puede cobrarse por encima de su saldo.' : '',
+    };
+  }
+  const choices = collectionPeriodChoices(member, when, { chargeScope: 'social' });
+  const needsReview = choices.some((row) => row.needsReview);
+  const theoretical = money(choices.reduce((sum, row) => sum + (
+    skipSurcharge ? (Number(row.capital) || 0) : (Number(row.payable) || 0)
+  ), 0));
+  // La diferencia entre la tarifa vigente y el saldo de ficha no es un cargo aparte ni frena el cobro.
+  const difference = 0;
+  const ceiling = money(Math.max(theoretical, recorded));
+  const noDebt = asked > 0.009 && theoretical <= 0.009 && recorded <= 0.009 && !adelanto;
+  const blocked = needsReview || (asked > 0.009 && noDebt);
+  const lines = choices.map((row) => ({
+    dueOn: row.dueOn,
+    label: row.label,
+    originalCapital: money(row.originalCapital || row.capital),
+    capital: money(row.capital),
+    surcharge: money(row.surcharge),
+    tariffUpdate: money(row.tariffUpdate),
+    payable: money(row.payable),
+  }));
+  let message = '';
+  if (needsReview) {
+    message = 'Requiere revisión. Falta una tarifa vigente para calcular este cobro.';
+  } else if (blocked) {
+    message = 'No hay deuda de cuota para acreditar.';
+  }
+  return {
+    blocked,
+    tennis: false,
+    needsReview,
+    recordedBalance: recorded,
+    theoretical,
+    difference,
+    authorized: 0,
+    ceiling,
+    lines,
+    message,
+  };
+}
+
+export function assertDuesCollectionAuthorized(member, options = {}) {
+  const gate = duesCollectionGate(member, options);
+  if (!gate.blocked) return gate;
+  const error = new Error(gate.message || 'Cobro pendiente de conciliación administrativa.');
+  error.code = gate.needsReview ? 'DUES_TARIFF_REVIEW' : 'DUES_RECONCILIATION_REQUIRED';
+  error.gate = gate;
+  throw error;
+}
+
+/**
  * Recibo, períodos y saldo en una sola transacción.
  * POS: `registrar_cobro_pos` autoriza plan/tasa, acredita e inserta asiento atómico.
  * Si falla, no hay que pintar el saldo nuevo.
  */
 export async function commitDuesCollection(member, payment, { journalEntry = null } = {}) {
+  const tennisOnlyEarly = paymentIsTennisAbonoOnly(payment);
+  const beforeCollection = {
+    ...member,
+    paymentHistory: (member?.paymentHistory || []).filter((row) => row && row.id !== payment?.id),
+    outstandingBalance: payment?.balanceBefore ?? member?.outstandingBalance,
+    nextDueDate: payment && 'nextDueBefore' in payment ? payment.nextDueBefore : member?.nextDueDate,
+    lastPaymentDate: payment && 'lastPaymentBefore' in payment
+      ? payment.lastPaymentBefore
+      : member?.lastPaymentDate,
+    duesOpenPeriods: payment && 'duesOpenPeriodsBefore' in payment
+      ? payment.duesOpenPeriodsBefore
+      : member?.duesOpenPeriods,
+  };
+  assertDuesCollectionAuthorized(beforeCollection, {
+    amount: Number(payment?.amount) || 0,
+    chargeScope: tennisOnlyEarly
+      ? 'abono_tenis'
+      : (payment?.chargeScope || payment?.meta?.chargeScope || 'social'),
+    paidOn: payment?.paidAt || payment?.date || new Date(),
+    skipSurcharge: tennisOnlyEarly || duesMethodSkipsSurcharge(payment?.method),
+    adelanto: payment?.adelanto === true,
+  });
   const memberDbId = member?.id;
   if (!memberDbId) {
     throw new Error('No se pudo registrar el cobro: el socio no está cargado en la base.');

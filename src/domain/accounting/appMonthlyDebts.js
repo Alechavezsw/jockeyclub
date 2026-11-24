@@ -9,6 +9,7 @@
 import { money } from '../money';
 import { padMember } from './accountEntries';
 import {
+  collectionPeriodChoices,
   duesAmountForMember,
   duesDueDayForMember,
   duesPayableForMember,
@@ -21,6 +22,7 @@ import {
   pinDuesDueDate,
   socialDuesStoredBalance,
 } from '../members/dues';
+import { unreconciledHistoricalBalance } from '../members/duesCollectObligations';
 import {
   duesMonthLabel,
   duesMonthsPhrase,
@@ -275,6 +277,44 @@ export function appMonthlyDebtForMember(member, { today = new Date(), entries = 
 
   if (persisted <= EPS) {
     return null;
+  }
+
+  if (Array.isArray(member?.feeLedgerLines) && member.feeLedgerLines.length) {
+    const choices = collectionPeriodChoices(member, today, { chargeScope: 'social' });
+    const held = unreconciledHistoricalBalance(member);
+    const months = choices.map((row) => ({
+      dueOn: row.dueOn,
+      label: row.label,
+      capital: money(row.capital),
+      interest: money(row.surcharge),
+      total: money(row.payable),
+      kind: row.kind,
+    }));
+    const capital = money(months.reduce((sum, row) => sum + row.capital, 0));
+    const interest = money(months.reduce((sum, row) => sum + row.interest, 0));
+    const cal = duesNoticeCalendar(duesDueDayForMember(member));
+    return {
+      memberNumber,
+      memberName: memberDisplayName(member),
+      firstName: member.firstName || '',
+      lastName: member.lastName || '',
+      dni: member.documentNumber || member.dni || '',
+      socialFee: getTierDisplayName(member.tier),
+      sportsFee: '',
+      status: member.status || 'active',
+      standing: months.length ? standingLabel(member, { todayIso, monthsBehind: months.length }) : 'Pendiente de conciliación',
+      monthsBehind: months.length,
+      dueDay: cal.dueDay,
+      moraDay: cal.moraDay,
+      totalDebt: money(capital + interest),
+      capital,
+      interest,
+      unallocated: held.amount,
+      reconciliationHold: held.amount > EPS,
+      months,
+      lines: linesFromEntries(entries),
+      accessinId: member.memberId || memberNumber,
+    };
   }
 
   const openRows = Array.isArray(member?.duesOpenPeriods) ? member.duesOpenPeriods : [];

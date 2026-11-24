@@ -13,6 +13,7 @@ import {
 import { todayISODateAR } from '../lib/arDate';
 import { isSupabaseConfigured } from '../lib/supabase';
 import { repos } from '../data/bootstrap';
+import { accessinHistoryForMember } from '../domain/accounting/accessinMemberHistory';
 
 function standingFromRpc(raw) {
   if (!raw) return null;
@@ -45,6 +46,7 @@ export function useMemberDuesStanding(member) {
     Array.isArray(member?.paymentHistory) ? member.paymentHistory : []
   ));
   const [remoteFicha, setRemoteFicha] = useState(null);
+  const [remoteLedger, setRemoteLedger] = useState([]);
   const [persisted, setPersisted] = useState(null);
   const [loading, setLoading] = useState(false);
   const syncedFor = useRef('');
@@ -58,6 +60,7 @@ export function useMemberDuesStanding(member) {
     syncedFor.current = '';
     setRemoteHistory(Array.isArray(member?.paymentHistory) ? member.paymentHistory : []);
     setRemoteFicha(null);
+    setRemoteLedger([]);
     setPersisted(null);
     setLoading(false);
   }
@@ -84,13 +87,17 @@ export function useMemberDuesStanding(member) {
       try {
         const dbId = knownId || await repos.findMemberDbIdByNumber(number);
         if (!alive) return;
-        const [rows, ficha] = await Promise.all([
+        const [rows, ficha, ledgerLines] = await Promise.all([
           dbId ? repos.listMemberPayments(dbId) : Promise.resolve([]),
           dbId ? repos.getMember(dbId, { withPayments: false }) : Promise.resolve(null),
+          number && typeof repos.listFeeLedgerLinesByMemberNumber === 'function'
+            ? repos.listFeeLedgerLinesByMemberNumber(number).catch(() => [])
+            : Promise.resolve([]),
         ]);
         if (!alive) return;
         if (rows.length) setRemoteHistory(rows);
         if (ficha) setRemoteFicha(ficha);
+        if (ledgerLines?.length) setRemoteLedger(ledgerLines);
       } catch {
         /* se conserva lo que ya se ve */
       } finally {
@@ -123,9 +130,16 @@ export function useMemberDuesStanding(member) {
   const memberForHistory = useMemo(() => {
     if (!member) return member;
     const base = remoteFicha ? { ...member, ...remoteFicha } : member;
-    if (isDuesExemptMember(base)) {
+    const withLedgerBase = remoteLedger.length
+      ? { ...base, feeLedgerLines: remoteLedger }
+      : base;
+    const accessinHistory = accessinHistoryForMember(withLedgerBase);
+    const withLedger = accessinHistory.length && withLedgerBase.accessinHistory !== accessinHistory
+      ? { ...withLedgerBase, accessinHistory }
+      : withLedgerBase;
+    if (isDuesExemptMember(withLedger)) {
       return {
-        ...base,
+        ...withLedger,
         paymentHistory: remoteHistory.length ? remoteHistory : (base.paymentHistory || []),
         outstandingBalance: 0,
         duesOpenPeriods: [],
@@ -136,16 +150,16 @@ export function useMemberDuesStanding(member) {
         ? Number(persisted.outstanding)
         : null;
       return {
-        ...base,
-        paymentHistory: remoteHistory.length ? remoteHistory : (base.paymentHistory || []),
+        ...withLedger,
+        paymentHistory: remoteHistory.length ? remoteHistory : (withLedger.paymentHistory || []),
         lastPaymentDate: persisted?.lastPaymentDate || base.lastPaymentDate,
         nextDueDate: persisted?.nextDue || base.nextDueDate,
         // RPC solo pisa si viene; no perder duesOpenPeriods de la ficha remota.
         outstandingBalance: rpcOutstanding != null ? rpcOutstanding : base.outstandingBalance,
       };
     }
-    return base;
-  }, [member, remoteHistory, persisted, remoteFicha]);
+    return withLedger;
+  }, [member, remoteHistory, persisted, remoteFicha, remoteLedger]);
 
   const history = useMemo(
     () => getMemberPaymentHistory(memberForHistory, {
@@ -187,7 +201,9 @@ export function useMemberDuesStanding(member) {
       ? (Number(debt.interest) || 0)
       : (owes ? (Number(preview.surcharge) || 0) : 0);
     const quota = debt
-      ? ((Number(debt.capital) || 0) + (Number(debt.unallocated) || 0))
+      ? (debt.reconciliationHold
+        ? (Number(debt.capital) || 0)
+        : ((Number(debt.capital) || 0) + (Number(debt.unallocated) || 0)))
       : (owes ? (Number(preview.quota) || outstanding) : 0);
     const nextAmount = debt
       ? (Number(debt.totalDebt) || 0)

@@ -1421,6 +1421,29 @@ export function duesAmountForMember(member, on = new Date(), options = {}) {
     .reduce((sum, slice) => sum + slice.amount, 0));
 }
 
+/**
+ * Tarifa del día del cobro. Si el catálogo oficial trae un importe editado, manda ese.
+ * Si no hay tarifa válida, devuelve null: no se disfraza la deuda con $ 0.
+ */
+export function duesCurrentTariffForCollection(member, paidOn = new Date(), options = {}) {
+  const id = String(member?.tier || '').trim().toLowerCase();
+  const catalog = options?.catalog;
+  const listed = findTier(id, catalog);
+  const catalogAmount = listed && listed.isActive !== false ? Number(listed.monthlyDues) : NaN;
+  const official = duesAmountForMember(member, paidOn, {
+    ...options,
+    chargeScope: options?.chargeScope || 'social',
+  });
+  const grossId = id.endsWith('_amet') ? id.replace(/_amet$/, '') : id;
+  const gross = MONTHLY_DUES_FROM_OCTOBER_2026[grossId];
+  const edited = Number.isFinite(catalogAmount)
+    && catalogAmount > 0.009
+    && (gross == null || Math.abs(catalogAmount - gross) > 0.009);
+  if (edited) return money(catalogAmount);
+  if (official > 0.009) return money(official);
+  return null;
+}
+
 /** Capital del mes que sí lleva 10 % (familiar e individual). El abono no. */
 export function lateBaseForMember(member, on, options = {}) {
   if (memberKeepsFlatDuesAccount(member)) return 0;
@@ -2185,14 +2208,17 @@ export function collectionPeriodChoices(member, today = new Date(), { chargeScop
   // Evita caer a tarifa llena + 10 % por unpaidCapital histórico.
   // Si ficha = 0, el pending del auxiliar es conciliación histórica — no reabre cobro.
   const fichaBalance = money(Math.max(0, Number(member?.outstandingBalance) || 0));
-  if ((scope === 'social' || scope === 'all') && fichaBalance > 0.01) {
-    const ledgerChoices = collectionChoicesFromFeeLedger(member, paidOn, { chargeScope: 'social' });
-    if (ledgerChoices?.length) {
-      const filtered = ledgerChoices.filter((row) => !dueOnAlreadyCovered(row.dueOn, paidSet));
-      if (filtered.length) return rewriteJoinFeeRows(member, filtered);
-      // Ledger presentaba períodos pero todos cubiertos por pagos: no reconstruir tarifa.
-      if (feeLedgerPendingCapital(member, { chargeScope: 'social' }) <= 0.01) return [];
-    }
+  const hasLedger = Array.isArray(member?.feeLedgerLines) && member.feeLedgerLines.length > 0;
+  if ((scope === 'social' || scope === 'all') && fichaBalance > 0.01 && hasLedger) {
+    const ledgerChoices = collectionChoicesFromFeeLedger(member, paidOn, {
+      chargeScope: 'social',
+      // La fecha del período identifica el mes y su vencimiento.
+      // La tarifa es la del día del cobro: la del mes puede ser la histórica.
+      tariffOf: () => duesCurrentTariffForCollection(member, paidOn, { chargeScope: 'social' }),
+    });
+    const filtered = (ledgerChoices || []).filter((row) => !dueOnAlreadyCovered(row.dueOn, paidSet));
+    // El libro dice qué meses existen. Lo que no tiene mes no se convierte en cuotas.
+    return rewriteJoinFeeRows(member, filtered);
   }
 
   const storedChoices = choicesFromStoredOpenPeriods(member, paidOn, paidSet, scopeOpts);
