@@ -237,3 +237,93 @@ export async function updateColoniaSeason(id, patch) {
   if (error) mapRpcMissing(error, 'No se pudo actualizar la temporada');
   return data;
 }
+
+export async function coloniaCancelEnrollment(enrollmentId, reason) {
+  requireCloud();
+  const { data, error } = await sb().rpc('colonia_cancel_enrollment', {
+    p_enrollment_id: enrollmentId,
+    p_reason: reason || null,
+  });
+  if (error) mapRpcMissing(error, 'No se pudo cancelar la inscripción');
+  return data;
+}
+
+export async function coloniaUpdateEnrollment({ enrollmentId, planKey, status, groupId, observations }) {
+  requireCloud();
+  const { data, error } = await sb().rpc('colonia_update_enrollment', {
+    p_enrollment_id: enrollmentId,
+    p_plan_key: planKey || null,
+    p_status: status || null,
+    p_group_id: groupId || null,
+    p_observations: observations || null,
+  });
+  if (error) mapRpcMissing(error, 'No se pudo actualizar la inscripción');
+  return data;
+}
+
+export async function coloniaVoidCharge(chargeId, reason) {
+  requireCloud();
+  const { data, error } = await sb().rpc('colonia_void_charge', {
+    p_charge_id: chargeId,
+    p_reason: reason,
+  });
+  if (error) mapRpcMissing(error, 'No se pudo anular el cargo');
+  return data;
+}
+
+export async function coloniaConfirmPayment(paymentId, operatorName) {
+  requireCloud();
+  const { data, error } = await sb().rpc('colonia_confirm_payment', {
+    p_payment_id: paymentId,
+    p_operator_name: operatorName || null,
+  });
+  if (error) mapRpcMissing(error, 'No se pudo confirmar el pago');
+  return data;
+}
+
+export async function coloniaSetAuthorization({
+  enrollmentId, kind, granted, activityId, grantedByName, note,
+}) {
+  requireCloud();
+  const { data, error } = await sb().rpc('colonia_set_authorization', {
+    p_enrollment_id: enrollmentId,
+    p_kind: kind,
+    p_granted: Boolean(granted),
+    p_activity_id: activityId || null,
+    p_granted_by_name: grantedByName || null,
+    p_note: note || null,
+  });
+  if (error) mapRpcMissing(error, 'No se pudo registrar la autorización');
+  return data;
+}
+
+export async function coloniaCreateGroup({ seasonId, name, ageFrom, ageTo, capacity, leadName }) {
+  requireCloud();
+  const { data, error } = await sb().rpc('colonia_create_group', {
+    p_season_id: seasonId,
+    p_name: name,
+    p_age_from: ageFrom ?? null,
+    p_age_to: ageTo ?? null,
+    p_capacity: capacity ?? null,
+    p_lead_name: leadName || null,
+  });
+  if (error) mapRpcMissing(error, 'No se pudo crear el grupo');
+  return data;
+}
+
+export async function coloniaCreateActivity({
+  seasonId, kind, title, activityDate, place, leadName, notes,
+}) {
+  requireCloud();
+  const { data, error } = await sb().rpc('colonia_create_activity', {
+    p_season_id: seasonId,
+    p_kind: kind,
+    p_title: title,
+    p_activity_date: activityDate || null,
+    p_place: place || null,
+    p_lead_name: leadName || null,
+    p_notes: notes || null,
+  });
+  if (error) mapRpcMissing(error, 'No se pudo crear la actividad');
+  return data;
+}

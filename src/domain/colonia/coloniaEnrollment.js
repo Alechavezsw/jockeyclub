@@ -90,9 +90,9 @@ export function validateEnrollmentDraft({
   }
 
   if (todayIso && season && !isWithinEnrollmentWindow(todayIso, season)) {
-    warnings.push({
+    errors.push({
       code: 'outside_enrollment_window',
-      message: 'La fecha está fuera del período de inscripción publicado. Administración puede autorizar excepciones.',
+      message: 'La fecha está fuera del período de inscripción publicado (incluye el cierre).',
     });
   }
 

@@ -7,13 +7,19 @@ import {
   planAmountFor,
   COLONIA_OFFICIAL_TARIFFS_2026_2027,
 } from './coloniaTariffs';
-import { assertColoniaFinanceIsolation, summarizeColoniaAccount } from './coloniaLedger';
+import {
+  assertColoniaFinanceIsolation,
+  buildColoniaEnrollmentsCsv,
+  buildColoniaReceipt,
+  summarizeColoniaAccount,
+} from './coloniaLedger';
 import {
   buildColoniaPaymentDraft,
   coloniaMercadoPagoAdapterSpec,
   validateColoniaPaymentInput,
 } from './coloniaPayments';
 import { COLONIA_SEASON_2026_2027 } from './coloniaConstants';
+import { canAccessColonia, canAttendColonia, canCollectColonia } from '../auth/roles';
 
 describe('colonia domain', () => {
   it('valida edades 3-15 al inicio de actividades', () => {
@@ -127,5 +133,67 @@ describe('colonia domain', () => {
     })).toThrow(/autorización de despliegue/i);
 
     expect(coloniaMercadoPagoAdapterSpec().kind).toBe('colonia');
+  });
+
+  it('comprobante solo para pagos confirmed; CSV de reportes', () => {
+    expect(buildColoniaReceipt({
+      payment: { status: 'pending', amount: 1000, method: 'transferencia' },
+      student: { fullName: 'A' },
+    })).toBeNull();
+
+    const receipt = buildColoniaReceipt({
+      payment: {
+        id: 'pay-1',
+        status: 'confirmed',
+        amount: 50000,
+        method: 'efectivo',
+        confirmed_at: '2026-11-25T12:00:00Z',
+      },
+      student: { fullName: 'Alumno' },
+      guardian: { fullName: 'Tutor' },
+      season: { name: '2026/2027', code: '2026-2027' },
+    });
+    expect(receipt.operationId).toBe('pay-1');
+    expect(receipt.amount).toBe(50000);
+    expect(receipt.fiscalClaim).toBe(false);
+
+    const csv = buildColoniaEnrollmentsCsv([{
+      plan_key: 'cuota',
+      status: 'confirmada',
+      student: { full_name: 'Ana', document_number: '1', member_kind: 'socio' },
+      guardian: { full_name: 'Tutor', phone: '264' },
+    }]);
+    expect(csv).toContain('Ana');
+    expect(csv.split('\n')[0]).toContain('alumno');
+  });
+
+  it('permisos: caja cobra; teacher asiste sin cobrar; gate no opera Colonia', () => {
+    expect(canCollectColonia('cashier')).toBe(true);
+    expect(canAttendColonia('teacher')).toBe(true);
+    expect(canCollectColonia('teacher')).toBe(false);
+    expect(canAccessColonia('gate')).toBe(false);
+    expect(canAccessColonia('admin')).toBe(true);
+  });
+
+  it('inscripción el 30/11/2026 incluida; fuera de ventana rechazada', () => {
+    const base = {
+      student: {
+        fullName: 'Luis',
+        birthDate: '2015-01-01',
+        documentNumber: '50111999',
+        memberKind: 'socio',
+        memberNumber: '12001',
+      },
+      guardian: { fullName: 'Madre', phone: '2644000000' },
+      planKey: 'cuota',
+      season: COLONIA_SEASON_2026_2027,
+    };
+    expect(validateEnrollmentDraft({ ...base, todayIso: '2026-11-30' }).ok).toBe(true);
+    expect(validateEnrollmentDraft({ ...base, todayIso: '2026-12-01' }).ok).toBe(false);
+    expect(validateEnrollmentDraft({
+      ...base,
+      guardian: { fullName: '', phone: '' },
+      todayIso: '2026-11-25',
+    }).ok).toBe(false);
   });
 });

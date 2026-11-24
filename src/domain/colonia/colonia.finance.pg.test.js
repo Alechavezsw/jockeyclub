@@ -10,11 +10,11 @@ import { randomUUID } from 'node:crypto';
 import { startEmbeddedPostgres, stopEmbeddedPostgres } from '../../test/embeddedPostgresHarness.js';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '../../..');
-const migrationPath = join(root, 'supabase/migrations/20261124140000_colonia_verano_module.sql');
-const migrationSql = readFileSync(migrationPath, 'utf8')
+const migrationSql = readFileSync(join(root, 'supabase/migrations/20261124140000_colonia_verano_module.sql'), 'utf8')
   // El seed COA / role_capabilities depende de tablas productivas; el test usa stubs.
   .replace(/insert into public\.chart_of_accounts[\s\S]*?on conflict \(code\) do update[\s\S]*?is_active = true;/, '')
   .replace(/insert into public\.role_capabilities[\s\S]*?on conflict do nothing;/, '');
+const hardenSql = readFileSync(join(root, 'supabase/migrations/20261124150000_colonia_ops_hardening.sql'), 'utf8');
 
 let cluster;
 let databaseDir;
@@ -95,6 +95,7 @@ describe('colonia finance isolation', () => {
     ({ cluster, databaseDir, pool } = await startEmbeddedPostgres({ label: 'colonia' }));
     await query(schemaSql);
     await query(migrationSql);
+    await query(hardenSql);
     actorId = randomUUID();
 
     const memberId = randomUUID();

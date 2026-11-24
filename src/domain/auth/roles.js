@@ -274,6 +274,13 @@ export function canCollectColonia(roleOrRoles) {
   return keys.some((key) => ['superadmin', 'admin', 'accountant', 'cashier'].includes(key));
 }
 
+/** Asistencia Colonia: no implica cobrar ni cambiar tarifas. */
+export function canAttendColonia(roleOrRoles) {
+  if (canAccessColonia(roleOrRoles)) return true;
+  const keys = collectRoleKeys(roleOrRoles).map((key) => String(key || '').toLowerCase());
+  return keys.some((key) => ['teacher', 'staff', 'pool_operator'].includes(key));
+}
+
 /** Quién puede tomar asistencia de disciplinas. */
 export function canTakeAttendance(role) {
   return ['teacher', 'staff', 'admin', 'superadmin'].includes(role);

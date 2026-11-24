@@ -10,6 +10,7 @@ import {
 import { repos } from '../../data/bootstrap';
 import { isSupabaseConfigured } from '../../lib/supabase';
 import {
+  COLONIA_ACTIVITY_KINDS,
   COLONIA_ATTENDANCE_STATUSES,
   COLONIA_PAYMENT_METHODS,
   COLONIA_PLAN_KEYS,
@@ -25,12 +26,16 @@ import {
   inscriptionAmount,
   planAmountFor,
 } from '../../domain/colonia/coloniaTariffs';
-import { buildColoniaReceipt, summarizeColoniaAccount } from '../../domain/colonia/coloniaLedger';
+import {
+  buildColoniaEnrollmentsCsv,
+  buildColoniaReceipt,
+  summarizeColoniaAccount,
+} from '../../domain/colonia/coloniaLedger';
 import {
   buildColoniaPaymentDraft,
   coloniaMercadoPagoAdapterSpec,
 } from '../../domain/colonia/coloniaPayments';
-import { canAccessColonia, canCollectColonia } from '../../domain/auth/roles';
+import { canAccessColonia, canAttendColonia, canCollectColonia } from '../../domain/auth/roles';
 
 function money(n) {
   return new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(Number(n) || 0);
@@ -69,6 +74,7 @@ const EMPTY_GUARDIAN = {
 export default function ColoniaTab({ roles = [], role }) {
   const canOperate = canAccessColonia({ roles, role });
   const canCollect = canCollectColonia({ roles, role });
+  const canAttend = canAttendColonia({ roles, role });
   const [section, setSection] = useState('resumen');
   const [seasons, setSeasons] = useState([]);
   const [seasonId, setSeasonId] = useState(null);
@@ -93,6 +99,11 @@ export default function ColoniaTab({ roles = [], role }) {
   const [cardConfirmed, setCardConfirmed] = useState(false);
   const [attendanceDay, setAttendanceDay] = useState(todayIso());
   const [attendanceStatus, setAttendanceStatus] = useState('presente');
+  const [groupName, setGroupName] = useState('');
+  const [activityKind, setActivityKind] = useState('natacion');
+  const [activityTitle, setActivityTitle] = useState('');
+  const [activityDate, setActivityDate] = useState('');
+  const [receiptPreview, setReceiptPreview] = useState(null);
 
   const season = useMemo(
     () => seasons.find((s) => s.id === seasonId) || null,
@@ -284,7 +295,7 @@ export default function ColoniaTab({ roles = [], role }) {
         externalReference: payRef,
         idempotencyKey: `colonia-${selectedEnrollment.id}-${payMethod}-${payAmount}-${payRef || 'x'}`,
       });
-      await repos.coloniaRecordPayment({
+      const result = await repos.coloniaRecordPayment({
         enrollmentId: draft.enrollmentId,
         method: draft.method,
         amount: draft.amount,
@@ -293,7 +304,18 @@ export default function ColoniaTab({ roles = [], role }) {
         idempotencyKey: draft.idempotencyKey,
         operatorName: 'Mostrador Colonia',
       });
-      setMsg(`Pago ${coloniaMethodLabel(draft.method)} registrado como ${draft.status}.`);
+      const payment = result?.payment || result;
+      if (draft.status === 'confirmed' && payment) {
+        setReceiptPreview(buildColoniaReceipt({
+          payment,
+          student: selectedEnrollment?.student,
+          guardian: selectedEnrollment?.guardian,
+          season,
+        }));
+      }
+      setMsg(result?.duplicate
+        ? 'Pago duplicado (idempotencia): se reutilizó el registro existente.'
+        : `Pago ${coloniaMethodLabel(draft.method)} registrado como ${draft.status}.`);
       setPayAmount('');
       setPayRef('');
       setCardConfirmed(false);
@@ -309,6 +331,10 @@ export default function ColoniaTab({ roles = [], role }) {
 
   async function markAttendance(enrollmentId) {
     setMsg('');
+    if (!canAttend) {
+      setMsg('Sin permiso de asistencia Colonia.');
+      return;
+    }
     setBusy(true);
     try {
       await repos.coloniaUpsertAttendance({
@@ -341,6 +367,138 @@ export default function ColoniaTab({ roles = [], role }) {
     } finally {
       setBusy(false);
     }
+  }
+
+  async function cancelSelectedEnrollment() {
+    if (!selectedEnrollment?.id) return;
+    const reason = window.prompt('Motivo de cancelación (mín. 5 caracteres):', 'Cancelada por Administración');
+    if (!reason || reason.trim().length < 5) return;
+    setBusy(true);
+    setMsg('');
+    try {
+      await repos.coloniaCancelEnrollment(selectedEnrollment.id, reason.trim());
+      const en = await repos.listColoniaEnrollments(seasonId);
+      setEnrollments(en);
+      setSelectedEnrollment(en.find((e) => e.id === selectedEnrollment.id) || null);
+      setMsg('Inscripción cancelada.');
+    } catch (err) {
+      setMsg(err?.message || 'No se pudo cancelar.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function confirmPendingPayment(paymentId) {
+    if (!canCollect) {
+      setMsg('Sin permiso de cobranza Colonia.');
+      return;
+    }
+    setBusy(true);
+    setMsg('');
+    try {
+      const result = await repos.coloniaConfirmPayment(paymentId, 'Mostrador Colonia');
+      const payment = result?.payment || result;
+      setReceiptPreview(buildColoniaReceipt({
+        payment,
+        student: selectedEnrollment?.student,
+        guardian: selectedEnrollment?.guardian,
+        season,
+      }));
+      setMsg('Pago confirmado. Comprobante interno generado.');
+      if (selectedEnrollment?.id) await refreshAccount(selectedEnrollment.id);
+      const st = await repos.coloniaDashboardStats(seasonId).catch(() => null);
+      setStats(st);
+    } catch (err) {
+      setMsg(err?.message || 'No se pudo confirmar el pago.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function voidSelectedCharge(chargeId) {
+    const reason = window.prompt('Motivo de anulación (mín. 5 caracteres):');
+    if (!reason || reason.trim().length < 5) return;
+    setBusy(true);
+    setMsg('');
+    try {
+      await repos.coloniaVoidCharge(chargeId, reason.trim());
+      setMsg('Cargo anulado.');
+      if (selectedEnrollment?.id) await refreshAccount(selectedEnrollment.id);
+    } catch (err) {
+      setMsg(err?.message || 'No se pudo anular el cargo.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function createGroup() {
+    if (!seasonId || !groupName.trim()) {
+      setMsg('Indicá el nombre del grupo.');
+      return;
+    }
+    setBusy(true);
+    try {
+      await repos.coloniaCreateGroup({ seasonId, name: groupName.trim() });
+      setGroupName('');
+      setGroups(await repos.listColoniaGroups(seasonId));
+      setMsg('Grupo creado.');
+    } catch (err) {
+      setMsg(err?.message || 'No se pudo crear el grupo.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function createActivity() {
+    if (!seasonId || !activityTitle.trim()) {
+      setMsg('Indicá el título de la actividad.');
+      return;
+    }
+    setBusy(true);
+    try {
+      await repos.coloniaCreateActivity({
+        seasonId,
+        kind: activityKind,
+        title: activityTitle.trim(),
+        activityDate: activityDate || null,
+      });
+      setActivityTitle('');
+      setActivities(await repos.listColoniaActivities(seasonId));
+      setMsg('Actividad registrada.');
+    } catch (err) {
+      setMsg(err?.message || 'No se pudo crear la actividad.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function grantExcursionAuth(enrollmentId) {
+    setBusy(true);
+    try {
+      await repos.coloniaSetAuthorization({
+        enrollmentId,
+        kind: 'excursion',
+        granted: true,
+        grantedByName: 'Operación Colonia',
+      });
+      setMsg('Autorización de excursión registrada.');
+    } catch (err) {
+      setMsg(err?.message || 'No se pudo registrar la autorización.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function exportEnrollmentsCsv() {
+    const csv = buildColoniaEnrollmentsCsv(enrollments);
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `colonia-inscriptos-${season?.code || 'temporada'}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    setMsg('Reporte CSV descargado.');
   }
 
   if (!canOperate) {
@@ -532,7 +690,17 @@ export default function ColoniaTab({ roles = [], role }) {
               <p className="muted">Cuenta Colonia — contratado {money(accountSummary.totalContracted)} · cobrado {money(accountSummary.totalCollected)} · saldo {money(accountSummary.balanceDue)}</p>
               {selectedEnrollment.student?.member_number ? (
                 <p className="muted">Padrón Nº {selectedEnrollment.student.member_number} (navegación a ficha de socio sin mezclar cuentas).</p>
+              ) : (
+                <p className="muted">No socio: ficha solo Colonia (no ingresa al padrón institucional).</p>
+              )}
+              {selectedEnrollment.status !== 'cancelada' ? (
+                <button type="button" className="btn" disabled={busy} onClick={cancelSelectedEnrollment}>
+                  Cancelar inscripción
+                </button>
               ) : null}
+              <button type="button" className="btn" disabled={busy} onClick={() => grantExcursionAuth(selectedEnrollment.id)}>
+                Autorizar excursión
+              </button>
             </div>
           )}
         </section>
@@ -607,25 +775,59 @@ export default function ColoniaTab({ roles = [], role }) {
             <h4>Cargos</h4>
             <ul className="colonia-list">
               {charges.map((c) => (
-                <li key={c.id}>{c.concept} · {money(c.amount)} · {c.status}</li>
-              ))}
-            </ul>
-            <h4>Pagos</h4>
-            <ul className="colonia-list">
-              {payments.map((p) => (
-                <li key={p.id}>
-                  {coloniaMethodLabel(p.method)} · {money(p.amount)} · {p.status}
-                  {p.status === 'confirmed' ? (
-                    <span className="muted"> · {buildColoniaReceipt({
-                      payment: p,
-                      student: selectedEnrollment?.student,
-                      guardian: selectedEnrollment?.guardian,
-                      season,
-                    }).fiscalNote}</span>
+                <li key={c.id} className="colonia-row-actions">
+                  <span>{c.concept} · {money(c.amount)} · {c.status}</span>
+                  {c.status === 'posted' && canCollect ? (
+                    <button type="button" className="btn" disabled={busy} onClick={() => voidSelectedCharge(c.id)}>
+                      Anular
+                    </button>
                   ) : null}
                 </li>
               ))}
             </ul>
+            <h4>Pagos</h4>
+            <ul className="colonia-list">
+              {payments.map((p) => {
+                const receipt = p.status === 'confirmed'
+                  ? buildColoniaReceipt({
+                    payment: p,
+                    student: selectedEnrollment?.student,
+                    guardian: selectedEnrollment?.guardian,
+                    season,
+                  })
+                  : null;
+                return (
+                  <li key={p.id} className="colonia-row-actions">
+                    <span>
+                      {coloniaMethodLabel(p.method)} · {money(p.amount)} · {p.status}
+                      {receipt ? (
+                        <span className="muted"> · op {receipt.operationId?.slice?.(0, 8) || '—'} · {receipt.fiscalNote}</span>
+                      ) : null}
+                    </span>
+                    {p.status === 'pending' && canCollect && p.method !== 'mercadopago' ? (
+                      <button type="button" className="btn" disabled={busy} onClick={() => confirmPendingPayment(p.id)}>
+                        Confirmar
+                      </button>
+                    ) : null}
+                    {receipt ? (
+                      <button type="button" className="btn" onClick={() => setReceiptPreview(receipt)}>
+                        Ver comprobante
+                      </button>
+                    ) : null}
+                  </li>
+                );
+              })}
+            </ul>
+            {receiptPreview ? (
+              <div className="colonia-ficha">
+                <h4>Comprobante interno</h4>
+                <p>{receiptPreview.studentName} · Resp. {receiptPreview.guardianName}</p>
+                <p>{receiptPreview.seasonName} · {receiptPreview.conceptLabel}</p>
+                <p>{money(receiptPreview.amount)} · {receiptPreview.method} · {receiptPreview.paidAt || '—'}</p>
+                <p className="muted">Op. {receiptPreview.operationId || receiptPreview.reference}</p>
+                <p className="muted">{receiptPreview.fiscalNote}</p>
+              </div>
+            ) : null}
           </div>
         </section>
       ) : null}
@@ -633,6 +835,9 @@ export default function ColoniaTab({ roles = [], role }) {
       {section === 'asistencia' ? (
         <section className="colonia-panel">
           <h3><CalendarDays size={16} /> Asistencia</h3>
+          {!canAttend ? (
+            <p className="colonia-banner warn">Sin permiso de asistencia Colonia.</p>
+          ) : null}
           <div className="colonia-form inline">
             <label><span>Día</span>
               <input type="date" value={attendanceDay} onChange={(e) => setAttendanceDay(e.target.value)} />
@@ -647,19 +852,27 @@ export default function ColoniaTab({ roles = [], role }) {
             {enrollments.filter((e) => e.status !== 'cancelada').map((row) => (
               <li key={row.id} className="colonia-row-actions">
                 <span>{row.student?.full_name}</span>
-                <button type="button" className="btn" disabled={busy} onClick={() => markAttendance(row.id)}>
+                <button type="button" className="btn" disabled={busy || !canAttend} onClick={() => markAttendance(row.id)}>
                   Marcar
                 </button>
               </li>
             ))}
           </ul>
+          <p className="muted">Un profesor puede marcar asistencia; no puede cobrar ni anular cargos.</p>
         </section>
       ) : null}
 
       {section === 'grupos' ? (
         <section className="colonia-panel">
           <h3>Grupos</h3>
-          <p className="muted">No se inventan divisiones etarias ni profesores. Configurá grupos cuando Administración los defina.</p>
+          <div className="colonia-form inline">
+            <label><span>Nombre</span>
+              <input value={groupName} onChange={(e) => setGroupName(e.target.value)} placeholder="Ej. Grupo A 6-8" />
+            </label>
+            <button type="button" className="btn primary" disabled={busy || !canOperate} onClick={createGroup}>
+              Crear grupo
+            </button>
+          </div>
           <ul className="colonia-list">
             {groups.map((g) => (
               <li key={g.id}>{g.name} · cupo {g.capacity ?? '—'} · {g.lead_name || 'sin responsable asignado'}</li>
@@ -672,7 +885,22 @@ export default function ColoniaTab({ roles = [], role }) {
       {section === 'actividades' ? (
         <section className="colonia-panel">
           <h3>Actividades</h3>
-          <p className="muted">Natación, recreación, excursiones y campamentos. Autorizaciones no se marcan solas.</p>
+          <div className="colonia-form">
+            <label><span>Tipo</span>
+              <select value={activityKind} onChange={(e) => setActivityKind(e.target.value)}>
+                {COLONIA_ACTIVITY_KINDS.map((k) => <option key={k} value={k}>{k}</option>)}
+              </select>
+            </label>
+            <label><span>Título</span>
+              <input value={activityTitle} onChange={(e) => setActivityTitle(e.target.value)} />
+            </label>
+            <label><span>Fecha</span>
+              <input type="date" value={activityDate} onChange={(e) => setActivityDate(e.target.value)} />
+            </label>
+            <button type="button" className="btn primary" disabled={busy || !canOperate} onClick={createActivity}>
+              Programar actividad
+            </button>
+          </div>
           <ul className="colonia-list">
             {activities.map((a) => (
               <li key={a.id}>{a.kind} · {a.title} · {a.activity_date || 'sin fecha'}</li>
@@ -685,13 +913,16 @@ export default function ColoniaTab({ roles = [], role }) {
       {section === 'reportes' ? (
         <section className="colonia-panel">
           <h3>Reportes</h3>
-          <p className="muted">Exportaciones CSV/Excel cuando haya datos reales. Separar administrativos, financieros y operativos.</p>
+          <p className="muted">Datos reales de la temporada seleccionada. Deuda exclusiva Colonia (no cuota social).</p>
           <ul className="colonia-list">
             <li>Inscriptos: {enrollments.length}</li>
             <li>Socios / no socios: ver resumen</li>
             <li>Deuda exclusiva Colonia: {money(stats?.balance_due)}</li>
             <li>Ingresos confirmados: {money(stats?.payments_confirmed)}</li>
           </ul>
+          <button type="button" className="btn primary" disabled={!enrollments.length} onClick={exportEnrollmentsCsv}>
+            Exportar inscriptos CSV
+          </button>
         </section>
       ) : null}
 

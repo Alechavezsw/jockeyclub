@@ -76,6 +76,10 @@ export function buildColoniaReceipt({
   season,
   chargeConcepts = [],
 } = {}) {
+  const status = String(payment?.status || '');
+  if (status !== 'confirmed') {
+    return null;
+  }
   return {
     club: 'Jockey Club San Juan',
     conceptLabel: 'Colonia de Verano',
@@ -84,15 +88,37 @@ export function buildColoniaReceipt({
     studentName: student?.fullName || student?.full_name || '—',
     guardianName: guardian?.fullName || guardian?.full_name || '—',
     seasonName: season?.name || season?.code || '—',
+    seasonCode: season?.code || null,
     amount: moneyArs(payment?.amount),
     currency: 'ARS',
-    paidAt: payment?.confirmedAt || payment?.paidAt || payment?.createdAt || null,
+    paidAt: payment?.confirmed_at || payment?.confirmedAt || payment?.paidAt || payment?.created_at || payment?.createdAt || null,
     method: coloniaMethodLabel(payment?.method),
     methodKey: payment?.method || null,
-    reference: payment?.externalReference || payment?.id || null,
-    status: payment?.status || null,
+    reference: payment?.external_reference || payment?.externalReference || payment?.id || null,
+    operationId: payment?.id || null,
+    status,
     chargeConcepts: chargeConcepts || [],
   };
+}
+
+/** CSV simple de inscripciones (reportes administrativos). */
+export function buildColoniaEnrollmentsCsv(rows = []) {
+  const header = ['alumno', 'dni', 'condicion', 'plan', 'estado', 'responsable', 'telefono'];
+  const lines = [header.join(';')];
+  for (const row of rows || []) {
+    const student = row.student || row;
+    const guardian = row.guardian || {};
+    lines.push([
+      student.full_name || student.fullName || '',
+      student.document_number || student.documentNumber || '',
+      student.member_kind || student.memberKind || '',
+      row.plan_key || row.planKey || '',
+      row.status || '',
+      guardian.full_name || guardian.fullName || '',
+      guardian.phone || '',
+    ].map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(';'));
+  }
+  return `${lines.join('\n')}\n`;
 }
 
 /** Garantiza que un payload de Colonia no toque deuda social. */
