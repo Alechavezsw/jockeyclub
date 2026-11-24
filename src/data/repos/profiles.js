@@ -1,6 +1,7 @@
 import * as M from '../mappers';
 import { unwrap, throwOnError } from '../errors';
 import { SYSTEM_ADMIN_ROLES } from '../../domain/auth/roles';
+import { accumulateClubMailProgress } from '../../domain/messaging/clubNotice';
 import { dedupeGateOperators } from '../../domain/auth/gatePorters';
 import { isUuid, sb, audit } from './shared.js';
 
@@ -715,11 +716,15 @@ export async function sendClubMailCampaign({
       memberNumber,
       campaignId: id,
     }, 'No se pudo enviar el mail');
-    sent += Number(data?.sent) || 0;
-    failed += Number(data?.failed) || 0;
-    skipped += Number(data?.skipped) || 0;
-    more = Boolean(data?.more);
-    id = data?.campaignId || id;
+    const progress = accumulateClubMailProgress(
+      { sent, failed, skipped, campaignId: id },
+      data,
+    );
+    sent = progress.sent;
+    failed = progress.failed;
+    skipped = progress.skipped;
+    more = progress.more;
+    id = progress.campaignId || id;
     lastError = String(data?.error || '');
     guard += 1;
     if (typeof onProgress === 'function') onProgress({ sent, failed, skipped, more, campaignId: id });

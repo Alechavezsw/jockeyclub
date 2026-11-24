@@ -1,3 +1,5 @@
+import { isOperationalMember } from '../members/operationalVisibility';
+
 /** Mail real: se saltean alias de prueba y el dominio que rebota. */
 export function deliverableEmail(value) {
   const email = String(value || '').trim();
@@ -8,15 +10,33 @@ export function deliverableEmail(value) {
   return lower;
 }
 
-export function mailAudienceCount(members = []) {
+export function mailAudienceCount(members = [], today = new Date()) {
+  const seen = new Set();
   let withMail = 0;
   let withoutMail = 0;
   for (const member of members) {
-    if (String(member?.status || '').toLowerCase() === 'inactive') continue;
-    if (deliverableEmail(member?.email)) withMail += 1;
-    else withoutMail += 1;
+    if (!isOperationalMember(member, today)) continue;
+    const email = deliverableEmail(member?.email);
+    if (!email) {
+      withoutMail += 1;
+      continue;
+    }
+    if (seen.has(email)) continue;
+    seen.add(email);
+    withMail += 1;
   }
   return { withMail, withoutMail };
+}
+
+/** El reintento informa los ya enviados de toda la campaña, no un delta. */
+export function accumulateClubMailProgress(total, page) {
+  return {
+    sent: (Number(total?.sent) || 0) + (Number(page?.sent) || 0),
+    failed: (Number(total?.failed) || 0) + (Number(page?.failed) || 0),
+    skipped: Number(page?.skipped) || 0,
+    more: Boolean(page?.more),
+    campaignId: page?.campaignId || total?.campaignId || '',
+  };
 }
 
 function looksLikeJson(value) {

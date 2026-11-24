@@ -1,6 +1,15 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { memberMayOperate, operationalAudienceFilter } from "../_shared/operationalMember.ts";
+import { memberMayOperate } from "../_shared/operationalMember.ts";
+import {
+  CLUB_MAIL_BATCH,
+  CLUB_MAIL_MAX_BATCHES,
+  CLUB_MAIL_PAGE,
+  clubMailStaffAllowed,
+  collectClubMailReady,
+  deliverableClubEmail,
+  operationalAudienceFilter,
+} from "../_shared/clubMailAudience.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -9,9 +18,9 @@ const corsHeaders = {
 
 const DEFAULT_FROM = "Jockey Club San Juan <socios@jockeyclubsj.com.ar>";
 const LOGO_SRC = "https://jockeyclubsj.com.ar/logo-jockey-club.png";
-const PAGE = 500;
-const BATCH = 100;
-const MAX_BATCHES = 6;
+const PAGE = CLUB_MAIL_PAGE;
+const BATCH = CLUB_MAIL_BATCH;
+const MAX_BATCHES = CLUB_MAIL_MAX_BATCHES;
 
 function json(status: number, body: Record<string, unknown>) {
   return new Response(JSON.stringify(body), {
@@ -29,12 +38,7 @@ function escapeHtml(value: string) {
 }
 
 function deliverableEmail(value: string | null | undefined) {
-  const email = String(value || "").trim();
-  if (!email.includes("@")) return "";
-  const lower = email.toLowerCase();
-  if (lower.includes("@lila-jockey")) return "";
-  if (lower.endsWith("@jockeyclubsj.com")) return "";
-  return lower;
+  return deliverableClubEmail(value);
 }
 
 function noticeHtml(subject: string, body: string) {
@@ -165,7 +169,9 @@ Deno.serve(async (req) => {
       global: { headers: { Authorization: authHeader } },
     });
     const { data: staff, error: staffError } = await userClient.rpc("has_staff_access");
-    if (staffError || !staff) return json(403, { error: "Solo el personal del club puede enviar comunicados." });
+    if (staffError || !clubMailStaffAllowed(staff)) {
+      return json(403, { error: "Solo el personal del club puede enviar comunicados." });
+    }
     const { data: authData } = await userClient.auth.getUser();
     const senderId = authData?.user?.id || null;
 
@@ -268,10 +274,8 @@ Deno.serve(async (req) => {
         if (error) return json(500, { error: error.message });
         const rows = data || [];
         scannedFull = rows.length === PAGE;
-        for (const row of rows) {
-          if (!memberMayOperate(row)) continue;
-          takeMember(row);
-        }
+        const page = collectClubMailReady(rows, { seen: done, cap: need - ready.length });
+        ready.push(...page.ready);
         if (rows.length < PAGE) break;
         fromRow += PAGE;
       }
