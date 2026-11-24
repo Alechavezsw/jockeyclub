@@ -1099,6 +1099,14 @@ export default function MemberProfilePanel({
       onSendMessage,
       kind: 'cuota',
     });
+    if (saved?.also?.payment) {
+      void deliverPaymentReceipt({
+        member: saved.also.member || saved.member,
+        payment: saved.also.payment,
+        onSendMessage,
+        kind: 'cuota',
+      });
+    }
     setCollectOpen(false);
     setSection('movimientos');
     setCollectFlash(

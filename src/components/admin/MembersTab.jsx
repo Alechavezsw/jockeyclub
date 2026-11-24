@@ -1048,6 +1048,14 @@ export default function MembersTab({
         onSendMessage,
         kind: 'cuota',
       });
+      if (result.also?.payment) {
+        void deliverPaymentReceipt({
+          member: result.also.member || result.member,
+          payment: result.also.payment,
+          onSendMessage,
+          kind: 'cuota',
+        });
+      }
       setCollectMember(null);
     } catch (err) {
       window.alert(err?.message || 'No se pudo registrar el cobro. El saldo no cambió.');

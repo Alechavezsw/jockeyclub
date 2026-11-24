@@ -273,6 +273,14 @@ export default function CollectDuesDeskFlow({
       onSendMessage,
       kind: 'cuota',
     });
+    if (saved?.also?.payment) {
+      void deliverPaymentReceipt({
+        member: saved.also.member || saved.member,
+        payment: saved.also.payment,
+        onSendMessage,
+        kind: 'cuota',
+      });
+    }
     const paid = saved?.payment || result.payment;
     const who = saved?.member || result.member;
     onCollected?.({

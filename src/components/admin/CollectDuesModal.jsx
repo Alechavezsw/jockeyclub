@@ -458,7 +458,7 @@ export default function CollectDuesModal({
       }), 'tenis', separable ? 'Abono tenis' : '');
     }
     if (duesExempt) return [];
-    if (separable && includeSocial && includeTennis) {
+    if (separable) {
       return [
         ...tag(collectionPeriodChoices(account, new Date(), { chargeScope: 'social' }), 'social', 'Cuota social'),
         ...tag(collectionTennisPeriodChoices(account, new Date(), {
@@ -557,7 +557,7 @@ export default function CollectDuesModal({
     [selectedRows],
   );
   const split = useMemo(() => {
-    if (separable && includeSocial && includeTennis) {
+    if (separable && (selectedSocialDueOns.length || selectedTennisDueOns.length)) {
       const socialPrev = selectedSocialDueOns.length
         ? collectionPreview(account, new Date(), {
           periodDueOns: selectedSocialDueOns,
@@ -922,21 +922,6 @@ export default function CollectDuesModal({
     });
   };
 
-  const toggleScope = (scope) => {
-    setError('');
-    if (scope === 'social') {
-      setIncludeSocial((prev) => {
-        if (prev && !includeTennis) return prev;
-        return !prev;
-      });
-      return;
-    }
-    setIncludeTennis((prev) => {
-      if (prev && !includeSocial) return prev;
-      return !prev;
-    });
-  };
-
   const handleReceipt = async (e) => {
     const file = e.target.files?.[0];
     if (!file) {
@@ -1032,18 +1017,12 @@ export default function CollectDuesModal({
       : selectedTennisDueOns;
     const chargeDueOns = [...new Set([
       ...(tennisOnly ? tennisDueOns : socialDueOns),
-      ...((separable && includeTennis && !tennisOnly) ? tennisDueOns : []),
+      ...(tennisDueOns.length && !tennisOnly ? tennisDueOns : []),
     ])];
+    const bothScopes = socialDueOns.length > 0 && tennisDueOns.length > 0;
+    const tennisPayload = bothScopes ? { tennisPeriodDueOns: tennisDueOns } : {};
     if (!socialDueOns.length && !tennisDueOns.length) {
       setError(tennisOnly ? 'No hay abono de tenis pendiente para cobrar.' : 'No hay saldo pendiente para abonar.');
-      return;
-    }
-    if (separable && !includeSocial && !includeTennis) {
-      setError('Elegí cuota social o abono tenis.');
-      return;
-    }
-    if (separable && socialDueOns.length && tennisDueOns.length) {
-      setError('Cobrál la cuota social y el abono tenis por separado: dejá marcado solo uno arriba.');
       return;
     }
     try {
@@ -1217,6 +1196,7 @@ export default function CollectDuesModal({
           periodDueOns: dueOnsPayload.length ? dueOnsPayload : chargeDueOns,
           paymentSplits,
           ...scopePayload,
+          ...tennisPayload,
         });
       } else {
         let receiptAttachment = null;
@@ -1273,6 +1253,7 @@ export default function CollectDuesModal({
           discount: concession.discount,
           discountDetail: concession.detail,
           periodDueOns: dueOnsPayload.length ? dueOnsPayload : chargeDueOns,
+          ...tennisPayload,
           paymentPlanId: isCardPosDuesMethod(recordMethod) ? (selectedPlan?.id || null) : null,
           paymentPlanLabel: isCardPosDuesMethod(recordMethod) ? (selectedPlan?.label || null) : null,
           paymentPlanSnapshot: cardFinancing?.paymentPlanSnapshot || null,
@@ -1388,45 +1369,6 @@ export default function CollectDuesModal({
                   ? `No debe cuota ahora. Próximo vencimiento ${nextDueLabel}.`
                   : 'No debe cuota ahora.')}
             </p>
-          </div>
-        ) : null}
-
-        {separable && !isClear ? (
-          <div style={{ marginBottom: '1rem' }}>
-            <p style={{ margin: '0 0 0.55rem', fontSize: '0.78rem', letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-gold)' }}>
-              Qué cobrás
-            </p>
-            <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gap: '0.4rem' }}>
-              {[
-                { id: 'social', label: 'Cuota social', checked: includeSocial, hint: 'Familiar / individual · puede llevar 10 %' },
-                { id: 'tenis', label: 'Abono tenis', checked: includeTennis, hint: 'Independiente · sin recargo del 10 %' },
-              ].map((row) => (
-                <li key={row.id}>
-                  <label
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '0.65rem',
-                      padding: '0.55rem 0.7rem',
-                      borderRadius: 8,
-                      border: row.checked ? '1px solid var(--primary-gold)' : '1px solid var(--border-glass)',
-                      background: row.checked ? 'rgba(var(--primary-gold-rgb),0.1)' : 'transparent',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={row.checked}
-                      onChange={() => toggleScope(row.id)}
-                    />
-                    <span style={{ flex: 1 }}>
-                      <strong style={{ display: 'block', color: 'var(--text-primary)' }}>{row.label}</strong>
-                      <small style={{ color: 'var(--text-muted)' }}>{row.hint}</small>
-                    </span>
-                  </label>
-                </li>
-              ))}
-            </ul>
           </div>
         ) : null}
 

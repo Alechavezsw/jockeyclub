@@ -697,6 +697,14 @@ export default function MembersWithAppPanel({
         onSendMessage,
         kind: 'cuota',
       });
+      if (result.also?.payment) {
+        void deliverPaymentReceipt({
+          member: result.also.member || result.member,
+          payment: result.also.payment,
+          onSendMessage,
+          kind: 'cuota',
+        });
+      }
       putMemberInList(result.member);
       if (request?.id) await markRequestHandled(request.id);
       closeCollect();
