@@ -22,6 +22,8 @@ import {
 import { memberMatchesDirectoryQuery } from '../../domain/members/households';
 import { PADRON_BAJA_OPTIONS } from '../../domain/members/membershipMoves';
 import { money } from '../../domain/money';
+import { collectionPeriodChoices } from '../../domain/members/dues';
+import { duesMonthsPhrase } from '../../domain/members/duesImputations';
 import { todayISODateAR } from '../../lib/arDate';
 import { isSupabaseConfigured } from '../../lib/supabase';
 import { repos } from '../../data/bootstrap';
@@ -511,6 +513,8 @@ export function MemberReactivateModal({
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(saldo);
+  const owedChoices = selected ? collectionPeriodChoices(selected, new Date()) : [];
+  const owedMonthsLabel = duesMonthsPhrase(owedChoices.map((row) => row.dueOn));
   const bajaPrevia = String(selected?.bajaMotivo || selected?.meta?.bajaMotivo || '').trim();
 
   const confirm = async () => {
@@ -652,7 +656,7 @@ export function MemberReactivateModal({
         {reason ? `Motivo elegido: ${reason.label}. Queda en la ficha y en la auditoría.` : 'Elegí un motivo. Queda en la ficha y en la auditoría.'}
       </p>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: '0.85rem' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: '0.65rem' }}>
         <label className="form-group" style={{ display: 'block' }}>
           <span className="form-label">Fecha de la reactivación *</span>
           <input
@@ -677,8 +681,27 @@ export function MemberReactivateModal({
           />
         </label>
       </div>
+      <label className="form-group" style={{ display: 'block', marginBottom: '0.85rem' }}>
+        <span className="form-label">Meses que debe</span>
+        <textarea
+          className="form-input"
+          rows={2}
+          value={
+            !selected
+              ? ''
+              : owedMonthsLabel
+                || (saldo > 0.01 ? 'Hay saldo, pero sin meses liquidables aún.' : 'Sin deuda de cuotas.')
+          }
+          placeholder="Se calculan al elegir el socio"
+          readOnly
+          aria-readonly="true"
+          aria-live="polite"
+          tabIndex={-1}
+          style={{ resize: 'none' }}
+        />
+      </label>
       <p style={{ margin: '-0.35rem 0 0.85rem', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-        El saldo no se edita. Quedan el usuario, la fecha y la hora. La baja anterior no se borra.
+        El saldo y los meses no se editan. Quedan el usuario, la fecha y la hora. La baja anterior no se borra.
       </p>
 
       <label className="form-group" style={{ display: 'block', marginBottom: '0.85rem' }}>
