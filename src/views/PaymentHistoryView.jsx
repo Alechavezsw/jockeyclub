@@ -282,10 +282,32 @@ export default function PaymentHistoryView({ member, user, setCurrentView, sendM
             Estado Contable
           </h1>
           <p className="page-subtitle" style={{ margin: 0 }}>
-            Pagos, historial y comprobantes · {profile?.name}
+            Cuota social · {profile?.name}
+          </p>
+          <p className="page-subtitle" style={{ margin: '0.35rem 0 0' }}>
+            <button type="button" className="btn btn-secondary btn-sm" onClick={() => setCurrentView?.('colonia')}>
+              Colonia de Verano (cuenta aparte)
+            </button>
           </p>
         </div>
       </header>
+
+      <section className="pay-hist-summary" aria-label="Cuentas separadas">
+        <article className="pay-hist-kpi">
+          <span>CUOTA SOCIAL</span>
+          <strong>{standingPending ? '…' : duesExempt ? 'Exento' : alDia ? 'Al día' : formatCurrency(debtAmount)}</strong>
+          <small>Membresía del club</small>
+        </article>
+        <article className="pay-hist-kpi">
+          <span>COLONIA</span>
+          <strong>Cuenta independiente</strong>
+          <small>
+            <button type="button" className="btn btn-ghost btn-sm" onClick={() => setCurrentView?.('colonia')}>
+              Ver / inscribir
+            </button>
+          </small>
+        </article>
+      </section>
 
       <section className="pay-hist-summary">
         <article className={`pay-hist-kpi${standingPending ? '' : (duesExempt || alDia) ? ' is-ok' : ' is-debt'}`}>

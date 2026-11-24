@@ -5,8 +5,12 @@ import {
   MessageSquare, ClipboardList, Activity, Phone, Mail, MapPin,
   Pencil, FileText, Ticket, Bell, IdCard, Cake, Heart, Flag, Clock,
   ShieldCheck, CalendarClock, Banknote, Building2, AlertTriangle,
-  Camera, X, Plus, Loader2, UserMinus, Trash2,
+  Camera, X, Plus, Loader2, UserMinus, Trash2, Baby,
 } from 'lucide-react';
+import MemberColoniaPanel from './MemberColoniaPanel';
+import { coloniaBadgeForHouseholdMember } from '../../domain/colonia/coloniaPortal';
+import { isSupabaseConfigured } from '../../lib/supabase';
+import { repos } from '../../data/bootstrap';
 import VirtualCard from '../VirtualCard';
 import GuestPassPanel from '../GuestPassPanel';
 import CollectDuesModal from './CollectDuesModal';
@@ -85,8 +89,6 @@ import {
 import { duesMethodLabel, isDuesCollectionJournal, journalEntryBelongsToMember, persistDuesCollection, persistDuesVoid, recordDuesCollection, removeDuesSurcharge, voidMemberDuesPayment } from '../../domain/members/memberPayments';
 import { deliverPaymentReceipt } from '../../domain/payments/deliverPaymentReceipt';
 import { signedDuesReceiptUrl } from '../../data/storage';
-import { repos } from '../../data/bootstrap';
-import { isSupabaseConfigured } from '../../lib/supabase';
 import CurrentAccountCutNote from '../erp/CurrentAccountCutNote';
 import { isMpAdhered } from '../../domain/payments/mercadoPago';
 
@@ -97,6 +99,7 @@ const SECTIONS = [
   { id: 'invitados', label: 'Invitados', icon: Ticket, memberOnly: true },
   { id: 'docs', label: 'Documentos', icon: FileText, memberOnly: true },
   { id: 'familia', label: 'Grupo familiar', icon: Users },
+  { id: 'colonia', label: 'Colonia', icon: Baby },
   { id: 'movimientos', label: 'Movimientos', icon: Wallet },
   { id: 'entradas', label: 'Entradas', icon: DoorOpen },
   { id: 'asistencia', label: 'Asistencia', icon: CalendarDays },
@@ -414,6 +417,7 @@ export default function MemberProfilePanel({
   const [householdExtras, setHouseholdExtras] = useState([]);
   const [householdReady, setHouseholdReady] = useState(false);
   const [householdEpoch, setHouseholdEpoch] = useState(0);
+  const [coloniaEnrollments, setColoniaEnrollments] = useState([]);
   const setMembersRef = useRef(setMembers);
   setMembersRef.current = setMembers;
   const [searchParams, setSearchParams] = useSearchParams();
@@ -516,6 +520,28 @@ export default function MemberProfilePanel({
 
     return () => { cancelled = true; };
   }, [member?.memberId, householdEpoch]);
+
+  /** Colonia del hogar (cuenta independiente; no toca outstanding_balance). */
+  useEffect(() => {
+    if (!member?.id || !isSupabaseConfigured) {
+      setColoniaEnrollments([]);
+      return undefined;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        if (typeof repos.coloniaListForMember !== 'function') {
+          if (!cancelled) setColoniaEnrollments([]);
+          return;
+        }
+        const res = await repos.coloniaListForMember(member.id);
+        if (!cancelled) setColoniaEnrollments(res?.enrollments || []);
+      } catch {
+        if (!cancelled) setColoniaEnrollments([]);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [member?.id, householdEpoch]);
 
   const householdPrincipal = familyPrincipalOf(member) || memberNumberOf(member);
 
@@ -1397,6 +1423,16 @@ export default function MemberProfilePanel({
                         : (role === 'Titular' ? 'Titular del grupo' : 'Parentesco sin cargar')}
                       {adh.memberId ? ` · Nº ${adh.memberId}` : ''}
                       {ageYears != null ? ` · ${ageYears} años` : ''}
+                      {(() => {
+                        const badge = coloniaBadgeForHouseholdMember(source || adh, coloniaEnrollments);
+                        return (
+                          <span className={`mp-colonia-chip is-${badge.tone}`}>
+                            {' · '}
+                            {badge.key === 'enrolled' ? 'Colonia: ' : ''}
+                            {badge.label}
+                          </span>
+                        );
+                      })()}
                     </div>
                   </div>
                   <span className="mp-tier-pill" style={tierBadgeStyle(adh.tier, tierCatalog)}>
@@ -1413,6 +1449,18 @@ export default function MemberProfilePanel({
                     >
                       <CreditCard size={13} /> Tarjeta
                     </button>
+                    {coloniaBadgeForHouseholdMember(source || adh, coloniaEnrollments).enrollment ? (
+                      <button
+                        type="button"
+                        className="btn btn-ghost btn-sm"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSection('colonia');
+                        }}
+                      >
+                        <Baby size={13} /> Colonia
+                      </button>
+                    ) : null}
                   </div>
                 </div>
               );
@@ -1887,6 +1935,15 @@ export default function MemberProfilePanel({
                               {familyChildStanding(source || adh).label}
                             </span>
                           ) : null}
+                          {(() => {
+                            const badge = coloniaBadgeForHouseholdMember(source || adh, coloniaEnrollments);
+                            return (
+                              <span className={`mp-colonia-chip is-${badge.tone}`}>
+                                {badge.key === 'enrolled' ? 'Colonia: ' : ''}
+                                {badge.label}
+                              </span>
+                            );
+                          })()}
                         </div>
                       </div>
                       <span className="mp-tier-pill" style={tierBadgeStyle(adh.tier, tierCatalog)}>
@@ -1979,6 +2036,10 @@ export default function MemberProfilePanel({
               </div>
             )}
           </div>
+        )}
+
+        {section === 'colonia' && (
+          <MemberColoniaPanel member={member} />
         )}
 
         {section === 'movimientos' && (
