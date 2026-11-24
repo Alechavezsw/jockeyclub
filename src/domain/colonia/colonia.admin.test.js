@@ -13,6 +13,7 @@ import {
   coloniaSocioHits,
   enrollmentMatchesRoster,
   householdKids,
+  householdSearchPool,
   planChildSlots,
 } from './coloniaDesk';
 import {
@@ -120,6 +121,18 @@ describe('administración Colonia — padrón y fichas', () => {
       { memberId: '103', meta: { familyPrincipalNumber: '100' }, birthDate: '1990-01-01' },
     ];
     expect(householdKids(list, anchor, '2026-12-14').map((row) => row.memberId)).toEqual(['101', '102']);
+  });
+
+  it('el buscador del hijo solo mira el grupo del socio elegido', () => {
+    const anchor = { memberId: '100', name: 'Titular Gómez', meta: { familyPrincipalNumber: '100' } };
+    const ana = { memberId: '101', name: 'Ana Gómez', documentNumber: '30111222', meta: { familyPrincipalNumber: '100' }, birthDate: '2016-04-01' };
+    const bruno = { memberId: '102', name: 'Bruno Gómez', meta: { familyPrincipalNumber: '100' }, birthDate: '2018-01-01' };
+    const ajeno = { memberId: '8770', name: 'Otro Club', meta: { familyPrincipalNumber: '8770' }, birthDate: '2015-01-01' };
+    const pool = householdSearchPool([anchor, ana, bruno, ajeno], anchor, '2026-12-14');
+    expect(pool.map((row) => row.memberId)).toEqual(['101', '102']);
+    expect(coloniaSocioHits(pool, '30111222').map((row) => row.memberId)).toEqual(['101']);
+    expect(coloniaSocioHits(pool, '8770')).toEqual([]);
+    expect(householdSearchPool([anchor], anchor, '2026-12-14')).toEqual([]);
   });
 
   it('los planes piden uno, dos o tres hijos', () => {
