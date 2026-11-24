@@ -73,6 +73,7 @@ import {
   suggestedTierAfterFamilyDetach,
   uniqueFamilyMembers,
 } from '../../domain/members/households';
+import { assessHouseholdIntegrity } from '../../domain/members/householdIntegrity';
 import {
   applyMemberProfileUpdate,
   upsertMemberDocument,
@@ -546,6 +547,13 @@ export default function MemberProfilePanel({
 
   const familySource = householdExtras;
   const canEditFamily = !selfService && allowEdit;
+  const householdHealth = useMemo(
+    () => assessHouseholdIntegrity({
+      member,
+      householdRows: householdReady ? householdExtras : [],
+    }),
+    [member, householdReady, householdExtras],
+  );
   const tiers = useMemo(() => getActiveTiers(tierCatalog), [tierCatalog]);
   const detachTiers = useMemo(
     () => tiers.filter((t) => !isHouseholdIntegranteTierId(t.id)),
@@ -1228,7 +1236,8 @@ export default function MemberProfilePanel({
         </aside>
       </header>
 
-      {(pendingBaja || vitalicioOffer || debitFailed || (childStanding.kind === 'leave')) ? (
+      {(pendingBaja || vitalicioOffer || debitFailed || (childStanding.kind === 'leave')
+        || (!selfService && (householdHealth.warnings.length || householdHealth.gaps.some((g) => g.severity === 'warn')))) ? (
         <div className="mp-ops-notes">
           {pendingBaja ? (
             <p className="mp-ops-note">
@@ -1249,6 +1258,23 @@ export default function MemberProfilePanel({
           ) : null}
           {childStanding.kind === 'leave' ? (
             <p className="mp-ops-note is-warn">{childStanding.label}</p>
+          ) : null}
+          {!selfService ? householdHealth.warnings.map((w) => (
+            <p
+              key={`${w.code}-${w.principalNumber || ''}`}
+              className={`mp-ops-note${w.severity === 'error' ? ' is-error' : ' is-warn'}`}
+            >
+              {w.message}
+            </p>
+          )) : null}
+          {!selfService && householdHealth.gaps.some((g) => g.severity === 'warn') ? (
+            <p className="mp-ops-note is-warn">
+              Ficha incompleta: falta{' '}
+              {householdHealth.gaps
+                .filter((g) => g.severity === 'warn')
+                .map((g) => g.label.toLowerCase())
+                .join(', ')}.
+            </p>
           ) : null}
         </div>
       ) : null}
@@ -1287,6 +1313,9 @@ export default function MemberProfilePanel({
             {!householdReady
               ? 'cargando…'
               : `${familyRows.length} integrante${familyRows.length === 1 ? '' : 's'}`}
+            {!selfService && householdReady && householdHealth.warnings.length
+              ? ` · ${householdHealth.warnings.length} aviso${householdHealth.warnings.length === 1 ? '' : 's'}`
+              : ''}
           </p>
           {canEditFamily ? (
             <button type="button" className="btn btn-primary btn-sm" onClick={openAddFamily}>
@@ -1366,6 +1395,15 @@ export default function MemberProfilePanel({
           <div className="mp-dossier">
             <section className="mp-sheet mp-sheet--id">
               <SheetHead index="01" title="Identidad" kicker="Documento y datos personales del padrón" />
+              {!selfService && householdHealth.gaps.length ? (
+                <div className="mp-ficha-gaps" aria-label="Campos faltantes">
+                  {householdHealth.gaps.map((gap) => (
+                    <span key={gap.code} className={`mp-ficha-gap is-${gap.severity}`}>
+                      Falta {gap.label.toLowerCase()}
+                    </span>
+                  ))}
+                </div>
+              ) : null}
               <div className="mp-id-spotlight">
                 <div className={`mp-id-doc${doc.nro ? '' : ' is-empty'}`}>
                   <span className="mp-fact-label">Documento</span>

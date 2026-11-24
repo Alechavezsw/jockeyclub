@@ -20693,6 +20693,166 @@ a.ops-outline-btn {
   color: var(--text-primary);
 }
 
+.mp-ops-note.is-error {
+  color: var(--text-primary);
+  border-color: color-mix(in srgb, #c45c26 45%, var(--border-glass));
+  background: color-mix(in srgb, #c45c26 12%, transparent);
+}
+
+.mp-ficha-gaps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0 0 0.85rem;
+}
+
+.mp-ficha-gap {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.28rem 0.55rem;
+  border: 1px solid var(--border-glass);
+  border-radius: 999px;
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.mp-ficha-gap.is-warn,
+.mp-ficha-gap.is-error {
+  color: var(--text-primary);
+  border-color: color-mix(in srgb, #c45c26 40%, var(--border-glass));
+}
+
+.household-integrity-panel {
+  margin-top: 0.75rem;
+  padding: 1rem 1.1rem 1.25rem;
+  border: 1px solid var(--border-glass);
+  border-radius: 14px;
+  background: var(--surface-card);
+}
+
+.household-integrity-head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.household-integrity-kicker {
+  margin: 0 0 0.2rem;
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.household-integrity-head h3 {
+  margin: 0;
+  font-size: 1.25rem;
+  color: var(--text-gold);
+}
+
+.household-integrity-lead {
+  margin: 0.45rem 0 0;
+  max-width: 46rem;
+  font-size: 0.86rem;
+  line-height: 1.45;
+  color: var(--text-secondary);
+}
+
+.household-integrity-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+.household-integrity-summary b {
+  color: var(--text-primary);
+  margin-right: 0.2rem;
+}
+
+.household-integrity-empty {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0;
+  font-size: 0.88rem;
+  color: var(--text-secondary);
+}
+
+.household-integrity-lists {
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+}
+
+.household-integrity-block h4 {
+  margin: 0 0 0.55rem;
+  font-size: 0.82rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
+}
+
+.household-integrity-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.household-integrity-item {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 0.65rem;
+  align-items: start;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid var(--border-glass);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.household-integrity-item.is-error {
+  border-color: color-mix(in srgb, #c45c26 42%, var(--border-glass));
+}
+
+.household-integrity-item strong {
+  display: block;
+  font-size: 0.86rem;
+  color: var(--text-primary);
+}
+
+.household-integrity-item p {
+  margin: 0.2rem 0 0;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  color: var(--text-secondary);
+}
+
+.household-integrity-meta {
+  display: block;
+  margin-top: 0.25rem;
+  font-size: 0.74rem;
+  color: var(--text-secondary);
+}
+
+@media (max-width: 720px) {
+  .household-integrity-item {
+    grid-template-columns: auto 1fr;
+  }
+
+  .household-integrity-item .btn {
+    grid-column: 2;
+    justify-self: start;
+  }
+}
+
 .mp-family-standing {
   display: block;
   margin-top: 0.2rem;
