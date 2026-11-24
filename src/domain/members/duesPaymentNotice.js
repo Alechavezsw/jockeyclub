@@ -1,10 +1,18 @@
 import { MAILBOX, createMessage } from '../messaging/messages';
+import { buildDuesPaymentRequestPeriodPayload } from './duesPaymentRequestPeriods';
 
 export function duesPaymentNotice({
   memberName,
   memberId,
   amountLabel,
+  /** @deprecated Prefer periodDueOns / periodPayload. No usar next_due_date. */
   dueLabel,
+  periodDueOns = null,
+  debtMonths = null,
+  chargeDue = null,
+  nextAccountDueDate = null,
+  concepts = [],
+  amount = null,
   method,
   bankName,
   qrRef,
@@ -12,8 +20,20 @@ export function duesPaymentNotice({
 } = {}) {
   const who = String(memberName || 'Socio').trim();
   const cred = memberId ? `Nº ${memberId}` : '';
-  const when = dueLabel ? `Vencimiento: ${dueLabel}` : '';
   const money = amountLabel ? `Importe: ${amountLabel}` : '';
+  const periodPayload = buildDuesPaymentRequestPeriodPayload({
+    periodDueOns,
+    debtMonths,
+    chargeDue,
+    nextAccountDueDate,
+    concepts,
+    amount,
+  });
+  // Compat: si solo vino dueLabel legacy y no hay período resuelto, usarlo como texto
+  // de período (no como próximo de cuenta).
+  const periodLines = periodPayload.lines.length
+    ? periodPayload.lines
+    : (dueLabel ? [`Período / vencimiento: ${dueLabel}`] : []);
 
   let subject = 'Aviso de cuota';
   let lines = [`${who}${cred ? ` (${cred})` : ''} avisó un pago de cuota.`];
@@ -23,7 +43,7 @@ export function duesPaymentNotice({
     lines = [
       `${who}${cred ? ` (${cred})` : ''} inició un pago de cuota por Mercado Pago desde la app.`,
       money,
-      when,
+      ...periodLines,
       qrRef ? `Referencia: ${qrRef}` : '',
       'Mercado Pago acredita solo: no hace falta imputar a mano. La operación queda en Pagos entrantes.',
     ];
@@ -32,7 +52,7 @@ export function duesPaymentNotice({
     lines = [
       `${who}${cred ? ` (${cred})` : ''} envió el comprobante de una transferencia desde la app.`,
       money,
-      when,
+      ...periodLines,
       bankName ? `Banco: ${bankName}` : '',
       attachment?.name ? `Archivo: ${attachment.name}` : '',
       'Es una solicitud de pago: acreditá en Socios con app o en Cobrar cuando veas el movimiento en el banco.',
@@ -42,7 +62,7 @@ export function duesPaymentNotice({
     lines = [
       `${who}${cred ? ` (${cred})` : ''} pide adherirse al débito automático de la cuota.`,
       money,
-      when,
+      ...periodLines,
     ];
   }
 
@@ -59,6 +79,16 @@ export function duesPaymentNotice({
     paymentRequest: method === 'transferencia' || method === 'debito' || method === 'tarjeta' || method === 'pos',
     paymentAuto: method === 'mercadopago',
     ...(attachment ? { attachment } : {}),
+    ...(periodPayload.periodDueOns.length ? { periodDueOns: periodPayload.periodDueOns } : {}),
+    ...(periodPayload.periodLabel ? { periodLabel: periodPayload.periodLabel } : {}),
+    ...(periodPayload.periodDueLabel ? { periodDueLabel: periodPayload.periodDueLabel } : {}),
+    ...(periodPayload.nextAccountDueDate
+      ? { nextAccountDueDate: periodPayload.nextAccountDueDate }
+      : {}),
+    ...(periodPayload.concepts.length ? { concepts: periodPayload.concepts } : {}),
+    ...(periodPayload.amount != null && Number.isFinite(periodPayload.amount)
+      ? { amount: periodPayload.amount }
+      : {}),
   };
   return msg;
 }

@@ -15,7 +15,12 @@ import {
   isDuesExemptMember,
   memberHasSeparableAddOn,
 } from '../../domain/members/dues';
+import {
+  appRequestMatchesExigibleCapital,
+  feeLedgerPendingCapital,
+} from '../../domain/members/duesCollectObligations';
 import { duesMonthsPhrase } from '../../domain/members/duesImputations';
+import { parseAppPaymentAmountLabel } from '../../domain/members/appPaymentRequests';
 import {
   assertMixedPosMoraAllocation,
   collectionDiscount,
@@ -300,6 +305,10 @@ export default function CollectDuesModal({
   initialBankId = null,
   seedReceipt = null,
   sourceNotice = '',
+  /** Importe declarado en la solicitud de la app (para alinear social+tenis). */
+  seedRequestAmount = null,
+  /** Períodos de la solicitud (nunca next_due_date de ficha). */
+  seedPeriodDueOns = null,
   /** `abono_tenis`: cobra el abono aparte de la cuota social (sin 10 %). */
   chargeScope = null,
   /** Monto mensual de tenis (fila del padrón); si falta, se usa el de la cuenta. */
@@ -374,12 +383,35 @@ export default function CollectDuesModal({
       setIncludeTennis(false);
       return;
     }
-    if (!hydrating && memberHasSeparableAddOn(account)) {
-      // Por defecto cuota social; el tenis se marca a propósito (no mezclar 70k+12k).
+    if (hydrating || !memberHasSeparableAddOn(account)) return;
+    const asked = seedRequestAmount != null && seedRequestAmount !== ''
+      ? Number(seedRequestAmount) || parseAppPaymentAmountLabel(seedRequestAmount)
+      : null;
+    const tennisPending = feeLedgerPendingCapital(account, { chargeScope: 'abono_tenis' });
+    // Si la app mandó el total capital (cuota+tenis), marcar ambos. Si no, cuota sola.
+    if (
+      asked != null
+      && tennisPending > 0.01
+      && appRequestMatchesExigibleCapital(account, asked)
+    ) {
       setIncludeSocial(true);
-      setIncludeTennis(false);
+      setIncludeTennis(true);
+      return;
     }
-  }, [forcedTennis, forcedSocial, hydrating, account?.memberId, account?.cuotaCategories, account?.tier]);
+    setIncludeSocial(true);
+    setIncludeTennis(false);
+  }, [
+    forcedTennis,
+    forcedSocial,
+    hydrating,
+    seedRequestAmount,
+    account?.memberId,
+    account?.cuotaCategories,
+    account?.tier,
+    account?.outstandingBalance,
+    account?.feeLedgerLines,
+    account?.meta?.feeLedgerAdminPartialReconcile,
+  ]);
 
   const periodChoices = useMemo(() => {
     if (hydrating) return [];
@@ -430,6 +462,9 @@ export default function CollectDuesModal({
     account?.cuotaCategories,
     account?.paymentHistory,
     account?.duesOpenPeriods,
+    account?.feeLedgerLines,
+    account?.meta?.feeLedgerAdminReconcile,
+    account?.meta?.feeLedgerAdminPartialReconcile,
   ]);
   const choiceKey = periodChoices.map((row) => row.selectKey || row.dueOn).join('|');
   const [selectedDueOns, setSelectedDueOns] = useState([]);
@@ -441,9 +476,28 @@ export default function CollectDuesModal({
     return 'efectivo';
   });
   const [onAccountInput, setOnAccountInput] = useState('');
+  const seedPeriodKey = (Array.isArray(seedPeriodDueOns) ? seedPeriodDueOns : [])
+    .map((value) => String(value || '').slice(0, 10))
+    .filter(Boolean)
+    .join('|');
   useEffect(() => {
-    setSelectedDueOns(choiceKey ? choiceKey.split('|') : []);
-  }, [choiceKey]);
+    if (!choiceKey) {
+      setSelectedDueOns([]);
+      return;
+    }
+    const seedDue = new Set(seedPeriodKey ? seedPeriodKey.split('|') : []);
+    if (seedDue.size) {
+      const matched = choiceKey.split('|').filter((key) => {
+        const due = String(key).includes(':') ? String(key).slice(String(key).indexOf(':') + 1) : key;
+        return seedDue.has(due.slice(0, 10));
+      });
+      if (matched.length) {
+        setSelectedDueOns(matched);
+        return;
+      }
+    }
+    setSelectedDueOns(choiceKey.split('|'));
+  }, [choiceKey, seedPeriodKey]);
 
   useEffect(() => {
     const seed = String(initialMethod || '').toLowerCase();

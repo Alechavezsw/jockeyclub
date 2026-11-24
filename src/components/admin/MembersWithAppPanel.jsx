@@ -70,9 +70,11 @@ import {
   isAppPaymentBookingRequest,
   isOpenAppPaymentRequest,
   listOpenAppPaymentRequests,
+  parseAppPaymentAmountLabel,
   withAppPaymentHandled,
   withAppPaymentRead,
 } from '../../domain/members/appPaymentRequests';
+import { appPaymentRequestPeriodDisplay } from '../../domain/members/duesPaymentRequestPeriods';
 import VirtualCard from '../VirtualCard';
 import CollectDuesModal from './CollectDuesModal';
 import ModalDialog from '../ModalDialog';
@@ -1087,10 +1089,13 @@ export default function MembersWithAppPanel({
                         const member = withApp.find((row) => String(row.memberId) === memberId)
                           || (members || []).find((row) => String(row.memberId) === memberId);
                         const amount = appPaymentRequestAmountLabel(msg);
+                        const booking = isAppPaymentBookingRequest(msg);
+                        const period = booking
+                          ? null
+                          : appPaymentRequestPeriodDisplay(msg, member);
                         const collected = incomingCollectedById[msg.id]
                           || findAppPaymentRequestCollection(msg, member);
                         const collectedLabel = appPaymentRequestCollectionLabel(collected);
-                        const booking = isAppPaymentBookingRequest(msg);
                         const auto = isAppPaymentAuto(msg) || booking;
                         return (
                           <li
@@ -1109,13 +1114,23 @@ export default function MembersWithAppPanel({
                                 {' · '}
                                 {appPaymentRequestMethodLabel(msg)}
                                 {amount ? ` · ${amount}` : ''}
+                                {period?.periodLabel ? ` · ${period.periodLabel}` : ''}
                               </span>
                               {collectedLabel ? (
                                 <p className="members-app-desk__incoming-status" role="status">
                                   {collectedLabel}
                                 </p>
                               ) : (
-                                <p>{String(msg.content || '').split('\n').slice(0, 2).join(' · ')}</p>
+                                <p>
+                                  {period?.periodDueLabel
+                                    ? `Vencimiento del período: ${period.periodDueLabel}`
+                                    : String(msg.content || '').split('\n').slice(0, 2).join(' · ')}
+                                  {period?.nextAccountDueLabel
+                                    && period.periodDueOns?.[0]
+                                    && period.nextAccountDueLabel
+                                    ? ` · Próximo de cuenta: ${period.nextAccountDueLabel}`
+                                    : ''}
+                                </p>
                               )}
                               <RequestAttachment attachment={msg.meta?.attachment} />
                             </div>
@@ -1454,9 +1469,26 @@ export default function MembersWithAppPanel({
           initialMethod={collectRequest ? appPaymentRequestCollectMethod(collectRequest) : null}
           initialBankId={collectRequest ? appPaymentRequestBankId(collectRequest) : null}
           seedReceipt={collectRequest ? appPaymentRequestReceipt(collectRequest) : null}
-          sourceNotice={collectRequest
-            ? `Solicitud de pago desde la app · ${appPaymentRequestMethodLabel(collectRequest)}`
-            : ''}
+          seedRequestAmount={collectRequest
+            ? (parseAppPaymentAmountLabel(appPaymentRequestAmountLabel(collectRequest))
+              ?? collectRequest?.meta?.amount
+              ?? null)
+            : null}
+          sourceNotice={(() => {
+            if (!collectRequest) return '';
+            const period = appPaymentRequestPeriodDisplay(collectRequest, collectMember);
+            return [
+              `Solicitud de pago desde la app · ${appPaymentRequestMethodLabel(collectRequest)}`,
+              appPaymentRequestAmountLabel(collectRequest) || '',
+              period.periodLabel ? `Período ${period.periodLabel}` : '',
+              period.periodDueLabel ? `vence ${period.periodDueLabel}` : '',
+            ].filter(Boolean).join(' · ');
+          })()}
+          seedPeriodDueOns={
+            collectRequest
+              ? (appPaymentRequestPeriodDisplay(collectRequest, collectMember).periodDueOns || null)
+              : null
+          }
         />
       ) : null}
 
