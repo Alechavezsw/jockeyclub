@@ -77,6 +77,7 @@ import {
   enrollmentMatchesRoster,
   foldColoniaText,
   householdKids,
+  householdSearchPool,
   isoBirth,
   memberKey,
   planChildSlots,
@@ -247,8 +248,6 @@ export default function ColoniaTab({
   const [rosterQuery, setRosterQuery] = useState('');
   const [siblingQuery, setSiblingQuery] = useState('');
   const [slotQuery, setSlotQuery] = useState({});
-  const [slotHits, setSlotHits] = useState({});
-  const [slotBusy, setSlotBusy] = useState({});
   const guardianLockedRef = useRef(false);
   const membersRef = useRef(members);
   membersRef.current = members;
@@ -408,50 +407,16 @@ export default function ColoniaTab({
     };
   }, [memberQuery, student.memberKind, members]);
 
-  useEffect(() => {
-    if (student.memberKind !== 'socio') return undefined;
-    let cancelled = false;
-    const timers = [];
-    Object.entries(slotQuery).forEach(([slot, query]) => {
-      const parsed = clubMailMemberQuery(query);
-      if (parsed.kind === 'empty' || (parsed.kind === 'text' && parsed.text.length < 2)) {
-        setSlotHits((prev) => (prev[slot]?.length ? { ...prev, [slot]: [] } : prev));
-        setSlotBusy((prev) => (prev[slot] ? { ...prev, [slot]: false } : prev));
-        return;
-      }
-      const needle = parsed.kind === 'number' ? parsed.canonical : parsed.text;
-      const rank = (rows) => filterOperationalSearchHits(coloniaSocioHits(rows, query), needle)
-        .toSorted((a, b) => rankMemberSearchHit(a, needle) - rankMemberSearchHit(b, needle))
-        .slice(0, 8);
-      const local = Array.isArray(membersRef.current) ? membersRef.current : [];
-      setSlotBusy((prev) => ({ ...prev, [slot]: true }));
-      timers.push(window.setTimeout(() => {
-        if (!isSupabaseConfigured) {
-          if (!cancelled) {
-            setSlotHits((prev) => ({ ...prev, [slot]: rank(local) }));
-            setSlotBusy((prev) => ({ ...prev, [slot]: false }));
-          }
-          return;
-        }
-        repos.searchMembersDirectory(needle, { limit: 40 })
-          .then((rows) => {
-            if (cancelled) return;
-            const seen = new Set(local.map((row) => String(row?.memberId || '')));
-            const extra = (rows || []).filter((row) => {
-              const id = String(row?.memberId || '');
-              return id && !seen.has(id);
-            });
-            setSlotHits((prev) => ({ ...prev, [slot]: rank([...local, ...extra]) }));
-          })
-          .catch(() => { if (!cancelled) setSlotHits((prev) => ({ ...prev, [slot]: rank(local) })); })
-          .finally(() => { if (!cancelled) setSlotBusy((prev) => ({ ...prev, [slot]: false })); });
-      }, 250));
-    });
-    return () => {
-      cancelled = true;
-      timers.forEach((id) => window.clearTimeout(id));
-    };
-  }, [slotQuery, student.memberKind]);
+  function pupilGroupHits(query) {
+    const pool = householdSearchPool(household, anchorMember, seasonAge.activitiesStartOn);
+    if (!anchorMember || !pool.length) return [];
+    const parsed = clubMailMemberQuery(query);
+    if (parsed.kind === 'empty') return pool;
+    if (parsed.kind === 'text' && parsed.text.length < 2) return [];
+    const needle = parsed.kind === 'number' ? parsed.canonical : parsed.text;
+    return filterOperationalSearchHits(coloniaSocioHits(pool, query), needle)
+      .toSorted((a, b) => rankMemberSearchHit(a, needle) - rankMemberSearchHit(b, needle));
+  }
 
   function memberDisplayName(row) {
     return row?.name
@@ -511,8 +476,6 @@ export default function ColoniaTab({
     setHouseholdBusy(false);
     setChosenKeys([]);
     setSlotQuery({});
-    setSlotHits({});
-    setSlotBusy({});
   }
 
   function coloniaNoticeText(row) {
@@ -646,11 +609,6 @@ export default function ColoniaTab({
       delete next[slot];
       return next;
     });
-    setSlotHits((prev) => {
-      const next = { ...prev };
-      delete next[slot];
-      return next;
-    });
   }
 
   function toggleChild(row) {
@@ -708,7 +666,6 @@ export default function ColoniaTab({
       return next.filter(Boolean);
     });
     setSlotQuery((prev) => ({ ...prev, [slot]: '' }));
-    setSlotHits((prev) => ({ ...prev, [slot]: [] }));
   }
 
   function useAnchorAsPupil() {
@@ -732,8 +689,6 @@ export default function ColoniaTab({
     setMemberQuery('');
     setMemberHits([]);
     setSlotQuery({});
-    setSlotHits({});
-    setSlotBusy({});
     setGuardian({
       ...EMPTY_GUARDIAN,
       fullName: memberDisplayName(row),
@@ -968,8 +923,6 @@ export default function ColoniaTab({
       setChosenKeys([]);
       setExtraStudents([]);
       setSlotQuery({});
-      setSlotHits({});
-      setSlotBusy({});
       const en = await repos.listColoniaEnrollments(seasonId);
       setEnrollments(en);
       setSelectedEnrollment(enrollment);
@@ -1244,7 +1197,8 @@ export default function ColoniaTab({
     const query = slotQuery[slot] || '';
     const parsed = clubMailMemberQuery(query);
     const searchReady = parsed.kind === 'number' || (parsed.kind === 'text' && parsed.text.length >= 2);
-    const hits = slotHits[slot] || [];
+    const hits = pupilGroupHits(query);
+    const familyName = anchorMember ? memberDisplayName(anchorMember) : '';
     return (
       <div className="colonia-pupil">
         <div className="colonia-pupil-head">
@@ -1255,16 +1209,23 @@ export default function ColoniaTab({
         </div>
         {student.memberKind === 'socio' ? (
           <div className="colonia-member-search">
-            <label><span>Buscar en el padrón</span>
+            <label><span>{familyName ? `Grupo familiar de ${familyName}` : 'Grupo familiar del socio'}</span>
               <input
                 value={query}
                 placeholder="Nombre, Nº o DNI"
                 onChange={(e) => setSlotQuery((prev) => ({ ...prev, [slot]: e.target.value }))}
+                disabled={!anchorMember}
               />
             </label>
-            {slotBusy[slot] ? <p className="muted">Buscando…</p> : null}
-            {!slotBusy[slot] && searchReady && !hits.length ? (
-              <p className="colonia-search-miss">{clubMailSearchMissMessage(query)}</p>
+            {!anchorMember ? (
+              <p className="muted">Primero elegí el socio de arriba. Acá aparecen los de su grupo.</p>
+            ) : null}
+            {anchorMember && householdBusy ? <p className="muted">Buscando el grupo familiar…</p> : null}
+            {anchorMember && !householdBusy && !hits.length && !searchReady ? (
+              <p className="muted">Ese socio no tiene otros integrantes en el grupo. Cargá el alumno a mano.</p>
+            ) : null}
+            {anchorMember && !householdBusy && searchReady && !hits.length ? (
+              <p className="colonia-search-miss">No está en el grupo familiar de {familyName}.</p>
             ) : null}
             {hits.length ? (
               <ul className="colonia-member-hits">

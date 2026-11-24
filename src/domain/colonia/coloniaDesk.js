@@ -159,6 +159,24 @@ export function coloniaReportCells(row) {
   ];
 }
 
+/** Hijos del grupo del socio ya elegido. No busca en el resto del padrón. */
+export function householdSearchPool(household, anchor, startOn) {
+  const principal = String(familyPrincipalOf(anchor) || memberNumberOf(anchor) || '');
+  const sameGroup = (household || []).filter((row) => {
+    const self = String(memberNumberOf(row) || '');
+    const group = String(familyPrincipalOf(row) || '');
+    return principal && (self === principal || group === principal);
+  });
+  const source = sameGroup.length ? sameGroup : (household || []);
+  const kids = householdKids(source, anchor, startOn);
+  if (kids.length) return kids;
+  const anchorKey = memberKey(anchor);
+  return source.filter((row) => {
+    const key = memberKey(row);
+    return key && key !== anchorKey;
+  });
+}
+
 export function householdKids(list, anchor, startOn) {
   const principal = String(familyPrincipalOf(anchor) || memberNumberOf(anchor) || '');
   const others = (list || []).filter((row) => {
