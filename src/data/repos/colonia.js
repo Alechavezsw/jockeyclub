@@ -327,3 +327,17 @@ export async function coloniaCreateActivity({
   if (error) mapRpcMissing(error, 'No se pudo crear la actividad');
   return data;
 }
+
+export async function coloniaUpsertStudentHealth({
+  studentId, healthNotes, allergies, medications,
+}) {
+  requireCloud();
+  const { data, error } = await sb().rpc('colonia_upsert_student_health', {
+    p_student_id: studentId,
+    p_health_notes: healthNotes || null,
+    p_allergies: allergies || null,
+    p_medications: medications || null,
+  });
+  if (error) mapRpcMissing(error, 'No se pudo guardar datos de salud');
+  return data;
+}

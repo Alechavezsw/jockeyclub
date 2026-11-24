@@ -24,6 +24,10 @@ const hardenMigration = readFileSync(
   join(root, 'supabase/migrations/20261124150000_colonia_ops_hardening.sql'),
   'utf8',
 );
+const readyMigration = readFileSync(
+  join(root, 'supabase/migrations/20261124160000_colonia_prod_readiness.sql'),
+  'utf8',
+).replace(/insert into public\.role_capabilities[\s\S]*?on conflict do nothing;/g, '');
 
 let cluster;
 let databaseDir;
@@ -105,6 +109,7 @@ describe('colonia administrative journey', () => {
     await query(schemaSql);
     await query(baseMigration);
     await query(hardenMigration);
+    await query(readyMigration);
     actorId = randomUUID();
 
     const memberId = randomUUID();

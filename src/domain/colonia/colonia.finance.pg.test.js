@@ -15,6 +15,8 @@ const migrationSql = readFileSync(join(root, 'supabase/migrations/20261124140000
   .replace(/insert into public\.chart_of_accounts[\s\S]*?on conflict \(code\) do update[\s\S]*?is_active = true;/, '')
   .replace(/insert into public\.role_capabilities[\s\S]*?on conflict do nothing;/, '');
 const hardenSql = readFileSync(join(root, 'supabase/migrations/20261124150000_colonia_ops_hardening.sql'), 'utf8');
+const readySql = readFileSync(join(root, 'supabase/migrations/20261124160000_colonia_prod_readiness.sql'), 'utf8')
+  .replace(/insert into public\.role_capabilities[\s\S]*?on conflict do nothing;/g, '');
 
 let cluster;
 let databaseDir;
@@ -96,6 +98,7 @@ describe('colonia finance isolation', () => {
     await query(schemaSql);
     await query(migrationSql);
     await query(hardenSql);
+    await query(readySql);
     actorId = randomUUID();
 
     const memberId = randomUUID();

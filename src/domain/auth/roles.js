@@ -242,6 +242,7 @@ const OPS_ROLES = [
   'accountant',
   'admin',
   'superadmin',
+  'teacher',
 ];
 
 /** Quién puede entrar al panel de administración. */
@@ -259,13 +260,26 @@ export function canAccessPool(role) {
   return allowedAdminTabs(role).includes('pool');
 }
 
-/** Operación → Colonia: admin, contador, empleado admin, caja (cobranza acotada). */
+/** Operación → Colonia: admin, contador, empleado admin, caja; profesor solo asistencia. */
 export function canAccessColonia(roleOrRoles) {
   const keys = collectRoleKeys(roleOrRoles).map((key) => String(key || '').toLowerCase());
-  if (keys.some((key) => ['superadmin', 'admin', 'accountant', 'admin_employee', 'cashier'].includes(key))) {
+  if (keys.some((key) => ['superadmin', 'admin', 'accountant', 'admin_employee', 'cashier', 'teacher', 'staff'].includes(key))) {
     return true;
   }
   return allowedAccountingSubtabsForRoles(roleOrRoles).includes('colonia');
+}
+
+/** Ver montos / cargos / reportes financieros de Colonia. */
+export function canViewColoniaFinance(roleOrRoles) {
+  return canCollectColonia(roleOrRoles)
+    || collectRoleKeys(roleOrRoles).map((key) => String(key || '').toLowerCase())
+      .some((key) => ['superadmin', 'admin', 'accountant', 'admin_employee'].includes(key));
+}
+
+/** Datos de salud de menores (alergias / medicación): solo operación administrativa. */
+export function canManageColoniaHealth(roleOrRoles) {
+  const keys = collectRoleKeys(roleOrRoles).map((key) => String(key || '').toLowerCase());
+  return keys.some((key) => ['superadmin', 'admin', 'admin_employee'].includes(key));
 }
 
 /** Cobrar Colonia (mostrador): no implica ver datos médicos ni liquidar cuota. */
@@ -309,7 +323,7 @@ export function allowedAdminTabs(role) {
     return ['dashboard', 'jev', 'members', 'pool', 'access', 'gate_income', 'caja'];
   }
   if (role === 'cashier') {
-    return ['dashboard', 'jev', 'members', 'dues', 'subscriptions', 'access', 'gate_income', 'caja', 'events'];
+    return ['dashboard', 'jev', 'members', 'dues', 'subscriptions', 'access', 'gate_income', 'caja', 'operation', 'events'];
   }
   // Empleado de administración: el mostrador, más los débitos. Pileta no arma archivos.
   if (role === 'admin_employee') {
@@ -323,7 +337,11 @@ export function allowedAdminTabs(role) {
     return ['dashboard', 'staff', 'alerts'];
   }
   if (role === 'staff') {
-    return ['dashboard', 'jev', 'bookings', 'disciplines', 'pool', 'access', 'staff', 'events', 'alerts', 'claims', 'news'];
+    return ['dashboard', 'jev', 'bookings', 'disciplines', 'pool', 'access', 'staff', 'events', 'alerts', 'claims', 'news', 'operation'];
+  }
+  // Profesor: solo Operación → Colonia (asistencia).
+  if (role === 'teacher') {
+    return ['operation'];
   }
   return [];
 }
@@ -381,6 +399,9 @@ export function allowedAccountingSubtabs(role) {
   if (role === 'cashier' || role === 'gate_operator') {
     // Caja + cobranza Colonia (sin ampliar gastos/proveedores).
     return ['colonia', 'cash', 'other_incomes'];
+  }
+  if (role === 'teacher' || role === 'staff') {
+    return ['colonia'];
   }
   return [];
 }

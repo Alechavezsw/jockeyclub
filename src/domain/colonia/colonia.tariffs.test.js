@@ -19,7 +19,15 @@ import {
   validateColoniaPaymentInput,
 } from './coloniaPayments';
 import { COLONIA_SEASON_2026_2027 } from './coloniaConstants';
-import { canAccessColonia, canAttendColonia, canCollectColonia } from '../auth/roles';
+import {
+  canAccessColonia,
+  canAttendColonia,
+  canCollectColonia,
+  canManageColoniaHealth,
+  canViewColoniaFinance,
+  allowedAdminTabs,
+  allowedAccountingSubtabs,
+} from '../auth/roles';
 
 describe('colonia domain', () => {
   it('valida edades 3-15 al inicio de actividades', () => {
@@ -169,10 +177,30 @@ describe('colonia domain', () => {
 
   it('permisos: caja cobra; teacher asiste sin cobrar; gate no opera Colonia', () => {
     expect(canCollectColonia('cashier')).toBe(true);
+    expect(allowedAdminTabs('cashier')).toContain('operation');
     expect(canAttendColonia('teacher')).toBe(true);
     expect(canCollectColonia('teacher')).toBe(false);
+    expect(canViewColoniaFinance('teacher')).toBe(false);
+    expect(canManageColoniaHealth('teacher')).toBe(false);
+    expect(canManageColoniaHealth('admin')).toBe(true);
+    expect(allowedAdminTabs('teacher')).toEqual(['operation']);
+    expect(allowedAccountingSubtabs('teacher')).toEqual(['colonia']);
     expect(canAccessColonia('gate')).toBe(false);
     expect(canAccessColonia('admin')).toBe(true);
+  });
+
+  it('tarifas oficiales 2026/2027 completas', () => {
+    const t = COLONIA_OFFICIAL_TARIFFS_2026_2027;
+    expect(t.inscription).toBe(50000);
+    expect(t.socio.cuota).toBe(150000);
+    expect(t.no_socio.cuota).toBe(180000);
+    expect(t.socio.temporada).toBe(390000);
+    expect(t.no_socio.temporada).toBe(490000);
+    expect(t.socio.promo_2).toBe(280000);
+    expect(t.no_socio.promo_2).toBe(340000);
+    expect(t.socio.promo_3).toBe(410000);
+    expect(t.no_socio.promo_3).toBe(500000);
+    expect(t.socio.hermano_4).toBe(0);
   });
 
   it('inscripción el 30/11/2026 incluida; fuera de ventana rechazada', () => {

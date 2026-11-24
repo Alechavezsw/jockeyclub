@@ -35,7 +35,13 @@ import {
   buildColoniaPaymentDraft,
   coloniaMercadoPagoAdapterSpec,
 } from '../../domain/colonia/coloniaPayments';
-import { canAccessColonia, canAttendColonia, canCollectColonia } from '../../domain/auth/roles';
+import {
+  canAccessColonia,
+  canAttendColonia,
+  canCollectColonia,
+  canManageColoniaHealth,
+  canViewColoniaFinance,
+} from '../../domain/auth/roles';
 
 function money(n) {
   return new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(Number(n) || 0);
@@ -75,6 +81,8 @@ export default function ColoniaTab({ roles = [], role }) {
   const canOperate = canAccessColonia({ roles, role });
   const canCollect = canCollectColonia({ roles, role });
   const canAttend = canAttendColonia({ roles, role });
+  const canFinance = canViewColoniaFinance({ roles, role });
+  const canHealth = canManageColoniaHealth({ roles, role });
   const [section, setSection] = useState('resumen');
   const [seasons, setSeasons] = useState([]);
   const [seasonId, setSeasonId] = useState(null);
@@ -104,6 +112,21 @@ export default function ColoniaTab({ roles = [], role }) {
   const [activityTitle, setActivityTitle] = useState('');
   const [activityDate, setActivityDate] = useState('');
   const [receiptPreview, setReceiptPreview] = useState(null);
+  const [healthNotes, setHealthNotes] = useState('');
+  const [healthAllergies, setHealthAllergies] = useState('');
+
+  const visibleSections = useMemo(
+    () => COLONIA_SECTIONS.filter((item) => {
+      if (['cobranzas', 'reportes', 'configuracion', 'hermanos'].includes(item.key)) return canFinance;
+      if (item.key === 'inscripciones') return canOperate && canFinance;
+      if (item.key === 'asistencia') return canAttend;
+      return canOperate;
+    }),
+    [canFinance, canAttend, canOperate],
+  );
+  const activeSection = visibleSections.some((s) => s.key === section)
+    ? section
+    : (visibleSections[0]?.key || 'asistencia');
 
   const season = useMemo(
     () => seasons.find((s) => s.id === seasonId) || null,
@@ -162,11 +185,11 @@ export default function ColoniaTab({ roles = [], role }) {
       setBusy(true);
       try {
         const [st, en, gr, act, sib] = await Promise.all([
-          repos.coloniaDashboardStats(seasonId).catch(() => null),
+          canFinance ? repos.coloniaDashboardStats(seasonId).catch(() => null) : Promise.resolve(null),
           repos.listColoniaEnrollments(seasonId),
           repos.listColoniaGroups(seasonId).catch(() => []),
           repos.listColoniaActivities(seasonId).catch(() => []),
-          repos.listColoniaSiblingGroups(seasonId).catch(() => []),
+          canFinance ? repos.listColoniaSiblingGroups(seasonId).catch(() => []) : Promise.resolve([]),
         ]);
         if (cancelled) return;
         setStats(st);
@@ -181,10 +204,31 @@ export default function ColoniaTab({ roles = [], role }) {
       }
     })();
     return () => { cancelled = true; };
-  }, [seasonId]);
+  }, [seasonId, canFinance]);
+
+  async function saveHealth() {
+    if (!selectedEnrollment?.student?.id || !canHealth) return;
+    setBusy(true);
+    try {
+      await repos.coloniaUpsertStudentHealth({
+        studentId: selectedEnrollment.student.id,
+        healthNotes,
+        allergies: healthAllergies,
+      });
+      setMsg('Datos de salud guardados (solo personal autorizado).');
+    } catch (err) {
+      setMsg(err?.message || 'No se pudo guardar salud.');
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function refreshAccount(enrollmentId) {
-    if (!enrollmentId) return;
+    if (!enrollmentId || !canFinance) {
+      setCharges([]);
+      setPayments([]);
+      return;
+    }
     const [c, p] = await Promise.all([
       repos.listColoniaCharges(enrollmentId),
       repos.listColoniaPayments(enrollmentId),
@@ -543,12 +587,18 @@ export default function ColoniaTab({ roles = [], role }) {
 
       {msg ? <p className="colonia-banner">{msg}</p> : null}
 
+      {!canFinance ? (
+        <p className="colonia-banner warn">
+          Vista de asistencia: sin acceso a cobranzas, tarifas ni reportes financieros.
+        </p>
+      ) : null}
+
       <nav className="colonia-nav" aria-label="Secciones Colonia">
-        {COLONIA_SECTIONS.map((item) => (
+        {visibleSections.map((item) => (
           <button
             key={item.key}
             type="button"
-            className={section === item.key ? 'is-active' : ''}
+            className={activeSection === item.key ? 'is-active' : ''}
             onClick={() => setSection(item.key)}
           >
             {item.label}
@@ -556,7 +606,7 @@ export default function ColoniaTab({ roles = [], role }) {
         ))}
       </nav>
 
-      {section === 'resumen' ? (
+      {activeSection === 'resumen' ? (
         <section className="colonia-panel">
           <h3><ClipboardList size={16} /> Resumen</h3>
           {!stats ? (
@@ -579,7 +629,7 @@ export default function ColoniaTab({ roles = [], role }) {
         </section>
       ) : null}
 
-      {section === 'inscripciones' ? (
+      {activeSection === 'inscripciones' ? (
         <section className="colonia-panel colonia-grid-2">
           <div>
             <h3><Baby size={16} /> Nueva inscripción</h3>
@@ -676,7 +726,7 @@ export default function ColoniaTab({ roles = [], role }) {
         </section>
       ) : null}
 
-      {section === 'alumnos' ? (
+      {activeSection === 'alumnos' ? (
         <section className="colonia-panel">
           <h3><Users size={16} /> Ficha del alumno</h3>
           {!selectedEnrollment ? (
@@ -693,20 +743,38 @@ export default function ColoniaTab({ roles = [], role }) {
               ) : (
                 <p className="muted">No socio: ficha solo Colonia (no ingresa al padrón institucional).</p>
               )}
-              {selectedEnrollment.status !== 'cancelada' ? (
+              {selectedEnrollment.status !== 'cancelada' && canFinance ? (
                 <button type="button" className="btn" disabled={busy} onClick={cancelSelectedEnrollment}>
                   Cancelar inscripción
                 </button>
               ) : null}
-              <button type="button" className="btn" disabled={busy} onClick={() => grantExcursionAuth(selectedEnrollment.id)}>
-                Autorizar excursión
-              </button>
+              {canAttend ? (
+                <button type="button" className="btn" disabled={busy} onClick={() => grantExcursionAuth(selectedEnrollment.id)}>
+                  Autorizar excursión
+                </button>
+              ) : null}
+              {canHealth ? (
+                <div className="colonia-form">
+                  <h4>Salud (restringido)</h4>
+                  <label><span>Alergias</span>
+                    <input value={healthAllergies} onChange={(e) => setHealthAllergies(e.target.value)} />
+                  </label>
+                  <label><span>Notas de salud</span>
+                    <input value={healthNotes} onChange={(e) => setHealthNotes(e.target.value)} />
+                  </label>
+                  <button type="button" className="btn" disabled={busy} onClick={saveHealth}>
+                    Guardar salud
+                  </button>
+                </div>
+              ) : (
+                <p className="muted">Datos de salud de menores: solo personal administrativo autorizado.</p>
+              )}
             </div>
           )}
         </section>
       ) : null}
 
-      {section === 'hermanos' ? (
+      {activeSection === 'hermanos' ? (
         <section className="colonia-panel">
           <h3>Hermanos y promociones</h3>
           <p className="muted">
@@ -722,7 +790,7 @@ export default function ColoniaTab({ roles = [], role }) {
         </section>
       ) : null}
 
-      {section === 'cobranzas' ? (
+      {activeSection === 'cobranzas' ? (
         <section className="colonia-panel colonia-grid-2">
           <div>
             <h3><Wallet size={16} /> Cobranza Colonia</h3>
@@ -756,14 +824,24 @@ export default function ColoniaTab({ roles = [], role }) {
               <input value={payRef} onChange={(e) => setPayRef(e.target.value)} />
             </label>
             {(payMethod === 'tarjeta' || payMethod === 'pos' || payMethod === 'debito') ? (
-              <label className="colonia-check">
-                <input type="checkbox" checked={cardConfirmed} onChange={(e) => setCardConfirmed(e.target.checked)} />
-                Confirmo resultado aprobado en terminal/POS
-              </label>
+              <>
+                <p className="colonia-banner warn">
+                  Tarjeta/POSNET/débito no se acreditan solos: requieren confirmación verificable del resultado en terminal (autorización administrativa).
+                </p>
+                <label className="colonia-check">
+                  <input type="checkbox" checked={cardConfirmed} onChange={(e) => setCardConfirmed(e.target.checked)} />
+                  Confirmo resultado aprobado en terminal/POS
+                </label>
+              </>
+            ) : null}
+            {payMethod === 'transferencia' ? (
+              <p className="colonia-banner warn">
+                Transferencia queda pendiente hasta validación administrativa. No acredita el saldo Colonia hasta confirmar.
+              </p>
             ) : null}
             {payMethod === 'mercadopago' ? (
               <p className="colonia-banner warn">
-                MP Colonia: {mpSpec.status}. Requiere despliegue autorizado (kind={mpSpec.kind}).
+                Mercado Pago Colonia deshabilitado hasta webhook específico (kind={mpSpec.kind}). Estado: {mpSpec.status}.
               </p>
             ) : null}
             <button type="button" className="btn primary" disabled={busy || !canCollect} onClick={submitPayment}>
@@ -832,7 +910,7 @@ export default function ColoniaTab({ roles = [], role }) {
         </section>
       ) : null}
 
-      {section === 'asistencia' ? (
+      {activeSection === 'asistencia' ? (
         <section className="colonia-panel">
           <h3><CalendarDays size={16} /> Asistencia</h3>
           {!canAttend ? (
@@ -862,7 +940,7 @@ export default function ColoniaTab({ roles = [], role }) {
         </section>
       ) : null}
 
-      {section === 'grupos' ? (
+      {activeSection === 'grupos' ? (
         <section className="colonia-panel">
           <h3>Grupos</h3>
           <div className="colonia-form inline">
@@ -882,7 +960,7 @@ export default function ColoniaTab({ roles = [], role }) {
         </section>
       ) : null}
 
-      {section === 'actividades' ? (
+      {activeSection === 'actividades' ? (
         <section className="colonia-panel">
           <h3>Actividades</h3>
           <div className="colonia-form">
@@ -910,7 +988,7 @@ export default function ColoniaTab({ roles = [], role }) {
         </section>
       ) : null}
 
-      {section === 'reportes' ? (
+      {activeSection === 'reportes' ? (
         <section className="colonia-panel">
           <h3>Reportes</h3>
           <p className="muted">Datos reales de la temporada seleccionada. Deuda exclusiva Colonia (no cuota social).</p>
@@ -926,7 +1004,7 @@ export default function ColoniaTab({ roles = [], role }) {
         </section>
       ) : null}
 
-      {section === 'configuracion' ? (
+      {activeSection === 'configuracion' ? (
         <section className="colonia-panel">
           <h3>Configuración</h3>
           <p>Contactos: {(season?.contacts || COLONIA_SEASON_2026_2027.contacts).join(' · ')}</p>
