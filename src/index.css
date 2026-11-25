@@ -32583,6 +32583,48 @@ button.debit-moves-row:disabled {
 @media (max-width: 560px) {
   .colonia-roll-counts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+.colonia-day { display: grid; gap: 0.9rem; }
+.colonia-day-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: end;
+  flex-wrap: wrap;
+}
+.colonia-day-head h3 { margin: 0; display: flex; align-items: center; gap: 0.4rem; }
+.colonia-day-head p { margin: 0.25rem 0 0; color: #5d6b62; font-size: 0.85rem; }
+.colonia-day-jumps { display: flex; gap: 0.45rem; flex-wrap: wrap; }
+.colonia-shirts-block h4 { margin: 0.2rem 0 0; }
+.colonia-shirts-block p { margin: 0.15rem 0 0.45rem; color: #5d6b62; font-size: 0.82rem; }
+.colonia-shirts { display: flex; flex-wrap: wrap; gap: 0.45rem; }
+.colonia-shirts article {
+  min-width: 4.4rem;
+  padding: 0.4rem 0.7rem 0.45rem;
+  border: 1px solid #d7e0d8;
+  border-radius: 0.7rem;
+  background: #f4f7f2;
+}
+.colonia-shirts b { display: block; font-size: 1.15rem; line-height: 1.1; color: #14382c; }
+.colonia-shirts span { font-size: 0.75rem; color: #5d6b62; }
+.colonia-allergy {
+  display: inline-block;
+  margin-left: 0.4rem;
+  padding: 0.05rem 0.4rem;
+  border-radius: 999px;
+  background: #9a3412;
+  color: #fff8ea;
+  font-size: 0.68rem;
+  font-style: normal;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  vertical-align: 1px;
+}
+.colonia-day-status { font-weight: 650; }
+.colonia-day-status.is-presente { color: #14382c; }
+.colonia-day-status.is-ausente { color: #9a3412; }
+.colonia-day-status.is-justificada { color: #1a7a8c; }
+.colonia-day-status.is-retiro_anticipado { color: #8a5a12; }
+.colonia-day-status.is-sin { color: #8a7560; }
 .colonia-report {
   display: grid;
   gap: 0.9rem;

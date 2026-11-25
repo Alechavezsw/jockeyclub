@@ -1501,7 +1501,7 @@ export default function AdminView({
       )}
 
       {activeTab === 'colonia' && (
-        <ColoniaTab roles={user?.roles || []} role={userRole} members={members} onSendMessage={sendMessage} />
+        <ColoniaTab roles={user?.roles || []} role={userRole} members={members} onSendMessage={sendMessage} paymentPlans={paymentPlans} />
       )}
 
       {activeTab === 'members_tenis' && (
@@ -1713,6 +1713,7 @@ export default function AdminView({
           onRecordAccountingReport={erp.recordAccountingReport}
           feePeriods={erp.feePeriods}
           reservations={reservations}
+          paymentPlans={paymentPlans}
         />
       )}
 

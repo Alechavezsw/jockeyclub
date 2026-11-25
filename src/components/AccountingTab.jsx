@@ -401,6 +401,7 @@ export default function AccountingTab({
   initialSubTab = null,
   /** 'books' | 'informes' | 'caja' | 'operation' | 'general' | 'all' — módulos aparte en el rail. */
   section = 'all',
+  paymentPlans = [],
 }) {
   const { role, roles } = useAuth();
   const allAccountingTabs = allowedAccountingSubtabsForRoles(roles?.length ? roles : (role || 'admin'));
@@ -1684,7 +1685,7 @@ export default function AccountingTab({
 
       {subTab === 'colonia' && (
         <Suspense fallback={PANEL_FALLBACK}>
-          <ColoniaTab roles={roles} role={role} members={members} />
+          <ColoniaTab roles={roles} role={role} members={members} paymentPlans={paymentPlans} />
         </Suspense>
       )}
 

@@ -74,6 +74,7 @@ export const COLONIA_ACTIVITY_KINDS = Object.freeze([
 ]);
 
 export const COLONIA_SECTIONS = Object.freeze([
+  { key: 'hoy', label: 'Hoy' },
   { key: 'inscripciones', label: 'Inscripciones' },
   { key: 'alumnos', label: 'Alumnos' },
   { key: 'cuenta', label: 'Cuenta' },

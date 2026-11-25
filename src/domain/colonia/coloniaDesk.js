@@ -193,6 +193,66 @@ export function householdKids(list, anchor, startOn) {
   return aged.length ? aged : others;
 }
 
+const COLONIA_WEEKDAYS = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
+const COLONIA_MONTHS = [
+  'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
+  'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre',
+];
+
+/** «miércoles 25 de noviembre» a partir de un día ISO, sin depender del idioma del navegador. */
+export function coloniaDayHeading(iso) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso || ''));
+  if (!match) return '';
+  const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  const weekday = COLONIA_WEEKDAYS[date.getDay()];
+  const month = COLONIA_MONTHS[date.getMonth()];
+  return `${weekday} ${Number(match[3])} de ${month}`;
+}
+
+/** Quién puede retirar al chico y el teléfono del responsable. */
+export function coloniaPickup(guardian) {
+  return {
+    who: String(guardian?.authorized_pickup || guardian?.authorizedPickup || '').trim(),
+    phone: String(guardian?.phone || '').trim(),
+  };
+}
+
+/** Hay alergia cargada. La nota no sale de acá: queda en la ficha. */
+export function coloniaHasAllergy(value) {
+  return String(value || '').trim().length > 0;
+}
+
+function shirtSortKey(size) {
+  const numeric = Number(size);
+  if (Number.isFinite(numeric) && String(numeric) === size) return [0, numeric, ''];
+  return [1, 0, size];
+}
+
+/** Recuento de remeras de los inscriptos vigentes. Cancelados no se encargan. */
+export function coloniaShirtTally(enrollments = []) {
+  const counts = new Map();
+  for (const row of enrollments) {
+    if (row?.status === 'cancelada') continue;
+    const raw = String(row?.student?.shirt_size || row?.student?.shirtSize || '').trim();
+    const key = raw ? raw.toLocaleUpperCase('es-AR') : '';
+    counts.set(key, (counts.get(key) || 0) + 1);
+  }
+  return [...counts.entries()]
+    .map(([size, count]) => ({
+      size: size || 'Sin talle',
+      count,
+      missing: !size,
+    }))
+    .toSorted((a, b) => {
+      if (a.missing !== b.missing) return a.missing ? 1 : -1;
+      const [aKind, aNum, aText] = shirtSortKey(a.size);
+      const [bKind, bNum, bText] = shirtSortKey(b.size);
+      if (aKind !== bKind) return aKind - bKind;
+      if (aNum !== bNum) return aNum - bNum;
+      return aText.localeCompare(bText, 'es');
+    });
+}
+
 export function coloniaReminderCopy({ name, amountLabel, nextLabel, status }) {
   const who = name || 'familia';
   if (status === 'proximo') {
