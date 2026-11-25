@@ -36,8 +36,16 @@ describe('paymentPlans', () => {
       { id: 'visa-3', label: 'Visa 3 cuotas custom', installments: 3 },
     ]);
     expect(findPaymentPlan(plans, 'visa-3')?.label).toBe('Visa 3 cuotas custom');
+    expect(findPaymentPlan(plans, 'visa-3')?.allowOperatorOverride).toBe(true);
     expect(findPaymentPlan(plans, 'data-3')?.installments).toBe(3);
     expect(plans.length).toBeGreaterThanOrEqual(DEFAULT_PAYMENT_PLANS.length);
+  });
+
+  it('no pisa allowOperatorOverride false guardado a propósito', () => {
+    const plans = ensureOfficialPaymentPlans([
+      { id: 'visa-3', label: 'Visa 3', installments: 3, allowOperatorOverride: false },
+    ]);
+    expect(findPaymentPlan(plans, 'visa-3')?.allowOperatorOverride).toBe(false);
   });
 
   it('busca por id entre los planes activos', () => {

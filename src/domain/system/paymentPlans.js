@@ -152,11 +152,33 @@ export function mergePaymentPlans(raw) {
 /** Agrega planes oficiales faltantes (p. ej. DATA 3 cuotas) sin pisar los ya cargados. */
 export function ensureOfficialPaymentPlans(raw) {
   const list = mergePaymentPlans(raw);
-  const ids = new Set(list.map((row) => row.id));
-  const missing = DEFAULT_PAYMENT_PLANS
-    .map((row, i) => normalizePaymentPlan(row, i))
-    .filter((row) => !ids.has(row.id));
-  return missing.length ? [...list, ...missing] : list;
+  const rawById = new Map();
+  if (Array.isArray(raw)) {
+    raw.forEach((row, index) => {
+      const id = planId(row?.id, `plan-${index + 1}`);
+      if (!rawById.has(id)) rawById.set(id, row);
+    });
+  }
+  const byId = new Map(list.map((row) => [row.id, row]));
+  DEFAULT_PAYMENT_PLANS.forEach((row, index) => {
+    const def = normalizePaymentPlan(row, index);
+    const cur = byId.get(def.id);
+    if (!cur) {
+      byId.set(def.id, def);
+      return;
+    }
+    // Catálogo viejo sin el flag: recupera el override oficial sin pisar un false guardado a propósito.
+    const stored = rawById.get(def.id);
+    if (
+      stored
+      && !Object.prototype.hasOwnProperty.call(stored, 'allowOperatorOverride')
+      && def.allowOperatorOverride
+      && !cur.allowOperatorOverride
+    ) {
+      byId.set(def.id, { ...cur, allowOperatorOverride: true });
+    }
+  });
+  return [...byId.values()];
 }
 
 export function paymentPlanIsValidOn(plan, dayISO) {
