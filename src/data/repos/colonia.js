@@ -188,6 +188,7 @@ export async function coloniaRecordPayment({
   idempotencyKey,
   operatorName,
   bankId,
+  pos,
 }) {
   requireCloud();
   const { data, error } = await sb().rpc('colonia_record_payment', {
@@ -199,6 +200,7 @@ export async function coloniaRecordPayment({
     p_idempotency_key: idempotencyKey || null,
     p_operator_name: operatorName || null,
     p_bank_id: bankId || null,
+    p_pos: pos || null,
   });
   if (error) mapRpcMissing(error, 'No se pudo registrar el pago de Colonia');
   return data;
@@ -359,6 +361,18 @@ export async function coloniaCreateActivity({
   });
   if (error) mapRpcMissing(error, 'No se pudo crear la actividad');
   return data;
+}
+
+export async function listColoniaStudentHealth(studentIds) {
+  requireCloud();
+  const ids = [...new Set((studentIds || []).filter(Boolean))];
+  if (!ids.length) return [];
+  const { data, error } = await sb()
+    .from('colonia_student_health')
+    .select('student_id, allergies, health_notes')
+    .in('student_id', ids);
+  if (error) mapRpcMissing(error, 'No se pudieron cargar datos de salud');
+  return data || [];
 }
 
 export async function coloniaUpsertStudentHealth({

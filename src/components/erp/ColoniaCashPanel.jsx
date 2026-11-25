@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Loader2, Search, Wallet } from 'lucide-react';
 import PaymentMethodTiles, { POOL_METHOD_TILES } from '../PaymentMethodTiles';
+import ColoniaPosFields from '../admin/ColoniaPosFields';
 import { CLUB_BANK_ACCOUNTS } from '../../domain/members/clubBanks';
 import { repos } from '../../data/bootstrap';
 import { isSupabaseConfigured } from '../../lib/supabase';
@@ -13,6 +14,7 @@ import {
   coloniaMercadoPagoAdapterSpec,
   coloniaMethodUsesBank,
   coloniaMethodUsesCard,
+  quoteColoniaPos,
 } from '../../domain/colonia/coloniaPayments';
 import {
   coloniaSourceLabel,
@@ -33,7 +35,7 @@ function money(n) {
  * Caja → Colonia. Cobros solo a colonia_payments (COA 4.1.06).
  * No usa registrar_cobro de cuota social.
  */
-export default function ColoniaCashPanel({ roles = [], role, operatorName = '' }) {
+export default function ColoniaCashPanel({ roles = [], role, operatorName = '', paymentPlans = [] }) {
   const canCollect = canCollectColonia({ roles, role });
   const [seasons, setSeasons] = useState([]);
   const [seasonId, setSeasonId] = useState(null);
@@ -49,6 +51,7 @@ export default function ColoniaCashPanel({ roles = [], role, operatorName = '' }
   const [amount, setAmount] = useState('');
   const [ref, setRef] = useState('');
   const [bankId, setBankId] = useState(CLUB_BANK_ACCOUNTS[0]?.id || 'macro');
+  const posRef = useRef(null);
 
   const mpSpec = coloniaMercadoPagoAdapterSpec();
   const account = useMemo(
@@ -110,6 +113,24 @@ export default function ColoniaCashPanel({ roles = [], role, operatorName = '' }
     setError('');
     setMsg('');
     try {
+      let pos = null;
+      if (coloniaMethodUsesCard(method)) {
+        const cur = posRef.current;
+        const quoted = quoteColoniaPos({
+          amount: Number(amount),
+          plans: cur?.plans || paymentPlans,
+          planId: cur?.planId,
+          percent: cur?.percent,
+          fixedAmount: cur?.fixed,
+          confirmed: cur?.confirmed === true,
+        });
+        if (!quoted.ok) {
+          setError(quoted.message);
+          setBusy(false);
+          return;
+        }
+        pos = quoted.meta;
+      }
       const draft = buildColoniaPaymentDraft({
         enrollmentId: selected.id,
         seasonId: selected.season_id,
@@ -132,6 +153,7 @@ export default function ColoniaCashPanel({ roles = [], role, operatorName = '' }
         idempotencyKey: draft.idempotencyKey,
         operatorName,
         bankId: draft.bankId,
+        pos,
       });
       setMsg(draft.status === 'confirmed'
         ? (res?.cash_movement_id
@@ -248,7 +270,12 @@ export default function ColoniaCashPanel({ roles = [], role, operatorName = '' }
                 </label>
               ) : null}
               {coloniaMethodUsesCard(method) ? (
-                <p className="pool-pay-note">Pago POS: queda en Tarjetas a cobrar. No entra en la caja.</p>
+                <ColoniaPosFields
+                  amount={Number(amount) || 0}
+                  plans={paymentPlans}
+                  disabled={busy}
+                  sessionRef={posRef}
+                />
               ) : null}
               <button type="button" className="btn btn-primary" disabled={busy} onClick={collect}>
                 Registrar cobro Colonia

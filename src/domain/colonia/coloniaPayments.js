@@ -4,6 +4,8 @@
  */
 
 import { journalAccountForPayment } from '../members/clubBanks';
+import { buildCardFinancingMeta, computePosFinancing } from '../members/posFinancing';
+import { findPaymentPlan } from '../system/paymentPlans';
 import { coloniaMethodMeta, COLONIA_PAYMENT_METHOD_KEYS } from './coloniaConstants';
 import { assertColoniaFinanceIsolation, moneyArs } from './coloniaLedger';
 
@@ -133,6 +135,62 @@ export function coloniaEnrollPayReady({
     return { ok: true, status: 'confirmed', message: '' };
   }
   return { ok: false, status: null, message: 'Elegí un medio de pago.' };
+}
+
+/**
+ * Cupón POS de Colonia. El capital es el importe de Colonia (sin mora social).
+ * Modalidad A acredita la financiación; B la deja en el emisor.
+ */
+export function quoteColoniaPos({
+  amount,
+  plans,
+  planId,
+  percent = null,
+  fixedAmount = null,
+  confirmed = false,
+} = {}) {
+  const plan = findPaymentPlan(plans, planId);
+  if (!plan) return { ok: false, message: 'Elegí el plan de Pago POS.', quote: null, meta: null };
+  let quote;
+  try {
+    quote = computePosFinancing({
+      financingBase: amount,
+      surchargeAmount: 0,
+      plan,
+      percent: percent === '' || percent == null ? null : percent,
+      fixedAmount: fixedAmount === '' || fixedAmount == null ? null : fixedAmount,
+    });
+  } catch (err) {
+    return { ok: false, message: err?.message || 'Plan POS inválido.', quote: null, meta: null };
+  }
+  const meta = buildCardFinancingMeta(quote);
+  if (quote.financingAmount > 0.009 && !confirmed) {
+    return { ok: false, message: 'Confirmá el total del cupón.', quote, meta };
+  }
+  return { ok: true, message: '', quote, meta };
+}
+
+/** Reparte la financiación de un cupón grupal entre los cobros de cada alumno. */
+export function splitColoniaPosMeta(meta, amounts = []) {
+  const slices = amounts.map((n) => Math.round(Number(n) * 100) / 100).filter((n) => n > 0);
+  if (!meta) return slices.map(() => null);
+  const group = Math.round(slices.reduce((sum, n) => sum + n, 0) * 100) / 100;
+  const financing = Math.round(Number(meta.financingAmount || 0) * 100) / 100;
+  let used = 0;
+  return slices.map((slice, index) => {
+    const part = index === slices.length - 1
+      ? Math.round((financing - used) * 100) / 100
+      : Math.round((group > 0 ? financing * (slice / group) : 0) * 100) / 100;
+    used = Math.round((used + part) * 100) / 100;
+    return {
+      ...meta,
+      baseAmount: slice,
+      financingBase: slice,
+      financingAmount: part,
+      voucherTotal: Math.round((slice + part) * 100) / 100,
+      installmentAmounts: null,
+    };
+  });
 }
 
 export function buildColoniaPaymentDraft(input = {}) {

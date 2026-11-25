@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { quoteColoniaPos, splitColoniaPosMeta } from './coloniaPayments';
+import { buildColoniaEnrollmentReceipt } from './coloniaReceipt';
 import {
   COLONIA_ACCOUNT_HEADERS,
   COLONIA_ACCOUNT_SHEETS,
@@ -7,9 +9,13 @@ import {
   coloniaAccountCells,
   coloniaAccountOnSheet,
   coloniaAccountStatus,
+  coloniaDayHeading,
+  coloniaHasAllergy,
+  coloniaPickup,
   coloniaReminderCopy,
   coloniaReportCells,
   coloniaReportRows,
+  coloniaShirtTally,
   coloniaSocioHits,
   enrollmentMatchesRoster,
   householdKids,
@@ -496,8 +502,30 @@ describe('administración Colonia — inscripción y cobro', () => {
   it('cobranzas salió del menú y configuración vive en el sistema', () => {
     expect(COLONIA_SECTIONS.map((item) => item.key)).not.toContain('cobranzas');
     expect(COLONIA_SECTIONS.map((item) => item.key)).not.toContain('configuracion');
+    expect(COLONIA_SECTIONS[0].key).toBe('hoy');
     expect(COLONIA_SECTIONS.at(-1).key).toBe('resumen');
     expect(COLONIA_SECTIONS.some((item) => item.key === 'cuenta')).toBe(true);
+  });
+
+  it('el día de hoy cuenta presentes, retiro y remeras sin mezclar cancelados', () => {
+    expect(coloniaDayHeading('2026-11-25')).toBe('miércoles 25 de noviembre');
+    expect(coloniaPickup({ authorized_pickup: 'Abuela', phone: '2644001122' })).toEqual({
+      who: 'Abuela',
+      phone: '2644001122',
+    });
+    expect(coloniaHasAllergy('  maní ')).toBe(true);
+    expect(coloniaHasAllergy('   ')).toBe(false);
+    expect(coloniaShirtTally([
+      { status: 'confirmada', student: { shirt_size: 'm' } },
+      { status: 'confirmada', student: { shirtSize: '10' } },
+      { status: 'confirmada', student: { shirt_size: '10' } },
+      { status: 'confirmada', student: { shirt_size: '' } },
+      { status: 'cancelada', student: { shirt_size: '10' } },
+    ])).toEqual([
+      { size: '10', count: 2, missing: false },
+      { size: 'M', count: 1, missing: false },
+      { size: 'Sin talle', count: 1, missing: true },
+    ]);
   });
 
   it('las tarifas de socio y no socio no se cruzan', () => {
@@ -609,8 +637,99 @@ describe('administración Colonia — inscripción y cobro', () => {
     expect(planAmountFor(COLONIA_OFFICIAL_TARIFFS_2026_2027, 'no_socio', 'hermano_4')).toBe(500000);
   });
 
+  it('el comprobante de inscripción detalla alumno, titular, mes, promo e importe', () => {
+    const receipt = buildColoniaEnrollmentReceipt({
+      pupils: [{ fullName: 'Emilia Daher Ferrero' }],
+      planKey: 'cuota',
+      memberKind: 'socio',
+      inscriptionAmount: 50000,
+      planAmount: 150000,
+      socioName: 'Cristian Sergio Bonilla',
+      socioNumber: '10146',
+      method: 'tarjeta',
+      paymentStatus: 'confirmed',
+      when: new Date(2026, 10, 25),
+    });
+    expect(receipt.concept).toBe('Colonia de Verano');
+    expect(receipt.alumnos).toEqual(['Emilia Daher Ferrero']);
+    expect(receipt.socioName).toBe('Cristian Sergio Bonilla');
+    expect(receipt.socioNumber).toBe('10146');
+    expect(receipt.month).toBe('Noviembre de 2026');
+    expect(receipt.promoLabel).toBe('No');
+    expect(receipt.method).toBe('Pago POS');
+    expect(receipt.lines.map((line) => [line.concept, line.alumno, line.amount])).toEqual([
+      ['Inscripción', 'Emilia Daher Ferrero', 50000],
+      ['Cuota Colonia', 'Emilia Daher Ferrero', 150000],
+    ]);
+    expect(receipt.total).toBe(200000);
+
+    const promo = buildColoniaEnrollmentReceipt({
+      pupils: [{ fullName: 'Cuarto' }],
+      planKey: 'hermano_4',
+      inscriptionAmount: 50000,
+      planAmount: 410000,
+      socioName: 'Titular',
+      socioNumber: '010146',
+      method: 'efectivo',
+      when: new Date(2026, 10, 25),
+    });
+    expect(promo.promo).toBe(true);
+    expect(promo.promoLabel).toBe('Sí · 4º hermano');
+    expect(promo.socioNumber).toBe('10146');
+    expect(promo.lines.map((line) => line.concept)).toEqual(['Promoción']);
+    expect(promo.total).toBe(410000);
+  });
+
   it('el mes que viene se nombra en español', () => {
     expect(coloniaNextMonthLabel(new Date(2026, 10, 24)).toLowerCase()).toContain('diciembre');
     expect(coloniaNextMonthLabel(new Date(2026, 11, 1)).toLowerCase()).toContain('enero');
+  });
+});
+
+describe('Pago POS de Colonia', () => {
+  const plans = [{
+    id: 'visa-3-club',
+    label: 'Visa 3 cuotas',
+    cardBrand: 'Visa',
+    installments: 3,
+    active: true,
+    financingMode: 'club_keeps',
+    financingPercent: 10,
+    allowOperatorOverride: true,
+  }];
+
+  it('la modalidad A suma la financiación al cupón y pide confirmación', () => {
+    const pending = quoteColoniaPos({
+      amount: 200000,
+      plans,
+      planId: 'visa-3-club',
+      confirmed: false,
+    });
+    expect(pending.ok).toBe(false);
+    expect(pending.quote.financingAmount).toBe(20000);
+    expect(pending.quote.voucherTotal).toBe(220000);
+    expect(pending.quote.mode).toBe('club_keeps');
+    const ready = quoteColoniaPos({
+      amount: 200000,
+      plans,
+      planId: 'visa-3-club',
+      confirmed: true,
+    });
+    expect(ready.ok).toBe(true);
+    expect(ready.meta.baseAmount).toBe(200000);
+    expect(ready.meta.financingAmount).toBe(20000);
+  });
+
+  it('reparte la financiación entre los alumnos del mismo cupón', () => {
+    const ready = quoteColoniaPos({
+      amount: 200000,
+      plans,
+      planId: 'visa-3-club',
+      confirmed: true,
+    });
+    const parts = splitColoniaPosMeta(ready.meta, [150000, 50000]);
+    expect(parts.map((row) => row.financingAmount)).toEqual([15000, 5000]);
+    expect(parts.map((row) => row.voucherTotal)).toEqual([165000, 55000]);
+    expect(parts.reduce((sum, row) => sum + row.baseAmount, 0)).toBe(200000);
   });
 });

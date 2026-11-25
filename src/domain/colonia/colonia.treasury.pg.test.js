@@ -17,6 +17,7 @@ const mig1 = stripSeeds(readFileSync(join(root, 'supabase/migrations/20261124140
 const mig2 = readFileSync(join(root, 'supabase/migrations/20261124150000_colonia_ops_hardening.sql'), 'utf8');
 const mig3 = stripSeeds(readFileSync(join(root, 'supabase/migrations/20261124160000_colonia_prod_readiness.sql'), 'utf8'));
 const treasurySql = readFileSync(join(root, 'supabase/migrations/20261124260000_colonia_caja_asientos.sql'), 'utf8');
+const posCashSql = readFileSync(join(root, 'supabase/migrations/20261125120000_colonia_pos_entra_en_caja.sql'), 'utf8');
 const mpSql = readFileSync(join(root, 'supabase/migrations/20261124270000_colonia_mercadopago.sql'), 'utf8');
 
 let cluster;
@@ -224,6 +225,7 @@ describe('colonia tesorería', () => {
     );
     sessionId = session.rows[0].id;
     await query(treasurySql);
+    await query(posCashSql);
     await query(mpSql);
 
     const season = await query(`select id from public.colonia_seasons where code = '2026-2027'`);
@@ -319,20 +321,29 @@ describe('colonia tesorería', () => {
     expect(Number(lines.rows[0].debit)).toBe(150000);
   });
 
-  it('la tarjeta asienta en Tarjetas a cobrar', async () => {
+  it('la cuota con tarjeta entra en la caja del día', async () => {
     const pay = await asAdmin((client) => client.query(
       `select public.colonia_record_payment($1, 'pos', 77000, 'confirmed', 'POS-1', 'idem-pos-1', 'Cajero') as r`,
       [enrollmentId],
     ));
+    const body = pay.rows[0].r;
     const lines = await query(
-      `select a.code from public.journal_lines l
+      `select a.code, l.debit, l.credit from public.journal_lines l
        join public.chart_of_accounts a on a.id = l.account_id
        where l.journal_entry_id = $1
        order by l.line_order`,
-      [pay.rows[0].r.journal_entry_id],
+      [body.journal_entry_id],
     );
-    expect(lines.rows.map((row) => row.code)).toEqual(['1.1.09', '4.1.06']);
-    expect(pay.rows[0].r.cash_movement_id).toBeFalsy();
+    expect(lines.rows.map((row) => row.code)).toEqual(['1.1.01', '4.1.06']);
+    expect(Number(lines.rows[0].debit)).toBe(77000);
+    expect(body.cash_movement_id).toBeTruthy();
+    const movement = await query(
+      `select cash_session_id, movement_type, amount from public.cash_movements where id = $1`,
+      [body.cash_movement_id],
+    );
+    expect(movement.rows[0].cash_session_id).toBe(sessionId);
+    expect(movement.rows[0].movement_type).toBe('income');
+    expect(Number(movement.rows[0].amount)).toBe(77000);
   });
 
   it('Mercado Pago acredita Colonia en 1.1.08 y no mueve la cuota ni la caja', async () => {
