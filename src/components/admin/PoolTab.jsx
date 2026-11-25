@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   Waves, Search, UserCheck, Upload, UserPlus,
-  CheckCircle2, AlertTriangle, X, Trash2, FileHeart,
+  CheckCircle2, AlertTriangle, X, Trash2, FileHeart, ClipboardList,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import {
@@ -14,6 +14,8 @@ import {
   revokePoolAccess,
   listDayAccesses,
   poolDayStats,
+  poolSeasonStats,
+  poolAccessReportRows,
   guestDayAccessesForHost,
   searchPoolMembers,
   poolSearchFlags,
@@ -96,6 +98,7 @@ export default function PoolTab({
   const [payBankId, setPayBankId] = useState(CLUB_BANK_ACCOUNTS[0]?.id || 'macro');
   const [guestBankId, setGuestBankId] = useState(CLUB_BANK_ACCOUNTS[0]?.id || 'macro');
   const [medicalTalonario, setMedicalTalonario] = useState('');
+  const [reportSheet, setReportSheet] = useState('day');
 
   const selected = useMemo(
     () => members.find((m) => m.memberId === selectedId) || null,
@@ -118,6 +121,14 @@ export default function PoolTab({
 
   const dayList = useMemo(() => listDayAccesses(poolAccesses, today), [poolAccesses, today]);
   const stats = useMemo(() => poolDayStats(poolAccesses, today), [poolAccesses, today]);
+  const seasonStats = useMemo(() => poolSeasonStats(poolAccesses, today), [poolAccesses, today]);
+  const reportRows = useMemo(
+    () => poolAccessReportRows(poolAccesses, {
+      scope: reportSheet === 'season' ? 'season' : 'day',
+      today,
+    }),
+    [poolAccesses, reportSheet, today],
+  );
   const hostGuests = selected
     ? guestDayAccessesForHost(poolAccesses, selected.memberId, today)
     : [];
@@ -378,6 +389,105 @@ export default function PoolTab({
           <div><strong>{formatCurrency(stats.collected)}</strong><span>Canon cobrado</span></div>
         </div>
       </header>
+
+      <section className="glass-card pool-panel pool-stats-panel">
+        <h3><ClipboardList size={16} aria-hidden="true" /> Resumen</h3>
+        <p className="pool-stats-note">
+          {seasonStats.live ? 'Temporada en curso' : 'Última temporada'}
+          {': '}
+          {seasonStats.open}
+          {' → '}
+          {seasonStats.close}
+          . Mismos números que el día y el cobro de pileta; no es la cuota social.
+        </p>
+        <div className="pool-kpi-grid">
+          <article><span>Socios hoy</span><strong>{seasonStats.dayMembers}</strong></article>
+          <article><span>Invitados hoy</span><strong>{seasonStats.dayGuests}</strong></article>
+          <article><span>Canon hoy</span><strong>{formatCurrency(seasonStats.dayCollected)}</strong></article>
+          <article><span>Socios temporada</span><strong>{seasonStats.seasonMembers}</strong></article>
+          <article><span>Invitados temporada</span><strong>{seasonStats.seasonGuests}</strong></article>
+          <article><span>Ingresos temporada</span><strong>{seasonStats.seasonEntries}</strong></article>
+          <article><span>Canon temporada</span><strong>{formatCurrency(seasonStats.seasonCollected)}</strong></article>
+          <article><span>Revocados</span><strong>{seasonStats.revoked}</strong></article>
+        </div>
+        <div className="pool-sheets" role="tablist" aria-label="Hojas de pileta">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={reportSheet === 'day'}
+            className={reportSheet === 'day' ? 'is-on' : ''}
+            onClick={() => setReportSheet('day')}
+          >
+            Hoy
+            <b>{stats.total}</b>
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={reportSheet === 'season'}
+            className={reportSheet === 'season' ? 'is-on' : ''}
+            onClick={() => setReportSheet('season')}
+          >
+            Temporada
+            <b>{seasonStats.seasonEntries}</b>
+          </button>
+        </div>
+        <div className="table-container">
+          <table className="admin-table pool-account-table">
+            <thead>
+              <tr>
+                <th>Fecha</th>
+                <th>Quién</th>
+                <th>Tipo</th>
+                <th>Anfitrión</th>
+                <th>Importe</th>
+                <th>Medio</th>
+                <th>Estado</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {reportRows.map((row) => (
+                <tr key={row.id}>
+                  <td>{row.date}</td>
+                  <td>
+                    <strong>{row.who}</strong>
+                    {row.memberId && row.kind === 'Socio' ? (
+                      <span className="muted"> Nº {row.memberId}</span>
+                    ) : null}
+                  </td>
+                  <td>{row.kind}</td>
+                  <td>{row.host}</td>
+                  <td>{row.amount > 0 ? formatCurrency(row.amount) : '—'}</td>
+                  <td>{row.method}</td>
+                  <td>{row.status}</td>
+                  <td>
+                    {row.status === 'Activo' && reportSheet === 'day' ? (
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm"
+                        title="Revocar"
+                        onClick={() => setPoolAccesses(revokePoolAccess(poolAccesses, row.id))}
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    ) : null}
+                  </td>
+                </tr>
+              ))}
+              {!reportRows.length ? (
+                <tr>
+                  <td colSpan={8} className="muted">
+                    {reportSheet === 'day'
+                      ? 'Todavía no hay ingresos de hoy.'
+                      : 'Sin ingresos en esta temporada.'}
+                  </td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
+      </section>
 
       {flash ? <p className="member-action-flash" role="status">{flash}</p> : null}
       {error ? <p className="conc-error" role="alert">{error}</p> : null}
@@ -788,11 +898,14 @@ export default function PoolTab({
         <aside className="pool-side">
           <section className="glass-card pool-panel">
             <h3>Ingresos de hoy</h3>
-            {dayList.length === 0 ? (
-              <p className="ops-muted" style={{ marginTop: '0.65rem' }}>Todavía no hay ingresos registrados.</p>
-            ) : (
+            <p className="ops-muted" style={{ marginTop: '0.45rem' }}>
+              {dayList.length
+                ? `${dayList.length} · el detalle completo está en Resumen.`
+                : 'Todavía no hay ingresos registrados.'}
+            </p>
+            {dayList.length > 0 ? (
               <ul className="pool-day-list">
-                {dayList.map((a) => (
+                {dayList.slice(0, 8).map((a) => (
                   <li key={a.id}>
                     <div>
                       <strong>{a.kind === 'guest' ? a.guestName : a.memberName}</strong>
@@ -801,7 +914,7 @@ export default function PoolTab({
                         {' · '}
                         {a.payment?.method === 'asistencia'
                           ? 'Asistió'
-                          : `${formatCurrency(a.payment?.amount || 0)} · ${a.payment?.method === 'mercadopago' ? 'MP' : 'Efectivo'}`}
+                          : `${formatCurrency(a.payment?.amount || 0)} · ${poolMethodLabel(a.payment?.method) || '—'}`}
                       </span>
                     </div>
                     <button
@@ -815,7 +928,7 @@ export default function PoolTab({
                   </li>
                 ))}
               </ul>
-            )}
+            ) : null}
           </section>
         </aside>
       </div>

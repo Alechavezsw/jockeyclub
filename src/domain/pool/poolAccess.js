@@ -7,6 +7,7 @@ import {
   memberHasPoolSeasonPass,
   quotePersonPoolSeason,
 } from './poolSeasonBilling';
+import { poolSeasonWindow } from './poolSeason';
 
 
 /** Temporada 2026-12-01 → 2027-03-31: $90.000 / persona, máx. 4, menores de 4 libres. */
@@ -613,6 +614,91 @@ export function poolDayStats(accesses = [], date = todayISO()) {
   const guests = day.filter((a) => a.kind === 'guest').length;
   const collected = day.reduce((s, a) => s + (Number(a.payment?.amount) || 0), 0);
   return { members, guests, total: members + guests, collected };
+}
+
+/** Ventana de temporada a mostrar: la vigente si está viva; si no, la última cerrada. */
+export function poolSeasonBounds(today = todayISO()) {
+  const win = poolSeasonWindow(today);
+  if (win.live) {
+    return { open: win.open, close: win.close, live: true };
+  }
+  return { open: win.previousOpen, close: win.previousClose, live: false };
+}
+
+export function listSeasonAccesses(accesses = [], today = todayISO()) {
+  const { open, close } = poolSeasonBounds(today);
+  return (accesses || []).filter((row) => {
+    const date = String(row?.date || '').slice(0, 10);
+    return date >= open && date <= close;
+  });
+}
+
+/**
+ * KPIs de pileta: día + temporada (como el resumen de Colonia).
+ * Cobrado de temporada: importes de accesos no revocados en la ventana.
+ */
+export function poolSeasonStats(accesses = [], today = todayISO()) {
+  const bounds = poolSeasonBounds(today);
+  const day = poolDayStats(accesses, today);
+  const season = listSeasonAccesses(accesses, today);
+  const active = season.filter((row) => row.status === 'active');
+  const members = active.filter((row) => row.kind === 'member');
+  const guests = active.filter((row) => row.kind === 'guest');
+  const uniqueMembers = new Set(
+    members.map((row) => String(row.memberId || '')).filter(Boolean),
+  ).size;
+  const collected = season
+    .filter((row) => row.status !== 'revoked')
+    .reduce((sum, row) => sum + (Number(row.payment?.amount) || 0), 0);
+  return {
+    open: bounds.open,
+    close: bounds.close,
+    live: bounds.live,
+    dayMembers: day.members,
+    dayGuests: day.guests,
+    dayTotal: day.total,
+    dayCollected: day.collected,
+    seasonMembers: uniqueMembers,
+    seasonGuests: guests.length,
+    seasonEntries: active.length,
+    seasonCollected: collected,
+    revoked: season.filter((row) => row.status === 'revoked').length,
+  };
+}
+
+function poolMethodCell(method) {
+  const key = String(method || '');
+  if (key === 'mercadopago') return 'Mercado Pago';
+  if (key === 'asistencia') return 'Asistió';
+  if (key === 'transferencia') return 'Transferencia';
+  if (key === 'tarjeta') return 'Tarjeta';
+  if (key === 'efectivo') return 'Efectivo';
+  return key || '—';
+}
+
+/** Filas de tabla para Hoy o Temporada. */
+export function poolAccessReportRows(accesses = [], { scope = 'day', today = todayISO() } = {}) {
+  const source = scope === 'season'
+    ? listSeasonAccesses(accesses, today)
+    : listDayAccesses(accesses, today);
+  return [...source]
+    .toSorted((a, b) => String(b.enabledAt || b.date || '').localeCompare(String(a.enabledAt || a.date || '')))
+    .map((row) => ({
+      id: row.id,
+      date: String(row.date || '').slice(0, 10),
+      who: row.kind === 'guest'
+        ? (row.guestName || 'Invitado')
+        : (row.memberName || row.memberId || '—'),
+      memberId: row.memberId || row.hostMemberId || '',
+      kind: row.kind === 'guest' ? 'Invitado' : 'Socio',
+      host: row.kind === 'guest'
+        ? (row.memberName || row.hostMemberId || '—')
+        : '—',
+      amount: Number(row.payment?.amount) || 0,
+      method: poolMethodCell(row.payment?.method),
+      status: row.status === 'revoked' ? 'Revocado' : 'Activo',
+      raw: row,
+    }));
 }
 
 /** Un renglón por día: la suma del canon de pileta, no un cobro por socio. */

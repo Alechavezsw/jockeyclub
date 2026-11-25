@@ -8,6 +8,8 @@ import {
   enableGuestPoolAccess,
   recordPoolAttendance,
   poolDayStats,
+  poolSeasonStats,
+  poolAccessReportRows,
   searchPoolMembers,
   mergePoolSearchHits,
   memberPoolHistory,
@@ -156,6 +158,52 @@ describe('poolAccess', () => {
     expect(poolDayStats(accesses, '2026-09-12').collected).toBe(0);
     expect(() => recordPoolAttendance({ member, accesses, today: '2026-09-12' }))
       .toThrow(/ya está anotado/i);
+  });
+
+  it('arma resumen de temporada y filas de tabla', () => {
+    const accesses = [
+      {
+        id: 'm1',
+        date: '2026-12-05',
+        kind: 'member',
+        memberId: '10192',
+        memberName: 'Ana',
+        status: 'active',
+        payment: { amount: 90000, method: 'efectivo' },
+        enabledAt: '2026-12-05T10:00:00.000Z',
+      },
+      {
+        id: 'g1',
+        date: '2026-12-05',
+        kind: 'guest',
+        guestName: 'Juan',
+        memberName: 'Ana',
+        hostMemberId: '10192',
+        status: 'active',
+        payment: { amount: 8000, method: 'mercadopago' },
+        enabledAt: '2026-12-05T11:00:00.000Z',
+      },
+      {
+        id: 'old',
+        date: '2026-03-10',
+        kind: 'member',
+        memberId: '9',
+        memberName: 'Viejo',
+        status: 'active',
+        payment: { amount: 90000, method: 'efectivo' },
+      },
+    ];
+    const season = poolSeasonStats(accesses, '2026-12-05');
+    expect(season.live).toBe(true);
+    expect(season.dayMembers).toBe(1);
+    expect(season.dayGuests).toBe(1);
+    expect(season.seasonMembers).toBe(1);
+    expect(season.seasonGuests).toBe(1);
+    expect(season.seasonCollected).toBe(98000);
+    const rows = poolAccessReportRows(accesses, { scope: 'season', today: '2026-12-05' });
+    expect(rows).toHaveLength(2);
+    expect(rows[0].who).toBe('Juan');
+    expect(rows[0].kind).toBe('Invitado');
   });
 
   it('después del 10, con mora, no cobra pileta hasta regularizar', () => {
