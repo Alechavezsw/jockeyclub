@@ -197,8 +197,8 @@ describe('colonia production readiness', () => {
     expect(planAmountFor(COLONIA_OFFICIAL_TARIFFS_2026_2027, 'no_socio', 'promo_2')).toBe(340000);
     expect(planAmountFor(COLONIA_OFFICIAL_TARIFFS_2026_2027, 'socio', 'promo_3')).toBe(410000);
     expect(planAmountFor(COLONIA_OFFICIAL_TARIFFS_2026_2027, 'no_socio', 'promo_3')).toBe(500000);
-    expect(planAmountFor(COLONIA_OFFICIAL_TARIFFS_2026_2027, 'socio', 'hermano_4')).toBe(360000);
-    expect(planAmountFor(COLONIA_OFFICIAL_TARIFFS_2026_2027, 'no_socio', 'hermano_4')).toBe(450000);
+    expect(planAmountFor(COLONIA_OFFICIAL_TARIFFS_2026_2027, 'socio', 'hermano_4')).toBe(410000);
+    expect(planAmountFor(COLONIA_OFFICIAL_TARIFFS_2026_2027, 'no_socio', 'hermano_4')).toBe(500000);
 
     const rows = await query(
       `select member_kind, plan_key, amount::int as amount from public.colonia_tariffs where season_id = $1`,
@@ -214,8 +214,8 @@ describe('colonia production readiness', () => {
     expect(byKey['no_socio:promo_2']).toBe(340000);
     expect(byKey['socio:promo_3']).toBe(410000);
     expect(byKey['no_socio:promo_3']).toBe(500000);
-    expect(byKey['socio:hermano_4']).toBe(360000);
-    expect(byKey['no_socio:hermano_4']).toBe(450000);
+    expect(byKey['socio:hermano_4']).toBe(410000);
+    expect(byKey['no_socio:hermano_4']).toBe(500000);
     expect(buildSeasonTariffRows().length).toBeGreaterThanOrEqual(11);
 
     expect(evaluatePromotionCharge({

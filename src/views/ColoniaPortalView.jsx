@@ -619,7 +619,7 @@ export default function ColoniaPortalView({
 
           {step === 9 ? (
             <div>
-              <p>Inscripción: {money(quote.inscription)}</p>
+              <p>{planKey === 'hermano_4' ? 'Sin inscripción' : `Inscripción: ${money(quote.inscription)}`}</p>
               <p>Plan ({planKey}): {money(quote.plan)}</p>
               <p><strong>Total orientativo: {money(quote.total)}</strong></p>
               <p className="muted">Los cargos definitivos los confirma Administración. No afecta tu cuota social.</p>

@@ -7,17 +7,23 @@ export const COLONIA_INCOME_CODE = '4.1.06';
 export const COLONIA_INCOME_NAME = 'Colonia de Verano';
 export const COLONIA_SOURCE_MODULE = 'colonia';
 
-/** Medios ya operativos en Jockey Connect (caja / pileta / otros ingresos). */
+/** Mismos medios que caja, cuotas y pileta. Pago POS cubre tarjeta y el cupón. */
 export const COLONIA_PAYMENT_METHODS = Object.freeze([
   { key: 'efectivo', label: 'Efectivo', confirmsImmediately: true },
-  { key: 'tarjeta', label: 'Tarjeta', confirmsImmediately: false },
-  { key: 'pos', label: 'POSNET', confirmsImmediately: false },
-  { key: 'debito', label: 'Débito', confirmsImmediately: false },
+  { key: 'transferencia', label: 'Transferencia', confirmsImmediately: true, usesBank: true },
+  { key: 'tarjeta', label: 'Pago POS', confirmsImmediately: false },
+  { key: 'debito', label: 'Débito', confirmsImmediately: true, usesBank: true },
   { key: 'mercadopago', label: 'Mercado Pago', confirmsImmediately: false, requiresProvider: true },
-  { key: 'transferencia', label: 'Transferencia', confirmsImmediately: false, startsPending: true },
 ]);
 
-export const COLONIA_PAYMENT_METHOD_KEYS = COLONIA_PAYMENT_METHODS.map((m) => m.key);
+export const COLONIA_PAYMENT_METHOD_KEYS = Object.freeze([
+  'efectivo',
+  'transferencia',
+  'tarjeta',
+  'pos',
+  'debito',
+  'mercadopago',
+]);
 
 export const COLONIA_CHARGE_CONCEPTS = Object.freeze({
   colonia_inscripcion: 'Inscripción',
@@ -97,7 +103,9 @@ export const COLONIA_SEASON_2026_2027 = Object.freeze({
 });
 
 export function coloniaMethodMeta(method) {
-  return COLONIA_PAYMENT_METHODS.find((m) => m.key === String(method || '').toLowerCase()) || null;
+  const key = String(method || '').trim().toLowerCase();
+  const normalized = key === 'pos' || key === 'pago pos' || key === 'card' ? 'tarjeta' : key;
+  return COLONIA_PAYMENT_METHODS.find((m) => m.key === normalized) || null;
 }
 
 export function coloniaMethodLabel(method) {

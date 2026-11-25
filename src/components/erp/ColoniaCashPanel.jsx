@@ -1,15 +1,18 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Loader2, Search, Wallet } from 'lucide-react';
+import PaymentMethodTiles, { POOL_METHOD_TILES } from '../PaymentMethodTiles';
+import { CLUB_BANK_ACCOUNTS } from '../../domain/members/clubBanks';
 import { repos } from '../../data/bootstrap';
 import { isSupabaseConfigured } from '../../lib/supabase';
 import {
-  COLONIA_PAYMENT_METHODS,
   COLONIA_SEASON_2026_2027,
   coloniaMethodLabel,
 } from '../../domain/colonia/coloniaConstants';
 import {
   buildColoniaPaymentDraft,
   coloniaMercadoPagoAdapterSpec,
+  coloniaMethodUsesBank,
+  coloniaMethodUsesCard,
 } from '../../domain/colonia/coloniaPayments';
 import {
   coloniaSourceLabel,
@@ -45,7 +48,7 @@ export default function ColoniaCashPanel({ roles = [], role, operatorName = '' }
   const [method, setMethod] = useState('efectivo');
   const [amount, setAmount] = useState('');
   const [ref, setRef] = useState('');
-  const [cardConfirmed, setCardConfirmed] = useState(false);
+  const [bankId, setBankId] = useState(CLUB_BANK_ACCOUNTS[0]?.id || 'macro');
 
   const mpSpec = coloniaMercadoPagoAdapterSpec();
   const account = useMemo(
@@ -114,8 +117,9 @@ export default function ColoniaCashPanel({ roles = [], role, operatorName = '' }
         guardianId: selected.guardian_id,
         method,
         amount: Number(amount),
-        operatorConfirmed: cardConfirmed,
+        operatorConfirmed: coloniaMethodUsesCard(method),
         externalReference: ref,
+        bankId,
         operatorName,
         idempotencyKey: `caja:${selected.id}:${method}:${amount}:${ref || 'x'}`,
       });
@@ -127,6 +131,7 @@ export default function ColoniaCashPanel({ roles = [], role, operatorName = '' }
         externalReference: draft.externalReference,
         idempotencyKey: draft.idempotencyKey,
         operatorName,
+        bankId: draft.bankId,
       });
       setMsg(draft.status === 'confirmed'
         ? (res?.cash_movement_id
@@ -219,22 +224,31 @@ export default function ColoniaCashPanel({ roles = [], role, operatorName = '' }
 
           {canCollect ? (
             <div className="colonia-cash-form">
-              <label>Medio</label>
-              <select value={method} onChange={(e) => { setMethod(e.target.value); setCardConfirmed(false); }}>
-                {COLONIA_PAYMENT_METHODS.filter((m) => m.key !== 'mercadopago').map((m) => (
-                  <option key={m.key} value={m.key}>{m.label}</option>
-                ))}
-              </select>
+              <PaymentMethodTiles
+                methods={POOL_METHOD_TILES.filter((row) => row.id !== 'mercadopago')}
+                value={method}
+                onChange={(id) => setMethod(id)}
+                disabled={busy}
+                ariaLabel="Método de pago de Colonia en caja"
+              />
+              {coloniaMethodUsesBank(method) ? (
+                <label>Alias
+                  <select value={bankId} onChange={(e) => setBankId(e.target.value)}>
+                    {CLUB_BANK_ACCOUNTS.map((bank) => (
+                      <option key={bank.id} value={bank.id}>{bank.alias || bank.name}</option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
               <label>Importe</label>
               <input value={amount} onChange={(e) => setAmount(e.target.value)} />
-              <label>Referencia</label>
-              <input value={ref} onChange={(e) => setRef(e.target.value)} />
-              {(method === 'tarjeta' || method === 'pos' || method === 'debito') ? (
-                <label>
-                  <input type="checkbox" checked={cardConfirmed} onChange={(e) => setCardConfirmed(e.target.checked)} />
-                  {' '}
-                  Confirmo resultado de terminal/POS (no es pago online)
+              {coloniaMethodUsesBank(method) ? (
+                <label>Referencia
+                  <input value={ref} onChange={(e) => setRef(e.target.value)} placeholder="Nº de operación" />
                 </label>
+              ) : null}
+              {coloniaMethodUsesCard(method) ? (
+                <p className="pool-pay-note">Pago POS: queda en Tarjetas a cobrar. No entra en la caja.</p>
               ) : null}
               <button type="button" className="btn btn-primary" disabled={busy} onClick={collect}>
                 Registrar cobro Colonia

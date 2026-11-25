@@ -132,15 +132,16 @@ export const COLONIA_REPORT_HEADERS = Object.freeze([
 
 export function coloniaReportRows(enrollments, sheet) {
   const rows = enrollments || [];
-  if (sheet === 'admin') return rows.filter((row) => (row.source || 'admin') === 'admin');
-  if (sheet === 'portal') return rows.filter((row) => row.source === 'portal');
-  if (sheet === 'externas') return rows.filter((row) => row.source === 'external');
-  if (sheet === 'pendientes') return rows.filter((row) => ['pendiente', 'pendiente_pago', 'observada'].includes(row.status));
-  if (sheet === 'confirmadas') return rows.filter((row) => row.status === 'confirmada');
   if (sheet === 'canceladas') return rows.filter((row) => row.status === 'cancelada');
-  if (sheet === 'socios') return rows.filter((row) => row.student?.member_kind !== 'no_socio');
-  if (sheet === 'no_socios') return rows.filter((row) => row.student?.member_kind === 'no_socio');
-  return rows;
+  const active = rows.filter((row) => row.status !== 'cancelada');
+  if (sheet === 'admin') return active.filter((row) => (row.source || 'admin') === 'admin');
+  if (sheet === 'portal') return active.filter((row) => row.source === 'portal');
+  if (sheet === 'externas') return active.filter((row) => row.source === 'external');
+  if (sheet === 'pendientes') return active.filter((row) => ['pendiente', 'pendiente_pago', 'observada'].includes(row.status));
+  if (sheet === 'confirmadas') return active.filter((row) => row.status === 'confirmada');
+  if (sheet === 'socios') return active.filter((row) => row.student?.member_kind !== 'no_socio');
+  if (sheet === 'no_socios') return active.filter((row) => row.student?.member_kind === 'no_socio');
+  return active;
 }
 
 export function coloniaReportCells(row) {

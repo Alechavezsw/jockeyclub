@@ -16,14 +16,14 @@ export const COLONIA_OFFICIAL_TARIFFS_2026_2027 = Object.freeze({
     [COLONIA_PLAN_KEYS.temporada]: 390000,
     [COLONIA_PLAN_KEYS.promo_2]: 280000,
     [COLONIA_PLAN_KEYS.promo_3]: COLONIA_PROMO_3_SOCIO,
-    [COLONIA_PLAN_KEYS.hermano_4]: COLONIA_PROMO_3_SOCIO - COLONIA_INSCRIPTION_2026_2027,
+    [COLONIA_PLAN_KEYS.hermano_4]: COLONIA_PROMO_3_SOCIO,
   }),
   no_socio: Object.freeze({
     [COLONIA_PLAN_KEYS.cuota]: 180000,
     [COLONIA_PLAN_KEYS.temporada]: 490000,
     [COLONIA_PLAN_KEYS.promo_2]: 340000,
     [COLONIA_PLAN_KEYS.promo_3]: COLONIA_PROMO_3_NO_SOCIO,
-    [COLONIA_PLAN_KEYS.hermano_4]: COLONIA_PROMO_3_NO_SOCIO - COLONIA_INSCRIPTION_2026_2027,
+    [COLONIA_PLAN_KEYS.hermano_4]: COLONIA_PROMO_3_NO_SOCIO,
   }),
 });
 
@@ -93,7 +93,7 @@ export function evaluatePromotionCharge({
     }
     warnings.push({
       code: 'fourth_sibling_inscription_only',
-      message: 'Cuarto hermano: el plan de 3 hermanos menos la inscripción de $ 50.000.',
+      message: 'Cuarto hermano: mismo importe que la promo de 3. La inscripción no se cobra.',
     });
   }
 

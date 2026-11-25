@@ -32554,8 +32554,9 @@ button.debit-moves-row:disabled {
 .colonia-report-actions { display: flex; gap: 0.4rem; flex-wrap: wrap; }
 .colonia-report-board {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.75rem;
+  align-items: stretch;
   min-width: 0;
 }
 .colonia-report-board > * { min-width: 0; }
@@ -32564,6 +32565,8 @@ button.debit-moves-row:disabled {
   padding: 0.9rem 1rem;
   background: #fff;
   border: 1px solid rgba(28, 74, 58, 0.12);
+  min-width: 0;
+  height: 100%;
 }
 .colonia-money span, .colonia-chart-card h4 {
   display: block;
@@ -32601,13 +32604,22 @@ button.debit-moves-row:disabled {
 .colonia-bar span, .colonia-bar b { font-size: 0.82rem; color: #14382c; }
 .colonia-bar div { height: 10px; border-radius: 999px; background: #e4efe8; overflow: hidden; }
 .colonia-bar i { display: block; height: 100%; border-radius: inherit; }
-.colonia-split { display: flex; margin-top: 0.85rem; border-radius: 999px; overflow: hidden; min-height: 2rem; }
+.colonia-split {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 0.85rem;
+  border-radius: 999px;
+  overflow: hidden;
+  min-height: 2rem;
+}
 .colonia-split span {
   display: grid;
   place-items: center;
+  min-width: 0;
   padding: 0.35rem 0.5rem;
   font-size: 0.75rem;
   color: #fff8ea;
+  white-space: nowrap;
 }
 .colonia-split span:first-child { background: #14382c; }
 .colonia-split span:last-child { background: #1a7a8c; }
@@ -32621,6 +32633,16 @@ button.debit-moves-row:disabled {
   .colonia-bar i, .colonia-money i { transition: none; }
 }
 .colonia-panel .table-container { max-width: 100%; overflow-x: auto; }
+.colonia-ficha-charge {
+  display: grid;
+  gap: 0.55rem;
+  margin: 0.35rem 0 0.7rem;
+  padding: 0.75rem;
+  border: 1px solid #1c4a3a;
+  border-radius: 12px;
+  background: #f4faf6;
+}
+.colonia-ficha-charge p { margin: 0; }
 .colonia-account { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.45rem; }
 .colonia-account li {
   display: flex; justify-content: space-between; gap: 0.75rem; align-items: center;
