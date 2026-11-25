@@ -32524,6 +32524,9 @@ button.debit-moves-row:disabled {
   padding: 0.05rem 0.35rem;
 }
 .colonia-account-table td .muted { display: block; font-size: 0.75rem; }
+.colonia-account-table tbody tr.is-pick { cursor: pointer; }
+.colonia-account-table tbody tr.is-on td { background: #e7f3ec; }
+.colonia-pager { margin-top: 0.35rem; border: 1px solid var(--border-glass); border-radius: 12px; }
 .colonia-report {
   display: grid;
   gap: 0.9rem;
