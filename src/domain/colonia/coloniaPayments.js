@@ -7,7 +7,7 @@ import { coloniaMethodMeta, COLONIA_PAYMENT_METHOD_KEYS } from './coloniaConstan
 import { assertColoniaFinanceIsolation, moneyArs } from './coloniaLedger';
 
 export const COLONIA_MP_KIND = 'colonia';
-export const COLONIA_MP_ADAPTER_STATUS = 'prepared_pending_deploy_authorization';
+export const COLONIA_MP_ADAPTER_STATUS = 'live';
 
 /**
  * Estado inicial del pago según medio.
@@ -54,7 +54,7 @@ export function validateColoniaPaymentInput({
   if (key === 'mercadopago') {
     errors.push({
       code: 'mp_adapter_pending',
-      message: 'Mercado Pago Colonia está preparado pero requiere autorización de despliegue del adaptador (kind=colonia). No uses el circuito de cuota social.',
+      message: 'Mercado Pago de Colonia se acredita solo cuando Mercado Pago confirma. No se carga a mano ni como cuota social.',
     });
   }
   if (key === 'transferencia' && !String(externalReference || '').trim()) {
@@ -107,7 +107,15 @@ export function buildColoniaPaymentDraft(input = {}) {
   return payload;
 }
 
-/** Documentación del adaptador MP (sin tocar webhook productivo). */
+/** Saldo que se puede cobrar por Mercado Pago: lo publicado menos lo confirmado y lo que ya está pendiente. */
+export function coloniaMpPayable(balanceDue, pending = 0) {
+  const due = Number(balanceDue);
+  const hold = Number(pending);
+  const net = (Number.isFinite(due) ? due : 0) - (Number.isFinite(hold) ? hold : 0);
+  return Math.max(0, Math.round(net * 100) / 100);
+}
+
+/** Documentación del adaptador MP. El webhook acredita kind=colonia en Colonia, no en cuota social. */
 export function coloniaMercadoPagoAdapterSpec() {
   return {
     status: COLONIA_MP_ADAPTER_STATUS,

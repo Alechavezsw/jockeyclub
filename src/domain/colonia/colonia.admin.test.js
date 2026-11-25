@@ -20,19 +20,22 @@ import {
   buildColoniaAccountRows,
   buildColoniaCharge,
   buildColoniaEnrollmentsCsv,
+  buildColoniaMonthRows,
   buildColoniaReceipt,
+  coloniaAccountMonths,
   coloniaNextMonthLabel,
   summarizeColoniaAccount,
   assertColoniaFinanceIsolation,
 } from './coloniaLedger';
 import {
   buildColoniaPaymentDraft,
+  coloniaMpPayable,
   initialPaymentStatus,
   validateColoniaPaymentInput,
 } from './coloniaPayments';
 import { enrollmentIdentityKey, validateEnrollmentDraft } from './coloniaEnrollment';
 import { validateColoniaAge } from './coloniaAge';
-import { COLONIA_PLAN_KEYS, COLONIA_SECTIONS } from './coloniaConstants';
+import { COLONIA_PLAN_KEYS, COLONIA_SEASON_2026_2027, COLONIA_SECTIONS } from './coloniaConstants';
 import { COLONIA_OFFICIAL_TARIFFS_2026_2027, evaluatePromotionCharge, planAmountFor } from './coloniaTariffs';
 
 const pad = [
@@ -225,6 +228,104 @@ describe('administración Colonia — cuenta y hojas', () => {
   });
 });
 
+describe('administración Colonia — cuenta por mes', () => {
+  const season = COLONIA_SEASON_2026_2027;
+  const enrollments = [
+    {
+      id: 'mes',
+      status: 'confirmada',
+      plan_key: 'cuota',
+      student: { full_name: 'Ana López', member_kind: 'socio' },
+    },
+    {
+      id: 'temp',
+      status: 'confirmada',
+      plan_key: 'temporada',
+      student: { full_name: 'Bruno Díaz', member_kind: 'socio' },
+    },
+    {
+      id: 'herm',
+      status: 'confirmada',
+      plan_key: 'hermano_4',
+      student: { full_name: 'Cami Ruiz', member_kind: 'socio' },
+    },
+  ];
+
+  it('la temporada de verano va de noviembre a febrero', () => {
+    expect(coloniaAccountMonths(season, new Date(2026, 10, 24)).map((month) => month.key))
+      .toEqual(['2026-11', '2026-12', '2027-01', '2027-02']);
+  });
+
+  it('un pago cubre noviembre y deja la cuota de diciembre', () => {
+    const shared = {
+      enrollments,
+      charges: [
+        { enrollment_id: 'temp', amount: 440000, status: 'posted', created_at: '2026-12-02' },
+        { enrollment_id: 'herm', amount: 360000, status: 'posted', created_at: '2026-11-24' },
+      ],
+      payments: [{ enrollment_id: 'mes', amount: 200000, status: 'confirmed', confirmed_at: '2026-12-05' }],
+      tariffs: COLONIA_OFFICIAL_TARIFFS_2026_2027,
+      season,
+    };
+    const november = buildColoniaMonthRows({ ...shared, monthKey: '2026-11', today: new Date(2026, 11, 15) });
+    const december = buildColoniaMonthRows({ ...shared, monthKey: '2026-12', today: new Date(2026, 11, 15) });
+    const january = buildColoniaMonthRows({ ...shared, monthKey: '2027-01', today: new Date(2026, 11, 15) });
+    const anaNov = november.find((row) => row.enrollment.id === 'mes');
+    const anaDec = december.find((row) => row.enrollment.id === 'mes');
+    const anaJan = january.find((row) => row.enrollment.id === 'mes');
+    expect(anaNov).toMatchObject({ status: 'pago', owed: 0, summary: { totalCollected: 200000 } });
+    expect(anaDec).toMatchObject({ status: 'falta', owed: 150000, summary: { totalCollected: 0 } });
+    expect(anaJan).toMatchObject({ status: 'proximo', owed: 0, nextAmount: 150000 });
+    expect(december.map((row) => row.enrollment.id)).toContain('temp');
+    expect(january.map((row) => row.enrollment.id)).not.toContain('temp');
+    expect(november.find((row) => row.enrollment.id === 'herm')).toMatchObject({ status: 'falta', owed: 360000 });
+    expect(december.map((row) => row.enrollment.id)).not.toContain('herm');
+  });
+
+  it('el segundo hermano no repite el plan y un pago pendiente no se da por cobrado', () => {
+    const shared = {
+      enrollments: [
+        {
+          id: 'mayor',
+          status: 'confirmada',
+          plan_key: 'promo_2',
+          student: { full_name: 'Mayor', member_kind: 'socio' },
+        },
+        {
+          id: 'menor',
+          status: 'confirmada',
+          plan_key: 'promo_2',
+          student: { full_name: 'Menor', member_kind: 'no_socio' },
+        },
+      ],
+      charges: [
+        { enrollment_id: 'mayor', concept: 'colonia_inscripcion', amount: 50000, status: 'posted', created_at: '2026-11-24' },
+        { enrollment_id: 'mayor', concept: 'colonia_promocion', amount: 280000, status: 'posted', created_at: '2026-11-24' },
+        { enrollment_id: 'menor', concept: 'colonia_inscripcion', amount: 50000, status: 'posted', created_at: '2026-11-24' },
+        { enrollment_id: 'menor', concept: 'colonia_cuota', amount: 180000, status: 'void', created_at: '2026-11-24' },
+      ],
+      payments: [
+        { enrollment_id: 'mayor', amount: 330000, status: 'confirmed' },
+        { enrollment_id: 'mayor', amount: 10000, status: 'pending' },
+      ],
+      tariffs: COLONIA_OFFICIAL_TARIFFS_2026_2027,
+      periodicity: 'monthly',
+      season,
+      today: new Date(2026, 10, 24),
+    };
+    const november = buildColoniaMonthRows({ ...shared, monthKey: '2026-11' });
+    const december = buildColoniaMonthRows({ ...shared, monthKey: '2026-12' });
+    expect(november.find((row) => row.enrollment.id === 'mayor')).toMatchObject({
+      status: 'pendiente',
+      owed: 0,
+      summary: { totalCollected: 330000 },
+    });
+    expect(november.find((row) => row.enrollment.id === 'menor')).toMatchObject({ status: 'falta', owed: 50000 });
+    expect(december.find((row) => row.enrollment.id === 'mayor')).toMatchObject({ status: 'proximo', nextAmount: 280000 });
+    expect(december.find((row) => row.enrollment.id === 'menor')).toMatchObject({ status: 'pago', nextAmount: 0 });
+  });
+});
+
 describe('administración Colonia — reportes', () => {
   it('cada hoja recorta el padrón de inscriptos', () => {
     expect(COLONIA_REPORT_SHEETS).toHaveLength(10);
@@ -331,6 +432,8 @@ describe('administración Colonia — inscripción y cobro', () => {
     });
     expect(mp.ok).toBe(false);
     expect(mp.errors[0].code).toBe('mp_adapter_pending');
+    expect(coloniaMpPayable(200000, 50000)).toBe(150000);
+    expect(coloniaMpPayable(10000, 10000)).toBe(0);
   });
 
   it('el cargo y el recibo viven en la cuenta de Colonia', () => {
@@ -476,7 +579,8 @@ describe('administración Colonia — inscripción y cobro', () => {
     });
     expect(promo.ok).toBe(true);
     expect(promo.warnings.some((warning) => warning.code === 'fourth_sibling_inscription_only')).toBe(true);
-    expect(planAmountFor(COLONIA_OFFICIAL_TARIFFS_2026_2027, 'socio', 'hermano_4')).toBe(0);
+    expect(planAmountFor(COLONIA_OFFICIAL_TARIFFS_2026_2027, 'socio', 'hermano_4')).toBe(360000);
+    expect(planAmountFor(COLONIA_OFFICIAL_TARIFFS_2026_2027, 'no_socio', 'hermano_4')).toBe(450000);
   });
 
   it('el mes que viene se nombra en español', () => {

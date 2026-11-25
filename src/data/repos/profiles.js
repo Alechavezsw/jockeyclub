@@ -461,6 +461,7 @@ export async function createMercadoPagoCheckout({
   guestName,
   booking = null,
   schedule = null,
+  enrollmentId = null,
   channel,
   origin = typeof window !== 'undefined' ? window.location.origin : '',
 } = {}) {
@@ -474,6 +475,7 @@ export async function createMercadoPagoCheckout({
     guestName,
     booking,
     schedule,
+    enrollmentId,
     channel,
     origin,
   }, 'No se pudo abrir Mercado Pago');

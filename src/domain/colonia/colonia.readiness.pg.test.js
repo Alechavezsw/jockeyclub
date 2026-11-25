@@ -34,6 +34,7 @@ const stripSeeds = (sql) => sql
 const mig1 = stripSeeds(readFileSync(join(root, 'supabase/migrations/20261124140000_colonia_verano_module.sql'), 'utf8'));
 const mig2 = readFileSync(join(root, 'supabase/migrations/20261124150000_colonia_ops_hardening.sql'), 'utf8');
 const mig3 = stripSeeds(readFileSync(join(root, 'supabase/migrations/20261124160000_colonia_prod_readiness.sql'), 'utf8'));
+const mig4 = readFileSync(join(root, 'supabase/migrations/20261124250000_colonia_cuarto_hermano.sql'), 'utf8');
 
 let cluster;
 let databaseDir;
@@ -124,6 +125,7 @@ describe('colonia production readiness', () => {
     ({ cluster, databaseDir, pool } = await startEmbeddedPostgres({ label: 'colonia-ready' }));
     await query(schemaSql);
     await query(mig1);
+    await query(mig4);
     await query(mig2);
     await query(mig3);
 
@@ -195,7 +197,8 @@ describe('colonia production readiness', () => {
     expect(planAmountFor(COLONIA_OFFICIAL_TARIFFS_2026_2027, 'no_socio', 'promo_2')).toBe(340000);
     expect(planAmountFor(COLONIA_OFFICIAL_TARIFFS_2026_2027, 'socio', 'promo_3')).toBe(410000);
     expect(planAmountFor(COLONIA_OFFICIAL_TARIFFS_2026_2027, 'no_socio', 'promo_3')).toBe(500000);
-    expect(planAmountFor(COLONIA_OFFICIAL_TARIFFS_2026_2027, 'socio', 'hermano_4')).toBe(0);
+    expect(planAmountFor(COLONIA_OFFICIAL_TARIFFS_2026_2027, 'socio', 'hermano_4')).toBe(360000);
+    expect(planAmountFor(COLONIA_OFFICIAL_TARIFFS_2026_2027, 'no_socio', 'hermano_4')).toBe(450000);
 
     const rows = await query(
       `select member_kind, plan_key, amount::int as amount from public.colonia_tariffs where season_id = $1`,
@@ -211,7 +214,8 @@ describe('colonia production readiness', () => {
     expect(byKey['no_socio:promo_2']).toBe(340000);
     expect(byKey['socio:promo_3']).toBe(410000);
     expect(byKey['no_socio:promo_3']).toBe(500000);
-    expect(byKey['socio:hermano_4']).toBe(0);
+    expect(byKey['socio:hermano_4']).toBe(360000);
+    expect(byKey['no_socio:hermano_4']).toBe(450000);
     expect(buildSeasonTariffRows().length).toBeGreaterThanOrEqual(11);
 
     expect(evaluatePromotionCharge({

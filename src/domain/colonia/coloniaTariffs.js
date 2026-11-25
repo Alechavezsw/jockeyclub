@@ -5,21 +5,25 @@
 import { COLONIA_PLAN_KEYS, COLONIA_SEASON_2026_2027 } from './coloniaConstants';
 
 /** Tarifas oficiales publicadas 2026/2027 (seed). */
+const COLONIA_INSCRIPTION_2026_2027 = 50000;
+const COLONIA_PROMO_3_SOCIO = 410000;
+const COLONIA_PROMO_3_NO_SOCIO = 500000;
+
 export const COLONIA_OFFICIAL_TARIFFS_2026_2027 = Object.freeze({
-  inscription: 50000,
+  inscription: COLONIA_INSCRIPTION_2026_2027,
   socio: Object.freeze({
     [COLONIA_PLAN_KEYS.cuota]: 150000,
     [COLONIA_PLAN_KEYS.temporada]: 390000,
     [COLONIA_PLAN_KEYS.promo_2]: 280000,
-    [COLONIA_PLAN_KEYS.promo_3]: 410000,
-    [COLONIA_PLAN_KEYS.hermano_4]: 0,
+    [COLONIA_PLAN_KEYS.promo_3]: COLONIA_PROMO_3_SOCIO,
+    [COLONIA_PLAN_KEYS.hermano_4]: COLONIA_PROMO_3_SOCIO - COLONIA_INSCRIPTION_2026_2027,
   }),
   no_socio: Object.freeze({
     [COLONIA_PLAN_KEYS.cuota]: 180000,
     [COLONIA_PLAN_KEYS.temporada]: 490000,
     [COLONIA_PLAN_KEYS.promo_2]: 340000,
-    [COLONIA_PLAN_KEYS.promo_3]: 500000,
-    [COLONIA_PLAN_KEYS.hermano_4]: 0,
+    [COLONIA_PLAN_KEYS.promo_3]: COLONIA_PROMO_3_NO_SOCIO,
+    [COLONIA_PLAN_KEYS.hermano_4]: COLONIA_PROMO_3_NO_SOCIO - COLONIA_INSCRIPTION_2026_2027,
   }),
 });
 
@@ -89,7 +93,7 @@ export function evaluatePromotionCharge({
     }
     warnings.push({
       code: 'fourth_sibling_inscription_only',
-      message: 'Cuarto hermano: solo inscripción (plan $0). No inventar cuota adicional.',
+      message: 'Cuarto hermano: el plan de 3 hermanos menos la inscripción de $ 50.000.',
     });
   }
 

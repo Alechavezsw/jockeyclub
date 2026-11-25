@@ -81,6 +81,7 @@ function titleOf(kind: string) {
   if (kind === "pool") return "Canon pileta · Jockey Club San Juan";
   if (kind === "subscription") return "Suscripción cuota social · Jockey Club San Juan";
   if (kind === "booking" || kind === "reservation") return "Seña reserva · Jockey Club San Juan";
+  if (kind === "colonia") return "Colonia de Verano · Jockey Club San Juan";
   return "Cuota social · Jockey Club San Juan";
 }
 
@@ -278,7 +279,7 @@ Deno.serve(async (req) => {
 
     const body = await req.json().catch(() => ({}));
     const kind = String(body?.kind || "dues");
-    if (!["dues", "pool", "subscription", "booking", "reservation"].includes(kind)) {
+    if (!["dues", "pool", "subscription", "booking", "reservation", "colonia"].includes(kind)) {
       return json(400, { error: "Tipo de cobro inválido." });
     }
     const amount = money(body?.amount);
@@ -290,6 +291,9 @@ Deno.serve(async (req) => {
       return json(400, { error: "Falta el detalle del descuento." });
     }
     const channel = channelOf(kind, body?.channel);
+    if (kind === "colonia" && channel === "subscription") {
+      return json(400, { error: "Colonia no se debita junto con la cuota social." });
+    }
 
     const admin = createClient(supabaseUrl, serviceKey);
     const { data: setting } = await admin.from("app_settings").select("value").eq("key", "mercadopago").maybeSingle();
@@ -471,9 +475,33 @@ Deno.serve(async (req) => {
       }
     }
 
+    let coloniaQuote: Record<string, unknown> | null = null;
+    if (kind === "colonia") {
+      const enrollmentId = String(body?.enrollmentId || "").trim();
+      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(enrollmentId)) {
+        return json(400, { error: "Falta la inscripción de Colonia." });
+      }
+      const { data: quote, error: quoteErr } = await userClient.rpc("colonia_mp_quote", {
+        p_member_id: member.id,
+        p_enrollment_id: enrollmentId,
+      });
+      if (quoteErr) return json(400, { error: quoteErr.message || "No se pudo consultar el saldo de Colonia." });
+      const quoted = quote && typeof quote === "object" ? quote as Record<string, unknown> : {};
+      const payable = Number(quoted.payable) || 0;
+      if (quoted.ok !== true || payable <= 0) {
+        return json(400, { error: "Esa inscripción de Colonia no tiene saldo para cobrar." });
+      }
+      if (amount - payable > 0.009) {
+        return json(400, { error: "El importe supera el saldo de Colonia." });
+      }
+      coloniaQuote = { ...quoted, enrollmentId };
+    }
+
     const origin = kind === "pool" ? originOf(body?.origin, site) : accountOrigin(originOf(body?.origin, site));
     const backPath = kind === "pool"
       ? "/entrada-pileta"
+      : kind === "colonia"
+        ? "/cuenta/colonia"
       : (kind === "booking" || kind === "reservation")
         ? "/reservas"
         : "/cuenta";
@@ -531,6 +559,11 @@ Deno.serve(async (req) => {
           ...(kind === "dues" ? { schedule: duesScheduleOf(body?.schedule) } : {}),
           ...(bookingMeta ? { booking: bookingMeta } : {}),
           ...((kind === "dues" || kind === "subscription") ? { chargeScope: "cuota_social" } : {}),
+          ...(kind === "colonia" && coloniaQuote ? {
+            enrollmentId: coloniaQuote.enrollmentId,
+            chargeScope: "colonia",
+            studentName: coloniaQuote.student_name || undefined,
+          } : {}),
           ...(kind === "subscription" ? { billingDay: subscriptionBillingDay(member) } : {}),
         },
       })
