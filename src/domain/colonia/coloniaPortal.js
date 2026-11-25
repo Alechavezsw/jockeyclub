@@ -37,6 +37,30 @@ export function coloniaStatusLabel(status) {
   return COLONIA_PORTAL_STATUS_LABELS[key] || key || '—';
 }
 
+/**
+ * Estado operativo para listados: si el saldo ya está cubierto,
+ * no seguir mostrando «Pendiente de pago».
+ */
+export function coloniaOperationalStatus(enrollment, summary = null) {
+  const status = String(enrollment?.status || '').toLowerCase();
+  if (status === 'cancelada') return 'cancelada';
+  const settled = Boolean(
+    summary?.isSettled
+    || (
+      summary
+      && Number(summary.balanceDue) <= 0
+      && Number(summary.pendingConfirmation || 0) <= 0
+    ),
+  );
+  if (
+    settled
+    && ['borrador', 'pendiente', 'pendiente_pago', 'observada'].includes(status)
+  ) {
+    return 'confirmada';
+  }
+  return status || '—';
+}
+
 export function coloniaSourceLabel(source) {
   const key = String(source || 'admin').toLowerCase();
   return COLONIA_SOURCE_LABELS[key] || key;

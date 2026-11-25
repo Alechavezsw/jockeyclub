@@ -3,6 +3,7 @@
  */
 
 import { coloniaMethodLabel } from './coloniaConstants';
+import { allocateColoniaPayments } from './coloniaLedger';
 import {
   COLONIA_OFFICIAL_TARIFFS_2026_2027,
   inscriptionAmount,
@@ -106,8 +107,11 @@ export function buildColoniaEnrollmentReceipt({
     fiscalNote: 'Recibo interno de Colonia. No es la cuota social ni una factura.',
     alumnos: names,
     socioName: String(socioName || '').trim() || '—',
-    socioNumber: isSocio ? (String(socioNumber || '').replace(/\D/g, '').replace(/^0+/, '') || '—') : '—',
+    /** Etiqueta de la persona a cargo: Socio solo si la ficha es de socio. */
+    responsibleLabel: isSocio ? 'Socio' : 'Responsable',
+    socioNumber: isSocio ? (String(socioNumber || '').replace(/\D/g, '').replace(/^0+/, '') || '—') : '',
     socioKind: isSocio ? 'Socio' : 'No socio',
+    isSocio,
     month,
     planKey,
     planLabel,
@@ -162,13 +166,22 @@ export function buildColoniaPaidReceiptFromEnrollment({
   );
   if (!confirmed.length) return null;
 
-  let inscription = ownCharges
-    .filter((charge) => String(charge.concept || '') === 'colonia_inscripcion')
-    .reduce((sum, charge) => sum + Math.round(Number(charge.amount) || 0), 0);
-  let plan = ownCharges
-    .filter((charge) => String(charge.concept || '') !== 'colonia_inscripcion')
-    .reduce((sum, charge) => sum + Math.round(Number(charge.amount) || 0), 0);
-
+  // Preferir lo efectivamente cobrado (inscripción y mes separables).
+  const allocated = allocateColoniaPayments({ charges: ownCharges, payments: confirmed });
+  let inscription = allocated
+    .filter((row) => String(row.concept || '') === 'colonia_inscripcion')
+    .reduce((sum, row) => sum + Math.round(Number(row.paid) || 0), 0);
+  let plan = allocated
+    .filter((row) => String(row.concept || '') !== 'colonia_inscripcion')
+    .reduce((sum, row) => sum + Math.round(Number(row.paid) || 0), 0);
+  if (!(inscription + plan > 0)) {
+    inscription = ownCharges
+      .filter((charge) => String(charge.concept || '') === 'colonia_inscripcion')
+      .reduce((sum, charge) => sum + Math.round(Number(charge.amount) || 0), 0);
+    plan = ownCharges
+      .filter((charge) => String(charge.concept || '') !== 'colonia_inscripcion')
+      .reduce((sum, charge) => sum + Math.round(Number(charge.amount) || 0), 0);
+  }
   if (!(inscription + plan > 0)) {
     inscription = planKey === 'hermano_4' ? 0 : inscriptionAmount(tariffs);
     plan = Math.round(Number(planAmountFor(tariffs, kind, planKey)) || 0);
@@ -246,8 +259,10 @@ export async function downloadColoniaEnrollmentReceipt(receipt) {
     ['Colonia', receipt.concept],
     ['Mes', receipt.month],
     ['Alumno', receipt.alumnos.join(', ') || '—'],
-    ['Socio', receipt.socioName],
-    ['Nº de socio', receipt.socioNumber],
+    [receipt.responsibleLabel || (receipt.isSocio === false ? 'Responsable' : 'Socio'), receipt.socioName],
+    ...(receipt.isSocio === false || !String(receipt.socioNumber || '').trim()
+      ? []
+      : [['Nº de socio', receipt.socioNumber]]),
     ['Condición', receipt.socioKind],
     ['Promoción', receipt.promoLabel],
     ['Plan', receipt.planLabel],
