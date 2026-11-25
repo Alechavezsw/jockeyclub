@@ -204,6 +204,17 @@ export async function coloniaRecordPayment({
   return data;
 }
 
+export async function listColoniaAttendance(seasonId, day) {
+  requireCloud();
+  const { data, error } = await sb()
+    .from('colonia_attendance')
+    .select('id, enrollment_id, day, status, note')
+    .eq('season_id', seasonId)
+    .eq('day', day);
+  if (error) mapRpcMissing(error, 'No se pudo cargar la asistencia');
+  return data || [];
+}
+
 export async function coloniaUpsertAttendance({ enrollmentId, day, status, operatorName, note }) {
   requireCloud();
   const { data, error } = await sb().rpc('colonia_upsert_attendance', {
