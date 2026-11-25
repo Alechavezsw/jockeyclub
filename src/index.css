@@ -32527,6 +32527,62 @@ button.debit-moves-row:disabled {
 .colonia-account-table tbody tr.is-pick { cursor: pointer; }
 .colonia-account-table tbody tr.is-on td { background: #e7f3ec; }
 .colonia-pager { margin-top: 0.35rem; border: 1px solid var(--border-glass); border-radius: 12px; }
+.colonia-roll { display: grid; gap: 0.8rem; }
+.colonia-roll-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+.colonia-roll-head h3 { margin: 0; display: flex; align-items: center; gap: 0.4rem; }
+.colonia-roll-head p { margin: 0.25rem 0 0; color: #5d6b62; font-size: 0.85rem; }
+.colonia-roll-day { display: grid; gap: 0.25rem; font-size: 0.85rem; min-width: 11rem; }
+.colonia-roll-day input {
+  border: 1px solid #1c4a3a;
+  border-radius: 10px;
+  padding: 0.55rem 0.7rem;
+  background: #fff;
+  color: #14382c;
+}
+.colonia-roll-counts {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 0.45rem;
+}
+.colonia-roll-counts button {
+  border: 1px solid #1c4a3a;
+  border-radius: 12px;
+  background: #fff;
+  color: #14382c;
+  padding: 0.55rem 0.65rem;
+  text-align: left;
+  cursor: pointer;
+}
+.colonia-roll-counts button.is-on { background: #14382c; color: #fff8ea; }
+.colonia-roll-counts b { display: block; font-size: 1.15rem; line-height: 1.1; }
+.colonia-roll-counts small { font-size: 0.72rem; }
+.colonia-roll-marks { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+.colonia-roll-marks button {
+  border: 1px solid #1c4a3a;
+  background: #fff;
+  color: #14382c;
+  border-radius: 999px;
+  padding: 0.28rem 0.6rem;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+.colonia-roll-marks button.is-presente { background: #14382c; color: #fff8ea; }
+.colonia-roll-marks button.is-ausente { background: #9a3412; color: #fff8ea; border-color: #9a3412; }
+.colonia-roll-marks button.is-justificada { background: #1a7a8c; color: #fff; border-color: #1a7a8c; }
+.colonia-roll-marks button.is-retiro_anticipado { background: #e7a23a; color: #14382c; border-color: #e7a23a; }
+.colonia-roll-marks button:disabled { opacity: 0.55; cursor: wait; }
+@media (max-width: 900px) {
+  .colonia-roll-counts { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 560px) {
+  .colonia-roll-counts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 .colonia-report {
   display: grid;
   gap: 0.9rem;

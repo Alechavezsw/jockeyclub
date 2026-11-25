@@ -31,7 +31,6 @@ import { isSupabaseConfigured } from '../../lib/supabase';
 import { loadXlsx } from '../../lib/office';
 import {
   COLONIA_ACTIVITY_KINDS,
-  COLONIA_ATTENDANCE_STATUSES,
   COLONIA_PLAN_KEYS,
   COLONIA_SECTIONS,
   COLONIA_SEASON_2026_2027,
@@ -196,6 +195,21 @@ function ColoniaBars({ items }) {
 
 const COLONIA_PAGE_SIZE = 8;
 
+const COLONIA_ROLL_STATUSES = Object.freeze([
+  { id: 'presente', label: 'Presente' },
+  { id: 'ausente', label: 'Ausente' },
+  { id: 'justificada', label: 'Justificada' },
+  { id: 'retiro_anticipado', label: 'Se retiró' },
+]);
+
+const COLONIA_AGE_BANDS = Object.freeze([
+  { key: 'todos', label: 'Todos', match: () => true },
+  { key: '3-5', label: '3 a 5', match: (age) => age >= 3 && age <= 5 },
+  { key: '6-8', label: '6 a 8', match: (age) => age >= 6 && age <= 8 },
+  { key: '9-11', label: '9 a 11', match: (age) => age >= 9 && age <= 11 },
+  { key: '12-15', label: '12 a 15', match: (age) => age >= 12 && age <= 15 },
+]);
+
 function ColoniaPager({ page, total, onPage }) {
   const pages = Math.max(1, Math.ceil(total / COLONIA_PAGE_SIZE));
   const safe = Math.min(Math.max(0, page), pages - 1);
@@ -324,7 +338,12 @@ export default function ColoniaTab({
   const [payBankId, setPayBankId] = useState(CLUB_BANK_ACCOUNTS[0]?.id || 'macro');
   const [enrollHold, setEnrollHold] = useState(null);
   const [attendanceDay, setAttendanceDay] = useState(todayIso());
-  const [attendanceStatus, setAttendanceStatus] = useState('presente');
+  const [attendanceRows, setAttendanceRows] = useState([]);
+  const [attendanceQuery, setAttendanceQuery] = useState('');
+  const [attendancePage, setAttendancePage] = useState(0);
+  const [attendanceBand, setAttendanceBand] = useState('todos');
+  const [attendanceFocus, setAttendanceFocus] = useState('todos');
+  const [attendanceSavingId, setAttendanceSavingId] = useState('');
   const [groupName, setGroupName] = useState('');
   const [activityKind, setActivityKind] = useState('natacion');
   const [activityTitle, setActivityTitle] = useState('');
@@ -495,6 +514,45 @@ export default function ColoniaTab({
     activitiesStartOn: season?.activities_start_on || COLONIA_SEASON_2026_2027.activitiesStartOn,
     ageMin: season?.age_min ?? 3,
     ageMax: season?.age_max ?? 15,
+  };
+  const rollCall = useMemo(() => {
+    const marks = new Map(
+      attendanceRows
+        .filter((row) => String(row.day || '').slice(0, 10) === attendanceDay)
+        .map((row) => [row.enrollment_id, row.status]),
+    );
+    const groupName = new Map(groups.map((group) => [group.id, group.name]));
+    return enrollments
+      .filter((row) => row.status !== 'cancelada')
+      .map((row) => {
+        const birth = String(row.student?.birth_date || row.student?.birthDate || '').slice(0, 10);
+        const age = ageYearsOn(birth, seasonAge.activitiesStartOn);
+        return {
+          row,
+          age,
+          groupName: groupName.get(row.group_id) || '',
+          status: marks.get(row.id) || '',
+        };
+      })
+      .toSorted((a, b) => String(a.row.student?.full_name || '').localeCompare(String(b.row.student?.full_name || ''), 'es'));
+  }, [attendanceRows, attendanceDay, enrollments, groups, season?.activities_start_on]);
+  const rollBand = COLONIA_AGE_BANDS.find((band) => band.key === attendanceBand) || COLONIA_AGE_BANDS[0];
+  const rollFiltered = rollCall.filter((item) => {
+    if (!rollBand.match(item.age)) return false;
+    if (attendanceFocus === 'sin_marcar') return !item.status;
+    if (attendanceFocus !== 'todos' && item.status !== attendanceFocus) return false;
+    if (attendanceQuery.trim() && !enrollmentMatchesRoster(item.row, attendanceQuery)) return false;
+    return true;
+  });
+  const rollPages = Math.max(1, Math.ceil(rollFiltered.length / COLONIA_PAGE_SIZE));
+  const rollPageSafe = Math.min(attendancePage, rollPages - 1);
+  const rollSlice = rollFiltered.slice(rollPageSafe * COLONIA_PAGE_SIZE, rollPageSafe * COLONIA_PAGE_SIZE + COLONIA_PAGE_SIZE);
+  const rollCounts = {
+    presente: rollCall.filter((item) => item.status === 'presente').length,
+    ausente: rollCall.filter((item) => item.status === 'ausente').length,
+    justificada: rollCall.filter((item) => item.status === 'justificada').length,
+    retiro_anticipado: rollCall.filter((item) => item.status === 'retiro_anticipado').length,
+    sin_marcar: rollCall.filter((item) => !item.status).length,
   };
   const extraProblems = [];
   rosterPreview.slice(1).forEach((extra, index) => {
@@ -998,6 +1056,15 @@ export default function ColoniaTab({
     return () => { cancelled = true; };
   }, [seasonId, canFinance]);
 
+  useEffect(() => {
+    if (activeSection !== 'asistencia' || !seasonId || !isSupabaseConfigured) return undefined;
+    let cancelled = false;
+    repos.listColoniaAttendance(seasonId, attendanceDay)
+      .then((rows) => { if (!cancelled) setAttendanceRows(rows || []); })
+      .catch(() => { if (!cancelled) setAttendanceRows([]); });
+    return () => { cancelled = true; };
+  }, [activeSection, seasonId, attendanceDay]);
+
   async function saveHealth() {
     if (!selectedEnrollment?.student?.id || !canHealth) return;
     setBusy(true);
@@ -1322,25 +1389,30 @@ export default function ColoniaTab({
     }
   }
 
-  async function markAttendance(enrollmentId) {
+  async function markAttendance(enrollmentId, status) {
     setMsg('');
     if (!canAttend) {
       setMsg('Sin permiso de asistencia Colonia.');
       return;
     }
-    setBusy(true);
+    const previous = attendanceRows;
+    setAttendanceSavingId(enrollmentId);
+    setAttendanceRows((curr) => {
+      const rest = curr.filter((row) => row.enrollment_id !== enrollmentId || String(row.day || '').slice(0, 10) !== attendanceDay);
+      return [...rest, { enrollment_id: enrollmentId, day: attendanceDay, status }];
+    });
     try {
       await repos.coloniaUpsertAttendance({
         enrollmentId,
         day: attendanceDay,
-        status: attendanceStatus,
+        status,
         operatorName: 'Asistencia Colonia',
       });
-      setMsg('Asistencia guardada.');
     } catch (err) {
-      setMsg(err?.message || 'No se pudo guardar asistencia.');
+      setAttendanceRows(previous);
+      setMsg(err?.message || 'No se pudo guardar la asistencia.');
     } finally {
-      setBusy(false);
+      setAttendanceSavingId('');
     }
   }
 
@@ -2415,32 +2487,134 @@ export default function ColoniaTab({
       ) : null}
 
       {activeSection === 'asistencia' ? (
-        <section className="colonia-panel">
-          <h3><CalendarDays size={16} /> Asistencia</h3>
+        <section className="colonia-panel colonia-roll">
+          <header className="colonia-roll-head">
+            <div>
+              <h3><CalendarDays size={16} /> Asistencia</h3>
+              <p>Pasá lista del día. Cada chico se marca en su fila.</p>
+            </div>
+            <label className="colonia-roll-day"><span>Día</span>
+              <input
+                type="date"
+                value={attendanceDay}
+                onChange={(e) => {
+                  setAttendanceDay(e.target.value);
+                  setAttendancePage(0);
+                }}
+              />
+            </label>
+          </header>
           {!canAttend ? (
             <p className="colonia-banner warn">Sin permiso de asistencia Colonia.</p>
           ) : null}
-          <div className="colonia-form inline">
-            <label><span>Día</span>
-              <input type="date" value={attendanceDay} onChange={(e) => setAttendanceDay(e.target.value)} />
-            </label>
-            <label><span>Estado</span>
-              <select value={attendanceStatus} onChange={(e) => setAttendanceStatus(e.target.value)}>
-                {COLONIA_ATTENDANCE_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
-              </select>
+          <div className="colonia-roll-counts" role="tablist" aria-label="Resumen del día">
+            {[
+              ['todos', 'En lista', rollCall.length],
+              ['presente', 'Presentes', rollCounts.presente],
+              ['ausente', 'Ausentes', rollCounts.ausente],
+              ['justificada', 'Justificadas', rollCounts.justificada],
+              ['retiro_anticipado', 'Se retiraron', rollCounts.retiro_anticipado],
+              ['sin_marcar', 'Sin marcar', rollCounts.sin_marcar],
+            ].map(([key, label, count]) => (
+              <button
+                key={key}
+                type="button"
+                role="tab"
+                aria-selected={attendanceFocus === key}
+                className={attendanceFocus === key ? 'is-on' : ''}
+                onClick={() => {
+                  setAttendanceFocus(key);
+                  setAttendancePage(0);
+                }}
+              >
+                <b>{count}</b>
+                <small>{label}</small>
+              </button>
+            ))}
+          </div>
+          <div className="colonia-sheets" role="tablist" aria-label="Edades">
+            {COLONIA_AGE_BANDS.map((band) => (
+              <button
+                key={band.key}
+                type="button"
+                role="tab"
+                aria-selected={attendanceBand === band.key}
+                className={attendanceBand === band.key ? 'is-on' : ''}
+                onClick={() => {
+                  setAttendanceBand(band.key);
+                  setAttendancePage(0);
+                }}
+              >
+                {band.label}
+              </button>
+            ))}
+          </div>
+          <div className="colonia-form">
+            <label><span>Buscar</span>
+              <input
+                value={attendanceQuery}
+                placeholder="Nombre, Nº o DNI"
+                onChange={(e) => {
+                  setAttendanceQuery(e.target.value);
+                  setAttendancePage(0);
+                }}
+              />
             </label>
           </div>
-          <ul className="colonia-list">
-            {enrollments.filter((e) => e.status !== 'cancelada').map((row) => (
-              <li key={row.id} className="colonia-row-actions">
-                <span>{row.student?.full_name}</span>
-                <button type="button" className="btn" disabled={busy || !canAttend} onClick={() => markAttendance(row.id)}>
-                  Marcar
-                </button>
-              </li>
-            ))}
-          </ul>
-          <p className="muted">Un profesor puede marcar asistencia; no puede cobrar ni anular cargos.</p>
+          {attendanceQuery.trim() && !rollFiltered.length ? (
+            <p className="colonia-search-miss">{clubMailSearchMissMessage(attendanceQuery)}</p>
+          ) : null}
+          <div className="table-container">
+            <table className="admin-table colonia-account-table">
+              <thead>
+                <tr>
+                  <th>Alumno</th>
+                  <th>Edad</th>
+                  <th>Grupo</th>
+                  <th>Lista</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rollSlice.map((item) => {
+                  const student = item.row.student || {};
+                  return (
+                    <tr key={item.row.id}>
+                      <td>
+                        <strong>{student.full_name || '—'}</strong>
+                        <span className="muted">{student.member_number ? `Nº ${student.member_number}` : ''}</span>
+                      </td>
+                      <td>{item.age == null ? 'Sin edad' : `${item.age} años`}</td>
+                      <td>{item.groupName || '—'}</td>
+                      <td>
+                        <div className="colonia-roll-marks" role="group" aria-label={`Lista de ${student.full_name || 'alumno'}`}>
+                          {COLONIA_ROLL_STATUSES.map((status) => (
+                            <button
+                              key={status.id}
+                              type="button"
+                              className={item.status === status.id ? `is-on is-${status.id}` : ''}
+                              disabled={!canAttend || attendanceSavingId === item.row.id}
+                              aria-pressed={item.status === status.id}
+                              onClick={() => markAttendance(item.row.id, status.id)}
+                            >
+                              {status.label}
+                            </button>
+                          ))}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+                {!rollSlice.length ? (
+                  <tr>
+                    <td colSpan={4} className="muted">
+                      {rollCall.length ? 'Nadie en este filtro.' : 'Todavía no hay inscriptos para pasar lista.'}
+                    </td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
+          <ColoniaPager page={rollPageSafe} total={rollFiltered.length} onPage={setAttendancePage} />
         </section>
       ) : null}
 
