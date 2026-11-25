@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { quoteColoniaPos, splitColoniaPosMeta } from './coloniaPayments';
-import { buildColoniaEnrollmentReceipt } from './coloniaReceipt';
+import { buildColoniaEnrollmentReceipt, buildColoniaPaidReceiptFromEnrollment } from './coloniaReceipt';
 import {
   COLONIA_ACCOUNT_HEADERS,
   COLONIA_ACCOUNT_SHEETS,
@@ -635,6 +635,50 @@ describe('administración Colonia — inscripción y cobro', () => {
     expect(promo.warnings.some((warning) => warning.code === 'fourth_sibling_inscription_only')).toBe(true);
     expect(planAmountFor(COLONIA_OFFICIAL_TARIFFS_2026_2027, 'socio', 'hermano_4')).toBe(410000);
     expect(planAmountFor(COLONIA_OFFICIAL_TARIFFS_2026_2027, 'no_socio', 'hermano_4')).toBe(500000);
+  });
+
+  it('el comprobante desde ficha junta inscripción + mes con el pago acreditado', () => {
+    const receipt = buildColoniaPaidReceiptFromEnrollment({
+      enrollment: {
+        id: 'enr-1',
+        plan_key: 'cuota',
+        student: {
+          full_name: 'Emilia Daher Ferrero',
+          member_kind: 'socio',
+          member_number: '10146',
+        },
+        guardian: {
+          full_name: 'Cristian Sergio Bonilla',
+          phone: '2646602683',
+        },
+      },
+      charges: [
+        { enrollment_id: 'enr-1', concept: 'colonia_inscripcion', amount: 50000, status: 'posted' },
+        { enrollment_id: 'enr-1', concept: 'colonia_cuota', amount: 150000, status: 'posted' },
+      ],
+      payments: [
+        {
+          enrollment_id: 'enr-1',
+          amount: 200000,
+          status: 'confirmed',
+          method: 'tarjeta',
+          confirmed_at: '2026-11-25T12:00:00.000Z',
+        },
+      ],
+      socioName: 'Cristian Sergio Bonilla',
+      socioNumber: '10146',
+    });
+    expect(receipt.socioName).toBe('Cristian Sergio Bonilla');
+    expect(receipt.lines.map((line) => [line.concept, line.amount])).toEqual([
+      ['Inscripción', 50000],
+      ['Cuota Colonia', 150000],
+    ]);
+    expect(receipt.total).toBe(200000);
+    expect(receipt.paymentLabel).toBe('Acreditado');
+    expect(buildColoniaPaidReceiptFromEnrollment({
+      enrollment: { id: 'enr-2', plan_key: 'cuota', student: { full_name: 'X' } },
+      payments: [{ enrollment_id: 'enr-2', status: 'pending', amount: 1 }],
+    })).toBeNull();
   });
 
   it('el comprobante de inscripción detalla alumno, titular, mes, promo e importe', () => {

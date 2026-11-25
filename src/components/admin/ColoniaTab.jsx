@@ -6,6 +6,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ClipboardList,
+  FileDown,
   Users,
   Wallet,
 } from 'lucide-react';
@@ -53,7 +54,11 @@ import {
   coloniaAccountMonths,
   summarizeColoniaAccount,
 } from '../../domain/colonia/coloniaLedger';
-import { buildColoniaEnrollmentReceipt, downloadColoniaEnrollmentReceipt } from '../../domain/colonia/coloniaReceipt';
+import {
+  buildColoniaEnrollmentReceipt,
+  buildColoniaPaidReceiptFromEnrollment,
+  downloadColoniaEnrollmentReceipt,
+} from '../../domain/colonia/coloniaReceipt';
 import {
   buildColoniaPaymentDraft,
   coloniaEnrollPayReady,
@@ -917,6 +922,38 @@ export default function ColoniaTab({
       setHealthNotes(health.health_notes || '');
     }
     setSection('alumnos');
+  }
+
+  function paidReceiptForEnrollment(enrollment) {
+    if (!enrollment?.id) return null;
+    const socio = responsibleSocio(enrollment);
+    return buildColoniaPaidReceiptFromEnrollment({
+      enrollment,
+      charges: seasonCharges,
+      payments: seasonPayments,
+      tariffs: COLONIA_OFFICIAL_TARIFFS_2026_2027,
+      socioName: socio?.name || enrollment.guardian?.full_name || '',
+      socioNumber: socio?.memberNumber || enrollment.student?.member_number || '',
+    });
+  }
+
+  async function downloadPaidReceipt(enrollment, event) {
+    event?.stopPropagation?.();
+    setMsg('');
+    const receipt = paidReceiptForEnrollment(enrollment);
+    if (!receipt) {
+      setMsg('Todavía no hay pago acreditado para descargar inscripción + mes.');
+      return;
+    }
+    setBusy(true);
+    try {
+      await downloadColoniaEnrollmentReceipt(receipt);
+      setMsg('Se descargó el comprobante de inscripción y mes de Colonia.');
+    } catch (err) {
+      setMsg(err?.message || 'No se pudo descargar el comprobante.');
+    } finally {
+      setBusy(false);
+    }
   }
 
   function addPupil() {
@@ -2381,6 +2418,7 @@ export default function ColoniaTab({
                   <th>Contratado</th>
                   <th>Cobrado</th>
                   <th>Saldo</th>
+                  <th>Comprobante</th>
                 </tr>
               </thead>
               <tbody>
@@ -2388,6 +2426,7 @@ export default function ColoniaTab({
                   const account = accountById.get(row.id);
                   const summary = account?.summary;
                   const selected = selectedEnrollment?.id === row.id;
+                  const canReceipt = Boolean(paidReceiptForEnrollment(row));
                   return (
                     <tr
                       key={row.id}
@@ -2410,12 +2449,24 @@ export default function ColoniaTab({
                       <td>{money(summary?.totalContracted)}</td>
                       <td>{money(summary?.totalCollected)}</td>
                       <td>{money(summary?.balanceDue)}</td>
+                      <td>
+                        <button
+                          type="button"
+                          className="btn btn-sm"
+                          disabled={busy || !canReceipt}
+                          title={canReceipt ? 'Descargar inscripción + mes' : 'Sin pago acreditado'}
+                          onClick={(event) => downloadPaidReceipt(row, event)}
+                        >
+                          <FileDown size={14} aria-hidden="true" />
+                          PDF
+                        </button>
+                      </td>
                     </tr>
                   );
                 })}
                 {!rosterSlice.length ? (
                   <tr>
-                    <td colSpan={9} className="muted">Sin inscriptos en esta temporada.</td>
+                    <td colSpan={10} className="muted">Sin inscriptos en esta temporada.</td>
                   </tr>
                 ) : null}
               </tbody>
@@ -2473,6 +2524,17 @@ export default function ColoniaTab({
               ) : (
                 <p className="muted">No socio: el cobro queda solo en la ficha de Colonia.</p>
               )}
+              {paidReceiptForEnrollment(selectedEnrollment) ? (
+                <button
+                  type="button"
+                  className="btn"
+                  disabled={busy}
+                  onClick={(event) => downloadPaidReceipt(selectedEnrollment, event)}
+                >
+                  <FileDown size={14} aria-hidden="true" />
+                  Descargar comprobante (inscripción + mes)
+                </button>
+              ) : null}
               {selectedEnrollment.status !== 'cancelada' && canFinance ? (
                 <button type="button" className="btn" disabled={busy} onClick={cancelSelectedEnrollment}>
                   Cancelar inscripción
@@ -2543,6 +2605,7 @@ export default function ColoniaTab({
                   <th>Próximo mes</th>
                   <th>Estado</th>
                   <th>Avisos</th>
+                  <th>Comprobante</th>
                   <th>Cancelar</th>
                 </tr>
               </thead>
@@ -2551,6 +2614,7 @@ export default function ColoniaTab({
                   const student = row.enrollment.student || {};
                   const payer = coloniaPayer(row);
                   const canNotify = row.noticeAmount > 0;
+                  const canReceipt = Boolean(paidReceiptForEnrollment(row.enrollment));
                   return (
                     <tr key={row.enrollment.id}>
                       <td>
@@ -2579,6 +2643,18 @@ export default function ColoniaTab({
                       <td>
                         <button
                           type="button"
+                          className="btn btn-sm"
+                          disabled={busy || !canReceipt}
+                          title={canReceipt ? 'Descargar inscripción + mes' : 'Sin pago acreditado'}
+                          onClick={(event) => downloadPaidReceipt(row.enrollment, event)}
+                        >
+                          <FileDown size={14} aria-hidden="true" />
+                          PDF
+                        </button>
+                      </td>
+                      <td>
+                        <button
+                          type="button"
                           className="btn"
                           disabled={busy || !canOperate}
                           onClick={() => cancelAccountEnrollment(row.enrollment)}
@@ -2591,7 +2667,7 @@ export default function ColoniaTab({
                 })}
                 {!accountVisible.length ? (
                   <tr>
-                    <td colSpan={9} className="muted">Nadie en este mes.</td>
+                    <td colSpan={10} className="muted">Nadie en este mes.</td>
                   </tr>
                 ) : null}
               </tbody>
