@@ -23,15 +23,17 @@ import {
   planChildSlots,
 } from './coloniaDesk';
 import {
+  assertColoniaFinanceIsolation,
   buildColoniaAccountRows,
   buildColoniaCharge,
   buildColoniaEnrollmentsCsv,
   buildColoniaMonthRows,
   buildColoniaReceipt,
   coloniaAccountMonths,
+  coloniaAmountForPayScope,
+  coloniaCollectableScopes,
   coloniaNextMonthLabel,
   summarizeColoniaAccount,
-  assertColoniaFinanceIsolation,
 } from './coloniaLedger';
 import {
   buildColoniaPaymentDraft,
@@ -488,7 +490,41 @@ describe('administración Colonia — inscripción y cobro', () => {
       payments: [{ amount: 20000, status: 'confirmed' }],
     });
     expect(summary.balanceDue).toBe(30000);
+    expect(summary.inscriptionOpen).toBe(30000);
+    expect(summary.planOpen).toBe(0);
     expect(() => assertColoniaFinanceIsolation({ affectsMemberOutstandingBalance: true })).toThrow(/outstanding_balance/i);
+  });
+
+  it('inscripción y mes se pueden cobrar por separado sobre la misma cuenta', () => {
+    const charges = [
+      { concept: 'colonia_inscripcion', amount: 50000, status: 'posted' },
+      { concept: 'colonia_cuota', amount: 180000, status: 'posted' },
+    ];
+    const none = coloniaCollectableScopes({ charges, payments: [] });
+    expect(none.inscriptionOpen).toBe(50000);
+    expect(none.planOpen).toBe(180000);
+    expect(none.totalOpen).toBe(230000);
+    expect(coloniaAmountForPayScope('inscripcion', { inscriptionAmount: 50000, planAmount: 180000 })).toBe(50000);
+    expect(coloniaAmountForPayScope('plan', { inscriptionAmount: 50000, planAmount: 180000 })).toBe(180000);
+    expect(coloniaAmountForPayScope('todo', { inscriptionAmount: 50000, planAmount: 180000 })).toBe(230000);
+
+    const afterInscription = coloniaCollectableScopes({
+      charges,
+      payments: [{ amount: 50000, status: 'confirmed' }],
+    });
+    expect(afterInscription.inscriptionOpen).toBe(0);
+    expect(afterInscription.planOpen).toBe(180000);
+    expect(afterInscription.totalOpen).toBe(180000);
+
+    const settled = coloniaCollectableScopes({
+      charges,
+      payments: [
+        { amount: 50000, status: 'confirmed' },
+        { amount: 180000, status: 'confirmed' },
+      ],
+    });
+    expect(settled.totalOpen).toBe(0);
+    expect(settled.canPayAll).toBe(false);
   });
 
   it('el borrador de pago no acepta un medio ajeno', () => {
@@ -722,6 +758,23 @@ describe('administración Colonia — inscripción y cobro', () => {
     expect(promo.socioNumber).toBe('10146');
     expect(promo.lines.map((line) => line.concept)).toEqual(['Promoción']);
     expect(promo.total).toBe(410000);
+
+    const externo = buildColoniaEnrollmentReceipt({
+      pupils: [{ fullName: 'Rodriguez Gaspar Leon' }],
+      planKey: 'cuota',
+      memberKind: 'no_socio',
+      inscriptionAmount: 50000,
+      planAmount: 180000,
+      socioName: 'Rodriguez Yamila',
+      socioNumber: '',
+      method: 'debito',
+      paymentStatus: 'confirmed',
+      when: new Date(2026, 10, 25),
+    });
+    expect(externo.responsibleLabel).toBe('Responsable');
+    expect(externo.socioKind).toBe('No socio');
+    expect(externo.isSocio).toBe(false);
+    expect(externo.socioNumber).toBe('');
   });
 
   it('el mes que viene se nombra en español', () => {

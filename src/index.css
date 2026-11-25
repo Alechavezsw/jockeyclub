@@ -32453,6 +32453,12 @@ button.debit-moves-row:disabled {
   color: #1a7a8c;
   font-weight: 700;
 }
+.colonia-pay-scopes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+}
 .colonia-plans {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
