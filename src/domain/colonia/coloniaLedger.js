@@ -3,7 +3,7 @@
  */
 
 import { COLONIA_CHARGE_CONCEPTS, coloniaMethodLabel } from './coloniaConstants';
-import { planAmountFor } from './coloniaTariffs';
+import { inscriptionAmount, planAmountFor } from './coloniaTariffs';
 
 export function moneyArs(value) {
   const n = Number(value);
@@ -19,7 +19,10 @@ export function summarizeColoniaAccount({ charges = [], payments = [] } = {}) {
   );
   const confirmed = moneyArs(
     (payments || [])
-      .filter((p) => String(p.status || '') === 'confirmed')
+      .filter((p) => {
+        const status = String(p.status || '');
+        return status === 'confirmed' || status === 'confirmado';
+      })
       .reduce((sum, p) => sum + moneyArs(p.amount), 0),
   );
   const pending = moneyArs(
@@ -101,6 +104,50 @@ export function buildColoniaReceipt({
   };
 }
 
+function monthStart(value) {
+  const match = /^(\d{4})-(\d{2})/.exec(String(value || ''));
+  if (!match) return null;
+  return new Date(Number(match[1]), Number(match[2]) - 1, 1);
+}
+
+function monthKeyFromDate(value) {
+  if (!value) return '';
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}`;
+  }
+  const match = /^(\d{4})-(\d{2})/.exec(String(value));
+  if (match) return `${match[1]}-${match[2]}`;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return '';
+  return `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function monthLabel(date) {
+  const label = date.toLocaleDateString('es-AR', { month: 'long', year: 'numeric' });
+  return label.charAt(0).toUpperCase() + label.slice(1);
+}
+
+/** Meses de la temporada. Sin fecha de fin, la colonia de verano llega hasta febrero. */
+export function coloniaAccountMonths(season, today = new Date()) {
+  const start = monthStart(season?.activities_start_on || season?.activitiesStartOn
+    || season?.enrollment_opens_on || season?.enrollmentOpensOn)
+    || new Date(today.getFullYear(), today.getMonth(), 1);
+  let end = monthStart(season?.activities_end_on || season?.activitiesEndOn);
+  if (!end) {
+    end = start.getMonth() >= 9
+      ? new Date(start.getFullYear() + 1, 1, 1)
+      : new Date(start.getFullYear(), start.getMonth() + 2, 1);
+  }
+  if (end < start) end = new Date(start.getFullYear(), start.getMonth(), 1);
+  const months = [];
+  const cursor = new Date(start.getFullYear(), start.getMonth(), 1);
+  while (cursor <= end && months.length < 6) {
+    months.push({ key: monthKeyFromDate(cursor), label: monthLabel(cursor) });
+    cursor.setMonth(cursor.getMonth() + 1);
+  }
+  return months;
+}
+
 export function coloniaNextMonthLabel(today = new Date()) {
   const next = new Date(today.getFullYear(), today.getMonth() + 1, 1);
   return next.toLocaleDateString('es-AR', { month: 'long', year: 'numeric' });
@@ -160,6 +207,135 @@ export function buildColoniaAccountRows({
         nextLabel,
         noticeAmount: owed > 0 ? owed : (status === 'proximo' ? monthAmount : 0),
       };
+    });
+}
+
+function paymentPool(payments = [], status) {
+  return (payments || [])
+    .filter((payment) => String(payment.status || '') === status)
+    .reduce((sum, payment) => sum + moneyArs(payment.amount), 0);
+}
+
+function confirmedPool(payments = []) {
+  return paymentPool(payments, 'confirmed') + paymentPool(payments, 'confirmado');
+}
+
+function pendingPool(payments = []) {
+  return paymentPool(payments, 'pending');
+}
+
+function liveCharges(charges = []) {
+  return (charges || []).filter((charge) => String(charge.status || 'posted') !== 'void');
+}
+
+/** Si ya hay cargos, el mes sigue lo publicado. Si no, usa la tarifa. */
+function monthDueParts(charges, { tariff, inscription }) {
+  if (!charges.length) return { firstExtra: inscription, monthTariff: tariff };
+  const live = liveCharges(charges);
+  const firstExtra = live
+    .filter((charge) => String(charge.concept || '') === 'colonia_inscripcion')
+    .reduce((sum, charge) => sum + moneyArs(charge.amount), 0);
+  const monthTariff = live
+    .filter((charge) => String(charge.concept || '') !== 'colonia_inscripcion')
+    .reduce((sum, charge) => sum + moneyArs(charge.amount), 0);
+  return { firstExtra, monthTariff };
+}
+
+/**
+ * Una fila por inscripción en un mes de la temporada.
+ * La cuota mensual se imputa de mes en mes. Temporada y cuarto hermano quedan en el mes del cargo.
+ */
+export function buildColoniaMonthRows({
+  enrollments = [],
+  charges = [],
+  payments = [],
+  tariffs,
+  periodicity = null,
+  monthKey,
+  season,
+  today = new Date(),
+} = {}) {
+  const months = coloniaAccountMonths(season, today);
+  const keys = months.map((month) => month.key);
+  const currentKey = monthKeyFromDate(today);
+  const chargeMap = rowsByEnrollment(charges);
+  const paymentMap = rowsByEnrollment(payments);
+  const nextLabel = months.find((month) => month.key === monthKey)?.label || coloniaNextMonthLabel(today);
+  return (enrollments || [])
+    .filter((row) => row?.status !== 'cancelada')
+    .flatMap((enrollment) => {
+      const plan = String(enrollment.plan_key || enrollment.planKey || '');
+      const kind = enrollment.student?.member_kind || enrollment.student?.memberKind || 'socio';
+      const monthly = plan === 'cuota'
+        || (periodicity === 'monthly' && (plan === 'promo_2' || plan === 'promo_3'));
+      const tariff = Number(planAmountFor(tariffs, kind, plan)) || 0;
+      const inscription = plan === 'hermano_4' ? 0 : inscriptionAmount(tariffs);
+      const ownCharges = chargeMap.get(enrollment.id) || [];
+      const ownPayments = paymentMap.get(enrollment.id);
+      const pool = confirmedPool(ownPayments);
+      const waiting = pendingPool(ownPayments);
+      const dueParts = monthDueParts(ownCharges, { tariff, inscription });
+      let collected = 0;
+      let owed = 0;
+      let status = 'pago';
+      let nextAmount = 0;
+      if (!monthly) {
+        const anchor = monthKeyFromDate(ownCharges[0]?.created_at || ownCharges[0]?.createdAt) || keys[0];
+        if (anchor !== monthKey) return [];
+        const contracted = ownCharges.length
+          ? liveCharges(ownCharges).reduce((sum, charge) => sum + moneyArs(charge.amount), 0)
+          : tariff + inscription;
+        collected = Math.min(pool, contracted);
+        owed = moneyArs(Math.max(0, contracted - pool));
+        status = owed > 0 ? 'falta' : (waiting > 0 ? 'pendiente' : 'pago');
+      } else if (!keys.includes(monthKey)) {
+        return [];
+      } else if (currentKey && monthKey > currentKey) {
+        if (dueParts.monthTariff > 0) {
+          status = 'proximo';
+          nextAmount = dueParts.monthTariff;
+        }
+      } else {
+        let left = pool;
+        let pendingLeft = waiting;
+        const slices = [];
+        for (const key of keys) {
+          if (currentKey && key > currentKey) break;
+          const due = (key === keys[0] ? dueParts.firstExtra : 0) + dueParts.monthTariff;
+          const take = Math.min(left, due);
+          left = moneyArs(left - take);
+          const gap = moneyArs(Math.max(0, due - take));
+          const pendHere = Math.min(pendingLeft, gap);
+          pendingLeft = moneyArs(pendingLeft - pendHere);
+          slices.push({ key, collected: take, owed: gap, pendHere });
+        }
+        const slice = slices.find((item) => item.key === monthKey);
+        if (!slice) return [];
+        const laterOwes = slices.some((item) => item.key > monthKey && item.owed > 0);
+        collected = slice.collected;
+        owed = slice.owed;
+        const lastStarted = slices[slices.length - 1]?.key;
+        status = owed > 0
+          ? 'falta'
+          : ((slice.pendHere > 0 || (pendingLeft > 0 && !laterOwes && monthKey === lastStarted)) ? 'pendiente' : 'pago');
+      }
+      return [{
+        enrollment,
+        summary: {
+          totalContracted: moneyArs(collected + owed),
+          totalCollected: collected,
+          pendingConfirmation: 0,
+          balanceDue: owed,
+          isSettled: owed <= 0,
+        },
+        plan,
+        status,
+        owed,
+        nextAmount,
+        nextLabel,
+        noticeAmount: owed > 0 ? owed : nextAmount,
+        monthKey,
+      }];
     });
 }
 

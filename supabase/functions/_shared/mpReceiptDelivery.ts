@@ -34,7 +34,8 @@ function shouldIssueMpDuesReceipt(kind: string) {
     || next === "subscription"
     || next === "pool"
     || next === "booking"
-    || next === "reservation";
+    || next === "reservation"
+    || next === "colonia";
 }
 
 function mpReceiptChannelOf(meta: Record<string, unknown> = {}) {
@@ -353,7 +354,7 @@ export async function deliverMpReceipt(
             body: copy.text,
             is_read: false,
             meta: {
-              kind: copy.kind,
+              kind: intentKind === "colonia" ? "colonia_payment" : copy.kind,
               method: "mercadopago",
               receiptNumber,
               mp_intent_id: intent.id,
@@ -411,12 +412,16 @@ export async function deliverMpReceipt(
   // Aviso a operaciones: la operación entra en «Pagos entrantes» aunque MP acredite solo.
   let opsNoticeId = String(meta.ops_payment_notice_id || prior.opsNoticeId || "");
   if (!opsNoticeId) {
-    const opsKind = intentKind === "booking" || intentKind === "reservation"
-      ? "booking_payment"
-      : "dues_payment";
-    const opsSubject = opsKind === "booking_payment"
-      ? "Operación Mercado Pago · reserva acreditada"
-      : "Operación Mercado Pago · cuota acreditada";
+    const opsKind = intentKind === "colonia"
+      ? "colonia_payment"
+      : intentKind === "booking" || intentKind === "reservation"
+        ? "booking_payment"
+        : "dues_payment";
+    const opsSubject = opsKind === "colonia_payment"
+      ? "Operación Mercado Pago · Colonia acreditada"
+      : opsKind === "booking_payment"
+        ? "Operación Mercado Pago · reserva acreditada"
+        : "Operación Mercado Pago · cuota acreditada";
     const opsBody = [
       `${name}${memberNumber ? ` (Nº ${memberNumber})` : ""} pagó por Mercado Pago desde la app.`,
       `Importe: ${copy.money}`,

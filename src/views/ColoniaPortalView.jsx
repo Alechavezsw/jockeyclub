@@ -7,6 +7,7 @@ import {
   Loader2,
   Wallet,
 } from 'lucide-react';
+import MercadoPagoCheckout from '../components/MercadoPagoCheckout';
 import { repos } from '../data/bootstrap';
 import { isSupabaseConfigured } from '../lib/supabase';
 import { COLONIA_SEASON_2026_2027, COLONIA_MP_ENABLED } from '../domain/colonia/coloniaConstants';
@@ -24,6 +25,7 @@ import {
   portalEnabledPlans,
   validatePortalEnrollmentWizard,
 } from '../domain/colonia/coloniaPortal';
+import { coloniaMpPayable } from '../domain/colonia/coloniaPayments';
 import { todayISODateAR } from '../lib/arDate';
 
 function PortalDonut({ parts, total }) {
@@ -240,7 +242,7 @@ export default function ColoniaPortalView({
   const quote = useMemo(() => {
     const kind = student.memberKind || 'socio';
     const tariffs = COLONIA_OFFICIAL_TARIFFS_2026_2027;
-    const inscription = inscriptionAmount(tariffs);
+    const inscription = planKey === 'hermano_4' ? 0 : inscriptionAmount(tariffs);
     const plan = planAmountFor(tariffs, kind, planKey) || 0;
     return {
       inscription: Number(inscription) || 0,
@@ -249,6 +251,18 @@ export default function ColoniaPortalView({
     };
   }, [student.memberKind, planKey]);
 
+  const portalMpAmount = useMemo(() => {
+    const posted = charges
+      .filter((row) => String(row.status || 'posted') !== 'void')
+      .reduce((sum, row) => sum + (Number(row.amount) || 0), 0);
+    const confirmed = payments
+      .filter((row) => row.status === 'confirmed' || row.status === 'confirmado')
+      .reduce((sum, row) => sum + (Number(row.amount) || 0), 0);
+    const pending = payments
+      .filter((row) => row.status === 'pending')
+      .reduce((sum, row) => sum + (Number(row.amount) || 0), 0);
+    return coloniaMpPayable(posted - confirmed, pending);
+  }, [charges, payments]);
   const home = useMemo(() => buildMemberColoniaHome(enrollments), [enrollments]);
   const { mine, dueTotal, paidTotal, nextLabel } = home;
   const statusParts = home.statusParts.map((part, index) => ({
@@ -674,6 +688,17 @@ export default function ColoniaPortalView({
             ))}
             {!payments.length ? <li className="muted">Sin pagos</li> : null}
           </ul>
+          {COLONIA_MP_ENABLED && portalMpAmount > 0 ? (
+            <MercadoPagoCheckout
+              kind="colonia"
+              amount={portalMpAmount}
+              enrollmentId={selectedEnrollmentId}
+              memberNumber={member?.memberId || member?.member_number || ''}
+              concept="Colonia de Verano"
+              label={`Pagar ${money(portalMpAmount)} con Mercado Pago`}
+              onApproved={() => { void openAccount(selectedEnrollmentId); void refreshList(); }}
+            />
+          ) : null}
           <h4>Informar transferencia</h4>
           <input placeholder="Referencia / Nº operación" value={transferRef} onChange={(e) => setTransferRef(e.target.value)} />
           <input placeholder="Importe" value={transferAmount} onChange={(e) => setTransferAmount(e.target.value)} />

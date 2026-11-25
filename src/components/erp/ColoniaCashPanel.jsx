@@ -128,7 +128,11 @@ export default function ColoniaCashPanel({ roles = [], role, operatorName = '' }
         idempotencyKey: draft.idempotencyKey,
         operatorName,
       });
-      setMsg(`Pago Colonia registrado (${coloniaMethodLabel(draft.method)} · ${draft.status}). No imputa cuota social.`);
+      setMsg(draft.status === 'confirmed'
+        ? (res?.cash_movement_id
+          ? `Pago Colonia acreditado (${coloniaMethodLabel(draft.method)}). Entró a la caja del día y al asiento. No imputa cuota social.`
+          : `Pago Colonia acreditado (${coloniaMethodLabel(draft.method)}). Quedó el asiento de Colonia. No imputa cuota social.`)
+        : `Pago Colonia pendiente (${coloniaMethodLabel(draft.method)}). Entra al asiento cuando se confirme. No imputa cuota social.`);
       await selectEnrollment(selected);
       if (res?.duplicate) setMsg((m) => `${m} Operación idempotente: no se duplicó.`);
     } catch (err) {

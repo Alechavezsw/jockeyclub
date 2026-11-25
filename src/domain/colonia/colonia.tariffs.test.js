@@ -163,7 +163,7 @@ describe('colonia domain', () => {
       method: 'mercadopago',
       amount: 50000,
       enrollmentId: 'e1',
-    })).toThrow(/autorización de despliegue/i);
+    })).toThrow(/no se carga a mano/i);
 
     expect(coloniaMercadoPagoAdapterSpec().kind).toBe('colonia');
   });
@@ -225,7 +225,8 @@ describe('colonia domain', () => {
     expect(t.no_socio.promo_2).toBe(340000);
     expect(t.socio.promo_3).toBe(410000);
     expect(t.no_socio.promo_3).toBe(500000);
-    expect(t.socio.hermano_4).toBe(0);
+    expect(t.socio.hermano_4).toBe(360000);
+    expect(t.no_socio.hermano_4).toBe(450000);
   });
 
   it('inscripción el 30/11/2026 incluida; fuera de ventana rechazada', () => {

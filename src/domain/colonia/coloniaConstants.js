@@ -51,7 +51,7 @@ export const COLONIA_ENROLLMENT_SOURCES = Object.freeze([
 ]);
 
 /** Mercado Pago Colonia: preparado en frontend, cobros reales deshabilitados. */
-export const COLONIA_MP_ENABLED = false;
+export const COLONIA_MP_ENABLED = true;
 
 export const COLONIA_ATTENDANCE_STATUSES = Object.freeze([
   'presente',

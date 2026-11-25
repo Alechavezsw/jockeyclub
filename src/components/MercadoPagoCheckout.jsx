@@ -24,6 +24,7 @@ export default function MercadoPagoCheckout({
   guestName,
   booking = null,
   schedule = null,
+  enrollmentId = null,
   mode = 'redirect',
   label,
   subscribe = false,
@@ -97,6 +98,7 @@ export default function MercadoPagoCheckout({
         guestName,
         booking,
         schedule,
+        enrollmentId,
         channel: mpChannelFor({ kind: nextKind, mode, subscribe }),
       });
       setCheckout(created);

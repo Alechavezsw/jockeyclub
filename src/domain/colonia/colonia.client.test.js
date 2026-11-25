@@ -52,8 +52,8 @@ describe('app del socio — Colonia', () => {
     expect(navItemsForRole('member').find((item) => item.id === 'colonia').label).toBe('Colonia');
   });
 
-  it('Mercado Pago de Colonia sigue apagado en la app', () => {
-    expect(COLONIA_MP_ENABLED).toBe(false);
+  it('Mercado Pago de Colonia está habilitado en la app', () => {
+    expect(COLONIA_MP_ENABLED).toBe(true);
   });
 
   it('sin periodicidad no ofrece promo de hermanos', () => {
