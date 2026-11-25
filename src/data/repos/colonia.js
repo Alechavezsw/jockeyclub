@@ -187,6 +187,7 @@ export async function coloniaRecordPayment({
   externalReference,
   idempotencyKey,
   operatorName,
+  bankId,
 }) {
   requireCloud();
   const { data, error } = await sb().rpc('colonia_record_payment', {
@@ -197,6 +198,7 @@ export async function coloniaRecordPayment({
     p_external_reference: externalReference || null,
     p_idempotency_key: idempotencyKey || null,
     p_operator_name: operatorName || null,
+    p_bank_id: bankId || null,
   });
   if (error) mapRpcMissing(error, 'No se pudo registrar el pago de Colonia');
   return data;

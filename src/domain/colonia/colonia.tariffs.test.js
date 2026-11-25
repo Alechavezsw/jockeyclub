@@ -149,7 +149,7 @@ describe('colonia domain', () => {
       enrollmentId: 'e1',
       externalReference: 'TRX-1',
     });
-    expect(transfer.status).toBe('pending');
+    expect(transfer.status).toBe('confirmed');
 
     const card = validateColoniaPaymentInput({
       method: 'pos',
@@ -225,8 +225,8 @@ describe('colonia domain', () => {
     expect(t.no_socio.promo_2).toBe(340000);
     expect(t.socio.promo_3).toBe(410000);
     expect(t.no_socio.promo_3).toBe(500000);
-    expect(t.socio.hermano_4).toBe(360000);
-    expect(t.no_socio.hermano_4).toBe(450000);
+    expect(t.socio.hermano_4).toBe(410000);
+    expect(t.no_socio.hermano_4).toBe(500000);
   });
 
   it('inscripción el 30/11/2026 incluida; fuera de ventana rechazada', () => {

@@ -8,6 +8,8 @@ import {
   Wallet,
 } from 'lucide-react';
 import MercadoPagoCheckout from '../MercadoPagoCheckout';
+import PaymentMethodTiles from '../PaymentMethodTiles';
+import { CLUB_BANK_ACCOUNTS } from '../../domain/members/clubBanks';
 import { repos } from '../../data/bootstrap';
 import { deliverableEmail } from '../../domain/messaging/clubNotice';
 import { MAILBOX, createMessage } from '../../domain/messaging/messages';
@@ -28,7 +30,6 @@ import { loadXlsx } from '../../lib/office';
 import {
   COLONIA_ACTIVITY_KINDS,
   COLONIA_ATTENDANCE_STATUSES,
-  COLONIA_PAYMENT_METHODS,
   COLONIA_PLAN_KEYS,
   COLONIA_SECTIONS,
   COLONIA_SEASON_2026_2027,
@@ -52,6 +53,10 @@ import {
 } from '../../domain/colonia/coloniaLedger';
 import {
   buildColoniaPaymentDraft,
+  coloniaEnrollPayReady,
+  coloniaMethodUsesBank,
+  coloniaMethodUsesCard,
+  coloniaMethodUsesCash,
 } from '../../domain/colonia/coloniaPayments';
 import {
   canAccessColonia,
@@ -187,6 +192,56 @@ function ColoniaBars({ items }) {
   );
 }
 
+function ColoniaPayDesk({
+  method,
+  onMethod,
+  bankId,
+  onBank,
+  reference,
+  onReference,
+  disabled = false,
+}) {
+  return (
+    <>
+      <PaymentMethodTiles
+        value={method}
+        onChange={onMethod}
+        disabled={disabled}
+        ariaLabel="Método de pago de Colonia"
+      />
+      {coloniaMethodUsesCash(method) ? (
+        <p className="pool-pay-note">
+          Confirme el cobro en efectivo. Se registrará en <strong>Caja General</strong>.
+        </p>
+      ) : null}
+      {coloniaMethodUsesBank(method) ? (
+        <>
+          <label className="colonia-field"><span>Alias</span>
+            <select value={bankId} onChange={(e) => onBank(e.target.value)} disabled={disabled}>
+              {CLUB_BANK_ACCOUNTS.map((bank) => (
+                <option key={bank.id} value={bank.id}>{bank.alias || bank.name}</option>
+              ))}
+            </select>
+          </label>
+          <label className="colonia-field"><span>Referencia</span>
+            <input
+              value={reference}
+              onChange={(e) => onReference(e.target.value)}
+              placeholder="Nº de operación"
+              disabled={disabled}
+            />
+          </label>
+        </>
+      ) : null}
+      {coloniaMethodUsesCard(method) ? (
+        <p className="pool-pay-note">
+          Pago POS: queda en <strong>Tarjetas a cobrar</strong> con el asiento. No entra en la caja.
+        </p>
+      ) : null}
+    </>
+  );
+}
+
 export default function ColoniaTab({
   roles = [],
   role,
@@ -225,7 +280,11 @@ export default function ColoniaTab({
   const [payMethod, setPayMethod] = useState('efectivo');
   const [payAmount, setPayAmount] = useState('');
   const [payRef, setPayRef] = useState('');
-  const [cardConfirmed, setCardConfirmed] = useState(false);
+  const [enrollPayMethod, setEnrollPayMethod] = useState('efectivo');
+  const [enrollPayRef, setEnrollPayRef] = useState('');
+  const [enrollBankId, setEnrollBankId] = useState(CLUB_BANK_ACCOUNTS[0]?.id || 'macro');
+  const [payBankId, setPayBankId] = useState(CLUB_BANK_ACCOUNTS[0]?.id || 'macro');
+  const [enrollHold, setEnrollHold] = useState(null);
   const [attendanceDay, setAttendanceDay] = useState(todayIso());
   const [attendanceStatus, setAttendanceStatus] = useState('presente');
   const [groupName, setGroupName] = useState('');
@@ -307,6 +366,10 @@ export default function ColoniaTab({
     () => summarizeColoniaAccount({ charges, payments }),
     [charges, payments],
   );
+  const fichaSocio = selectedEnrollment && selectedEnrollment.student?.member_kind !== 'no_socio'
+    ? responsibleSocio(selectedEnrollment)
+    : null;
+  const fichaDue = Math.max(0, (Number(accountSummary.balanceDue) || 0) - (Number(accountSummary.pendingConfirmation) || 0));
   const memberParsed = clubMailMemberQuery(memberQuery);
   const memberSearchReady = student.memberKind === 'socio' && (
     memberParsed.kind === 'number'
@@ -456,7 +519,7 @@ export default function ColoniaTab({
     };
   }
 
-  function applyChosen(keys, rows, need = childSlots) {
+  function applyChosen(keys, rows, need = childSlots, { trim = false } = {}) {
     const picked = keys.map((key) => rows.find((row) => memberKey(row) === key)).filter(Boolean);
     setChosenKeys(keys);
     if (picked[0]) {
@@ -480,6 +543,7 @@ export default function ColoniaTab({
         if (prev[index]?.memberNumber) return { ...EMPTY_PUPIL, shirtSize: prev[index]?.shirtSize || '' };
         return prev[index] || { ...EMPTY_PUPIL };
       });
+      if (trim) return planned;
       return [...planned, ...prev.slice(size)];
     });
   }
@@ -510,6 +574,34 @@ export default function ColoniaTab({
       return `Hola, te saludamos del Jockey Club San Juan. En ${row.nextLabel} corresponde la cuota de Colonia de ${who} por ${amount}. La cuenta de Colonia es aparte de la cuota social.`;
     }
     return `Hola, te saludamos del Jockey Club San Juan. Queda pendiente la cuenta de Colonia de ${who} por ${amount}. Podés regularizarla en el club. La cuenta de Colonia es aparte de la cuota social.`;
+  }
+
+  function responsibleSocio(enrollment) {
+    const student = enrollment?.student || {};
+    const guardian = enrollment?.guardian || {};
+    if (student.member_kind === 'no_socio') return null;
+    const phone = String(guardian.phone || '').replace(/\D/g, '');
+    const name = foldColoniaText(guardian.full_name);
+    const studentNumber = String(student.member_number || '').replace(/\D/g, '').replace(/^0+/, '');
+    const list = members || [];
+    const sameNumber = (item) => {
+      const id = String(item?.memberId || item?.memberNumber || '').replace(/\D/g, '').replace(/^0+/, '');
+      return studentNumber && id === studentNumber;
+    };
+    const sameGuardian = (item) => {
+      const itemPhone = String(item?.phone || item?.phoneAlt || '').replace(/\D/g, '');
+      if (phone.length >= 8 && itemPhone.length >= 8 && (itemPhone.endsWith(phone.slice(-8)) || phone.endsWith(itemPhone.slice(-8)))) {
+        return true;
+      }
+      const itemName = foldColoniaText(item?.fullName || item?.name);
+      return name.length > 3 && itemName === name;
+    };
+    const hit = list.find(sameGuardian) || list.find(sameNumber) || null;
+    const memberNumber = String(hit?.memberId || hit?.memberNumber || student.member_number || '').replace(/\D/g, '').replace(/^0+/, '');
+    return {
+      name: guardian.full_name || hit?.fullName || hit?.name || student.full_name || 'el socio',
+      memberNumber,
+    };
   }
 
   function coloniaPayer(row) {
@@ -655,6 +747,7 @@ export default function ColoniaTab({
   function changePlan(nextKey) {
     const need = planChildSlots(nextKey);
     setPlanKey(nextKey);
+    setEnrollHold(null);
     const pool = householdKids(household, anchorMember, seasonAge.activitiesStartOn);
     const keys = [];
     const seen = new Set();
@@ -673,7 +766,7 @@ export default function ColoniaTab({
         seen.add(key);
       }
     }
-    applyChosen(keys, household.length ? household : pool, need);
+    applyChosen(keys, household.length ? household : pool, need, { trim: true });
   }
 
   function fillPupilFromPadron(slot, row) {
@@ -885,7 +978,96 @@ export default function ColoniaTab({
     return en;
   }
 
-  async function submitEnrollment() {
+  function clearEnrollmentForm() {
+    setStudent(EMPTY_STUDENT);
+    setGuardian(EMPTY_GUARDIAN);
+    setPickedMemberLabel('');
+    setMemberQuery('');
+    setMemberHits([]);
+    setAnchorMember(null);
+    setHousehold([]);
+    setChosenKeys([]);
+    setExtraStudents([]);
+    setSlotQuery({});
+    setShowFamilyPicker(false);
+    setOpenPupil({});
+    setEnrollHold(null);
+    setEnrollPayRef('');
+  }
+
+  async function createPendingEnrollment() {
+    const promo = evaluatePromotionCharge({
+      planKey,
+      season: { promotionPeriodicity: season?.promotion_periodicity ?? null },
+      siblingCount,
+      memberKinds: rosterPreview.map(() => student.memberKind),
+    });
+    if (!promo.ok) {
+      throw new Error(promo.errors[0]?.message || 'Plan no confirmable.');
+    }
+    const g = await repos.upsertColoniaGuardian({
+      full_name: guardian.fullName.trim(),
+      document_number: guardian.documentNumber || null,
+      relationship: guardian.relationship || null,
+      phone: guardian.phone || null,
+      email: guardian.email || null,
+      emergency_contact: guardian.emergencyContact || null,
+      authorized_pickup: guardian.authorizedPickup || null,
+    });
+    const planAmount = planAmountFor(COLONIA_OFFICIAL_TARIFFS_2026_2027, student.memberKind, planKey);
+    const planConcept = planKey === 'temporada'
+      ? 'colonia_temporada'
+      : (String(planKey).startsWith('promo') || planKey === 'hermano_4' ? 'colonia_promocion' : 'colonia_cuota');
+    const inscription = planKey === 'hermano_4' ? 0 : inscriptionAmount(COLONIA_OFFICIAL_TARIFFS_2026_2027);
+    const slices = [];
+    for (let index = 0; index < rosterPreview.length; index += 1) {
+      const pupil = rosterPreview[index];
+      const savedStudent = await repos.upsertColoniaStudent({
+        full_name: pupil.fullName.trim(),
+        document_number: pupil.documentNumber || null,
+        birth_date: pupil.birthDate,
+        member_kind: student.memberKind,
+        member_number: pupil.memberNumber || null,
+        shirt_size: pupil.shirtSize || null,
+        notes: index === 0 ? (student.notes || null) : null,
+        identity_key: enrollmentIdentityKey(pupil),
+      });
+      const savedEnrollment = await repos.createColoniaEnrollment({
+        season_id: seasonId,
+        student_id: savedStudent.id,
+        guardian_id: g.id,
+        plan_key: planKey,
+        status: 'pendiente_pago',
+        source: 'admin',
+        observations: index === 0 ? (student.notes || null) : null,
+      });
+      let amount = 0;
+      if (inscription > 0) {
+        await repos.coloniaPostCharge({
+          enrollmentId: savedEnrollment.id,
+          concept: 'colonia_inscripcion',
+          planKey: 'inscripcion',
+          amount: inscription,
+          note: 'Inscripción (incluye remera)',
+        });
+        amount += inscription;
+      }
+      if (index === 0 && planAmount != null && planAmount > 0) {
+        await repos.coloniaPostCharge({
+          enrollmentId: savedEnrollment.id,
+          concept: planConcept,
+          planKey,
+          amount: planAmount,
+          note: `Plan ${planKey}`,
+        });
+        amount += planAmount;
+      }
+      slices.push({ id: savedEnrollment.id, amount, enrollment: savedEnrollment });
+    }
+    return slices;
+  }
+
+  async function collectEnrollmentPayment() {
     setMsg('');
     if (!formOk) {
       setMsg(formErrors[0]?.message || 'Revisá el formulario.');
@@ -895,92 +1077,111 @@ export default function ColoniaTab({
       setMsg('Seleccioná una temporada publicada en la base.');
       return;
     }
-    const promo = evaluatePromotionCharge({
-      planKey,
-      season: { promotionPeriodicity: season?.promotion_periodicity ?? null },
-      siblingCount,
-      memberKinds: rosterPreview.map(() => student.memberKind),
+    if (enrollHold?.ids?.length) {
+      setMsg('El pago ya está registrado. Ahora se puede inscribir.');
+      return;
+    }
+    if (enrollPayMethod === 'mercadopago' && pupilCount > 1) {
+      setMsg('Mercado Pago es de a un alumno. Para un grupo usá otro medio.');
+      return;
+    }
+    const ready = coloniaEnrollPayReady({
+      method: enrollPayMethod,
+      amount: enrollmentTotal,
+      operatorConfirmed: coloniaMethodUsesCard(enrollPayMethod),
+      externalReference: enrollPayRef,
+      mpApproved: false,
     });
-    if (!promo.ok) {
-      setMsg(promo.errors[0]?.message || 'Plan no confirmable.');
+    if (enrollPayMethod !== 'mercadopago' && !ready.ok) {
+      setMsg(ready.message);
       return;
     }
     setBusy(true);
     try {
-      const g = await repos.upsertColoniaGuardian({
-        full_name: guardian.fullName.trim(),
-        document_number: guardian.documentNumber || null,
-        relationship: guardian.relationship || null,
-        phone: guardian.phone || null,
-        email: guardian.email || null,
-        emergency_contact: guardian.emergencyContact || null,
-        authorized_pickup: guardian.authorizedPickup || null,
-      });
-      const planAmount = planAmountFor(COLONIA_OFFICIAL_TARIFFS_2026_2027, student.memberKind, planKey);
-      const planConcept = planKey === 'temporada'
-        ? 'colonia_temporada'
-        : (String(planKey).startsWith('promo') || planKey === 'hermano_4' ? 'colonia_promocion' : 'colonia_cuota');
-      let enrollment = null;
-      for (let index = 0; index < rosterPreview.length; index += 1) {
-        const pupil = rosterPreview[index];
-        const savedStudent = await repos.upsertColoniaStudent({
-          full_name: pupil.fullName.trim(),
-          document_number: pupil.documentNumber || null,
-          birth_date: pupil.birthDate,
-          member_kind: student.memberKind,
-          member_number: pupil.memberNumber || null,
-          shirt_size: pupil.shirtSize || null,
-          notes: index === 0 ? (student.notes || null) : null,
-          identity_key: enrollmentIdentityKey(pupil),
+      const slices = await createPendingEnrollment();
+      if (enrollPayMethod === 'mercadopago') {
+        setEnrollHold({
+          ids: slices.map((slice) => slice.id),
+          primaryId: slices[0]?.id,
+          amount: slices[0]?.amount || enrollmentTotal,
+          payStatus: 'awaiting_mp',
+          method: 'mercadopago',
         });
-        const savedEnrollment = await repos.createColoniaEnrollment({
-          season_id: seasonId,
-          student_id: savedStudent.id,
-          guardian_id: g.id,
-          plan_key: planKey,
-          status: 'pendiente',
-          source: 'admin',
-          observations: index === 0 ? (student.notes || null) : null,
-        });
-        if (planKey !== 'hermano_4') {
-          await repos.coloniaPostCharge({
-            enrollmentId: savedEnrollment.id,
-            concept: 'colonia_inscripcion',
-            planKey: 'inscripcion',
-            amount: inscriptionAmount(COLONIA_OFFICIAL_TARIFFS_2026_2027),
-            note: 'Inscripción (incluye remera)',
-          });
-        }
-        if (index === 0 && planAmount != null && planAmount > 0) {
-          await repos.coloniaPostCharge({
-            enrollmentId: savedEnrollment.id,
-            concept: planConcept,
-            planKey,
-            amount: planAmount,
-            note: `Plan ${planKey}`,
-          });
-        }
-        enrollment = enrollment || savedEnrollment;
+        setMsg('Falta la confirmación de Mercado Pago. Después se puede inscribir.');
+        await reloadSeasonLists();
+        return;
       }
-      setMsg(rosterPreview.length > 1
-        ? 'Inscripciones del grupo registradas con cargos de Colonia (sin tocar cuota social).'
-        : 'Inscripción registrada con cargos de Colonia (sin tocar cuota social).');
-      setStudent(EMPTY_STUDENT);
-      setGuardian(EMPTY_GUARDIAN);
-      setPickedMemberLabel('');
-      setMemberQuery('');
-      setMemberHits([]);
-      setAnchorMember(null);
-      setHousehold([]);
-      setChosenKeys([]);
-      setExtraStudents([]);
-      setSlotQuery({});
-      setShowFamilyPicker(false);
-      setOpenPupil({});
+      for (const slice of slices) {
+        if (!(slice.amount > 0)) continue;
+        const draft = buildColoniaPaymentDraft({
+          enrollmentId: slice.id,
+          seasonId,
+          method: enrollPayMethod,
+          amount: slice.amount,
+          operatorConfirmed: coloniaMethodUsesCard(enrollPayMethod),
+          externalReference: enrollPayRef,
+          bankId: enrollBankId,
+          idempotencyKey: `alta:${slice.id}:${enrollPayMethod}:${slice.amount}:${enrollPayRef || 'x'}`,
+        });
+        await repos.coloniaRecordPayment({
+          enrollmentId: draft.enrollmentId,
+          method: draft.method,
+          amount: draft.amount,
+          status: draft.status,
+          externalReference: draft.externalReference,
+          idempotencyKey: draft.idempotencyKey,
+          operatorName: 'Mostrador Colonia',
+          bankId: draft.bankId,
+        });
+      }
+      setEnrollHold({
+        ids: slices.map((slice) => slice.id),
+        primaryId: slices[0]?.id,
+        amount: enrollmentTotal,
+        payStatus: ready.status,
+        method: enrollPayMethod,
+      });
+      setMsg(ready.status === 'confirmed'
+        ? 'Pago acreditado. Ya se puede inscribir.'
+        : 'Pago informado. Ya se puede inscribir; queda pendiente de confirmar.');
       await reloadSeasonLists();
-      setSelectedEnrollment(enrollment);
-      await refreshAccount(enrollment.id);
+    } catch (err) {
+      setMsg(err?.details?.[0]?.message || err?.message || 'No se pudo cobrar.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function submitEnrollment() {
+    setMsg('');
+    const ready = enrollHold
+      ? coloniaEnrollPayReady({
+        method: enrollHold.method,
+        amount: enrollHold.amount || enrollmentTotal,
+        operatorConfirmed: true,
+        externalReference: enrollPayRef || 'ya',
+        mpApproved: enrollHold.payStatus === 'confirmed',
+      })
+      : { ok: false, message: 'Primero cobrá por un medio.' };
+    if (!enrollHold?.ids?.length || enrollHold.payStatus === 'awaiting_mp' || !ready.ok) {
+      setMsg(ready.message || 'Primero cobrá por un medio.');
+      return;
+    }
+    setBusy(true);
+    try {
+      const status = enrollHold.payStatus === 'confirmed' ? 'confirmada' : 'pendiente_pago';
+      for (const id of enrollHold.ids) {
+        await repos.coloniaUpdateEnrollment({ enrollmentId: id, status });
+      }
+      const listed = await reloadSeasonLists();
+      const first = (listed || []).find((row) => row.id === enrollHold.primaryId) || null;
+      setSelectedEnrollment(first);
+      if (first?.id) await refreshAccount(first.id);
+      clearEnrollmentForm();
       setSection('alumnos');
+      setMsg(status === 'confirmada'
+        ? 'Inscripción confirmada. El cobro quedó en Colonia, no en la cuota social.'
+        : 'Inscripción cargada. Se confirma cuando entre el pago.');
     } catch (err) {
       setMsg(err?.message || 'No se pudo inscribir.');
     } finally {
@@ -1000,13 +1201,15 @@ export default function ColoniaTab({
     }
     setBusy(true);
     try {
+      const dueNow = fichaDue;
       const draft = buildColoniaPaymentDraft({
         enrollmentId: selectedEnrollment.id,
         seasonId,
         method: payMethod,
-        amount: payAmount,
-        operatorConfirmed: cardConfirmed,
+        amount: Number(payAmount) > 0 ? Number(payAmount) : dueNow,
+        operatorConfirmed: coloniaMethodUsesCard(payMethod),
         externalReference: payRef,
+        bankId: payBankId,
         idempotencyKey: `colonia-${selectedEnrollment.id}-${payMethod}-${payAmount}-${payRef || 'x'}`,
       });
       const result = await repos.coloniaRecordPayment({
@@ -1017,6 +1220,7 @@ export default function ColoniaTab({
         externalReference: draft.externalReference,
         idempotencyKey: draft.idempotencyKey,
         operatorName: 'Mostrador Colonia',
+        bankId: draft.bankId,
       });
       const payment = result?.payment || result;
       if (draft.status === 'confirmed' && payment) {
@@ -1036,7 +1240,6 @@ export default function ColoniaTab({
           : `Pago ${coloniaMethodLabel(draft.method)} quedó pendiente. Entra al asiento cuando se confirme.`);
       setPayAmount('');
       setPayRef('');
-      setCardConfirmed(false);
       await refreshAccount(selectedEnrollment.id);
       await reloadSeasonLists();
     } catch (err) {
@@ -1232,7 +1435,7 @@ export default function ColoniaTab({
     const book = XLSX.utils.book_new();
     const summary = [
       ['Concepto', 'Valor'],
-      ['Inscriptos', enrollments.length],
+      ['Inscriptos', coloniaReportRows(enrollments, 'inscriptos').length],
       ['Desde Administración', coloniaReportRows(enrollments, 'admin').length],
       ['Desde portal', coloniaReportRows(enrollments, 'portal').length],
       ['Externas', coloniaReportRows(enrollments, 'externas').length],
@@ -1256,7 +1459,7 @@ export default function ColoniaTab({
   }
 
   function exportEnrollmentsCsv() {
-    const csv = buildColoniaEnrollmentsCsv(enrollments);
+    const csv = buildColoniaEnrollmentsCsv(coloniaReportRows(enrollments, 'inscriptos'));
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -1621,16 +1824,56 @@ export default function ColoniaTab({
               {draftValidation.warnings.map((w) => (
                 <p key={w.code} className="colonia-banner warn">{w.message}</p>
               ))}
+              <div className="colonia-step">
+                <p>Pago, y después la inscripción</p>
+                <ColoniaPayDesk
+                  method={enrollPayMethod}
+                  onMethod={(id) => {
+                    setEnrollPayMethod(id);
+                    setEnrollHold(null);
+                  }}
+                  bankId={enrollBankId}
+                  onBank={setEnrollBankId}
+                  reference={enrollPayRef}
+                  onReference={setEnrollPayRef}
+                  disabled={busy || Boolean(enrollHold)}
+                />
+                {enrollHold?.payStatus === 'awaiting_mp' && enrollHold.primaryId ? (
+                  <MercadoPagoCheckout
+                    kind="colonia"
+                    mode="qr"
+                    amount={enrollHold.amount}
+                    enrollmentId={enrollHold.primaryId}
+                    memberNumber={student.memberNumber || anchorMember?.memberId || ''}
+                    concept={`Colonia de Verano · ${student.fullName || 'inscripción'}`}
+                    disabled={busy}
+                    onApproved={() => setEnrollHold((prev) => (prev ? { ...prev, payStatus: 'confirmed' } : prev))}
+                  />
+                ) : null}
+              </div>
               <div className="colonia-total">
                 <div>
                   <span>
                     {planKey === 'hermano_4'
-                      ? 'Promo de 3 menos la inscripción'
+                      ? `Plan ${money(planPrice)} · sin inscripción`
                       : `Inscripción ${money(inscriptionPrice)}${pupilCount > 1 ? ` × ${pupilCount}` : ''}${Number(planPrice) > 0 ? ` + plan ${money(planPrice)}` : ''}`}
                   </span>
                   <strong>{money(enrollmentTotal)}</strong>
                 </div>
-                <button type="button" className="btn primary" disabled={busy || !formOk} onClick={submitEnrollment}>
+                <button
+                  type="button"
+                  className="btn"
+                  disabled={busy || !formOk || Boolean(enrollHold)}
+                  onClick={collectEnrollmentPayment}
+                >
+                  Cobrar
+                </button>
+                <button
+                  type="button"
+                  className="btn primary"
+                  disabled={busy || !enrollHold || enrollHold.payStatus === 'awaiting_mp'}
+                  onClick={submitEnrollment}
+                >
                   Inscribir
                 </button>
               </div>
@@ -1715,10 +1958,58 @@ export default function ColoniaTab({
               </p>
               <p>Responsable: {selectedEnrollment.guardian?.full_name || '—'} · {selectedEnrollment.guardian?.phone || ''}</p>
               <p className="muted">Cuenta Colonia — contratado {money(accountSummary.totalContracted)} · cobrado {money(accountSummary.totalCollected)} · saldo {money(accountSummary.balanceDue)}</p>
-              {selectedEnrollment.student?.member_number ? (
-                <p className="muted">Padrón Nº {selectedEnrollment.student.member_number} (navegación a ficha de socio sin mezclar cuentas).</p>
+              {fichaSocio ? (
+                <div className="colonia-ficha-charge">
+                  <p>
+                    Socio: se puede cobrar Colonia a {fichaSocio.name}
+                    {fichaSocio.memberNumber ? ` · Nº ${fichaSocio.memberNumber}` : ''}.
+                    No es la cuota social.
+                  </p>
+                  {canCollect && selectedEnrollment.status !== 'cancelada' ? (
+                    <>
+                      <ColoniaPayDesk
+                        method={payMethod}
+                        onMethod={setPayMethod}
+                        bankId={payBankId}
+                        onBank={setPayBankId}
+                        reference={payRef}
+                        onReference={setPayRef}
+                        disabled={busy}
+                      />
+                      <label className="colonia-field"><span>Importe</span>
+                        <input
+                          type="number"
+                          min="0"
+                          step="1"
+                          placeholder={String(fichaDue || '')}
+                          value={payAmount}
+                          onChange={(e) => setPayAmount(e.target.value)}
+                        />
+                      </label>
+                      {payMethod === 'mercadopago' ? (
+                        <MercadoPagoCheckout
+                          kind="colonia"
+                          mode="qr"
+                          amount={Number(payAmount) > 0 ? Number(payAmount) : fichaDue}
+                          enrollmentId={selectedEnrollment.id}
+                          memberNumber={fichaSocio.memberNumber}
+                          concept={`Colonia de Verano · ${selectedEnrollment.student?.full_name || ''}`}
+                          disabled={busy}
+                          onApproved={() => {
+                            void refreshAccount(selectedEnrollment.id);
+                            void reloadSeasonLists();
+                          }}
+                        />
+                      ) : (
+                        <button type="button" className="btn primary" disabled={busy} onClick={submitPayment}>
+                          Cobrar al socio
+                        </button>
+                      )}
+                    </>
+                  ) : null}
+                </div>
               ) : (
-                <p className="muted">No socio: ficha solo Colonia (no ingresa al padrón institucional).</p>
+                <p className="muted">No socio: el cobro queda solo en la ficha de Colonia.</p>
               )}
               {selectedEnrollment.status !== 'cancelada' && canFinance ? (
                 <button type="button" className="btn" disabled={busy} onClick={cancelSelectedEnrollment}>
@@ -1916,35 +2207,18 @@ export default function ColoniaTab({
                 ))}
               </select>
             </label>
-            <label className="colonia-field"><span>Medio</span>
-              <select value={payMethod} onChange={(e) => setPayMethod(e.target.value)}>
-                {COLONIA_PAYMENT_METHODS.map((m) => (
-                  <option key={m.key} value={m.key}>{m.label}</option>
-                ))}
-              </select>
-            </label>
+            <ColoniaPayDesk
+              method={payMethod}
+              onMethod={setPayMethod}
+              bankId={payBankId}
+              onBank={setPayBankId}
+              reference={payRef}
+              onReference={setPayRef}
+              disabled={busy}
+            />
             <label className="colonia-field"><span>Importe</span>
               <input type="number" min="0" step="1" value={payAmount} onChange={(e) => setPayAmount(e.target.value)} />
             </label>
-            <label className="colonia-field"><span>Referencia / comprobante</span>
-              <input value={payRef} onChange={(e) => setPayRef(e.target.value)} />
-            </label>
-            {(payMethod === 'tarjeta' || payMethod === 'pos' || payMethod === 'debito') ? (
-              <>
-                <p className="colonia-banner warn">
-                  Tarjeta/POSNET/débito no se acreditan solos: requieren confirmación verificable del resultado en terminal (autorización administrativa).
-                </p>
-                <label className="colonia-check">
-                  <input type="checkbox" checked={cardConfirmed} onChange={(e) => setCardConfirmed(e.target.checked)} />
-                  Confirmo resultado aprobado en terminal/POS
-                </label>
-              </>
-            ) : null}
-            {payMethod === 'transferencia' ? (
-              <p className="colonia-banner warn">
-                Transferencia queda pendiente hasta validación administrativa. No acredita el saldo Colonia hasta confirmar.
-              </p>
-            ) : null}
             {payMethod === 'mercadopago' ? (
               <MercadoPagoCheckout
                 kind="colonia"
@@ -1953,7 +2227,7 @@ export default function ColoniaTab({
                   ? Number(payAmount)
                   : Math.max(0, (Number(accountSummary.balanceDue) || 0) - (Number(accountSummary.pendingConfirmation) || 0))}
                 enrollmentId={selectedEnrollment?.id}
-                memberNumber={selectedEnrollment?.student?.member_number || ''}
+                memberNumber={responsibleSocio(selectedEnrollment)?.memberNumber || selectedEnrollment?.student?.member_number || ''}
                 concept={`Colonia de Verano${selectedEnrollment?.student?.full_name ? ` · ${selectedEnrollment.student.full_name}` : ''}`}
                 disabled={!selectedEnrollment?.id || !canCollect}
                 onApproved={() => {
@@ -2178,7 +2452,7 @@ export default function ColoniaTab({
                   onClick={() => setReportSheet(sheet.key)}
                 >
                   {sheet.label}
-                  <b>{sheet.key === 'resumen' ? enrollments.length : coloniaReportRows(enrollments, sheet.key).length}</b>
+                  <b>{coloniaReportRows(enrollments, sheet.key).length}</b>
                 </button>
               ))}
             </div>
@@ -2208,12 +2482,11 @@ export default function ColoniaTab({
               <article className="colonia-chart-card">
                 <h4>Estado de las fichas</h4>
                 <ColoniaDonut
-                  total={enrollments.length}
+                  total={coloniaReportRows(enrollments, 'inscriptos').length}
                   label="Estado de las inscripciones"
                   parts={[
                     { label: 'Confirmadas', value: coloniaReportRows(enrollments, 'confirmadas').length, color: '#e7a23a' },
                     { label: 'Pendientes', value: coloniaReportRows(enrollments, 'pendientes').length, color: '#1a7a8c' },
-                    { label: 'Canceladas', value: coloniaReportRows(enrollments, 'canceladas').length, color: '#8ea197' },
                   ]}
                 />
               </article>
@@ -2227,12 +2500,8 @@ export default function ColoniaTab({
                   ]}
                 />
                 <div className="colonia-split" aria-label="Socios y no socios">
-                  <span style={{ flex: Math.max(coloniaReportRows(enrollments, 'socios').length, 0.2) }}>
-                    Socios {coloniaReportRows(enrollments, 'socios').length}
-                  </span>
-                  <span style={{ flex: Math.max(coloniaReportRows(enrollments, 'no_socios').length, 0.2) }}>
-                    No socios {coloniaReportRows(enrollments, 'no_socios').length}
-                  </span>
+                  <span>Socios {coloniaReportRows(enrollments, 'socios').length}</span>
+                  <span>No socios {coloniaReportRows(enrollments, 'no_socios').length}</span>
                 </div>
               </article>
             </div>

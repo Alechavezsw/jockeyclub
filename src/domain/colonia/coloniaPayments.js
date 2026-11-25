@@ -3,26 +3,52 @@
  * Mercado Pago: adaptador preparado; el webhook productivo requiere autorización aparte.
  */
 
+import { journalAccountForPayment } from '../members/clubBanks';
 import { coloniaMethodMeta, COLONIA_PAYMENT_METHOD_KEYS } from './coloniaConstants';
 import { assertColoniaFinanceIsolation, moneyArs } from './coloniaLedger';
+
+function deskMethod(method) {
+  const key = String(method || '').trim().toLowerCase();
+  if (key === 'pos' || key === 'pago pos' || key === 'card') return 'tarjeta';
+  return key;
+}
+
+/** Efectivo entra en Caja General. */
+export function coloniaMethodUsesCash(method) {
+  return deskMethod(method) === 'efectivo';
+}
+
+/** Pago POS: Tarjetas a cobrar. No es efectivo de caja. */
+export function coloniaMethodUsesCard(method) {
+  return deskMethod(method) === 'tarjeta';
+}
+
+/** Transferencia y débito acreditan en el alias elegido. */
+export function coloniaMethodUsesBank(method) {
+  const key = deskMethod(method);
+  return key === 'transferencia' || key === 'debito';
+}
+
+/** Misma cuenta de tesorería que el resto de los cobros del club. */
+export function coloniaSettlementAccount(method, bankId) {
+  return journalAccountForPayment(deskMethod(method), bankId);
+}
 
 export const COLONIA_MP_KIND = 'colonia';
 export const COLONIA_MP_ADAPTER_STATUS = 'live';
 
 /**
  * Estado inicial del pago según medio.
- * Efectivo puede confirmarse en mostrador.
- * Transferencia / MP / tarjeta / POS quedan pending hasta confirmación.
+ * Efectivo confirma en Caja General. Transferencia y débito confirman en el alias.
+ * Pago POS confirma al registrar el cupón. Mercado Pago espera al proveedor.
  */
 export function initialPaymentStatus(method, { operatorConfirmed = false } = {}) {
   const meta = coloniaMethodMeta(method);
   if (!meta) return 'pending';
   if (meta.key === 'efectivo') return 'confirmed';
-  if (meta.startsPending) return 'pending';
+  if (meta.usesBank) return 'confirmed';
   if (meta.requiresProvider) return 'pending';
-  if (operatorConfirmed && (meta.key === 'tarjeta' || meta.key === 'pos' || meta.key === 'debito')) {
-    return 'confirmed';
-  }
+  if (operatorConfirmed && meta.key === 'tarjeta') return 'confirmed';
   return 'pending';
 }
 
@@ -45,10 +71,16 @@ export function validateColoniaPaymentInput({
   if (!enrollmentId) {
     errors.push({ code: 'enrollment_required', message: 'Falta la inscripción.' });
   }
-  if ((key === 'tarjeta' || key === 'pos' || key === 'debito') && !operatorConfirmed) {
+  if ((key === 'tarjeta' || key === 'pos' || key === 'pago pos' || key === 'card') && !operatorConfirmed) {
     errors.push({
       code: 'card_confirmation_required',
       message: 'Confirmá el resultado de la terminal/POS antes de acreditar la tarjeta.',
+    });
+  }
+  if ((key === 'transferencia' || key === 'debito') && !String(externalReference || '').trim()) {
+    errors.push({
+      code: 'transfer_reference_required',
+      message: 'Registrá referencia o comprobante del alias.',
     });
   }
   if (key === 'mercadopago') {
@@ -57,13 +89,6 @@ export function validateColoniaPaymentInput({
       message: 'Mercado Pago de Colonia se acredita solo cuando Mercado Pago confirma. No se carga a mano ni como cuota social.',
     });
   }
-  if (key === 'transferencia' && !String(externalReference || '').trim()) {
-    errors.push({
-      code: 'transfer_reference_required',
-      message: 'Registrá referencia o adjunto de la transferencia informada.',
-    });
-  }
-
   const status = errors.some((e) => e.code === 'mp_adapter_pending')
     ? null
     : initialPaymentStatus(key, { operatorConfirmed });
@@ -75,6 +100,39 @@ export function validateColoniaPaymentInput({
     method: key,
     amount: value,
   };
+}
+
+/** El alta se habilita después de cobrar. Mercado Pago espera la confirmación. */
+export function coloniaEnrollPayReady({
+  method,
+  amount,
+  operatorConfirmed = false,
+  externalReference = '',
+  mpApproved = false,
+} = {}) {
+  const key = String(method || '').toLowerCase();
+  const value = moneyArs(amount);
+  if (!(value > 0)) return { ok: false, status: null, message: 'No hay importe para cobrar.' };
+  if (key === 'efectivo') return { ok: true, status: 'confirmed', message: '' };
+  if (key === 'transferencia' || key === 'debito') {
+    if (!String(externalReference || '').trim()) {
+      return { ok: false, status: null, message: 'Registrá la referencia del alias.' };
+    }
+    return { ok: true, status: 'confirmed', message: '' };
+  }
+  if (key === 'tarjeta' || key === 'pos' || key === 'pago pos' || key === 'card') {
+    if (!operatorConfirmed) {
+      return { ok: false, status: null, message: 'Confirmá el resultado de la terminal antes de inscribir.' };
+    }
+    return { ok: true, status: 'confirmed', message: '' };
+  }
+  if (key === 'mercadopago') {
+    if (!mpApproved) {
+      return { ok: false, status: null, message: 'Esperá que Mercado Pago confirme el pago.' };
+    }
+    return { ok: true, status: 'confirmed', message: '' };
+  }
+  return { ok: false, status: null, message: 'Elegí un medio de pago.' };
 }
 
 export function buildColoniaPaymentDraft(input = {}) {
@@ -94,6 +152,7 @@ export function buildColoniaPaymentDraft(input = {}) {
     currency: 'ARS',
     status: checked.status,
     externalReference: String(input.externalReference || '').trim() || null,
+    bankId: coloniaMethodUsesBank(checked.method) ? (input.bankId || 'macro') : null,
     receiptUrl: input.receiptUrl || null,
     operatorId: input.operatorId || null,
     operatorName: input.operatorName || null,

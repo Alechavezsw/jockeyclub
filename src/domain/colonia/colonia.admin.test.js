@@ -29,7 +29,9 @@ import {
 } from './coloniaLedger';
 import {
   buildColoniaPaymentDraft,
+  coloniaEnrollPayReady,
   coloniaMpPayable,
+  coloniaSettlementAccount,
   initialPaymentStatus,
   validateColoniaPaymentInput,
 } from './coloniaPayments';
@@ -261,7 +263,7 @@ describe('administración Colonia — cuenta por mes', () => {
       enrollments,
       charges: [
         { enrollment_id: 'temp', amount: 440000, status: 'posted', created_at: '2026-12-02' },
-        { enrollment_id: 'herm', amount: 360000, status: 'posted', created_at: '2026-11-24' },
+        { enrollment_id: 'herm', amount: 410000, status: 'posted', created_at: '2026-11-24' },
       ],
       payments: [{ enrollment_id: 'mes', amount: 200000, status: 'confirmed', confirmed_at: '2026-12-05' }],
       tariffs: COLONIA_OFFICIAL_TARIFFS_2026_2027,
@@ -278,7 +280,7 @@ describe('administración Colonia — cuenta por mes', () => {
     expect(anaJan).toMatchObject({ status: 'proximo', owed: 0, nextAmount: 150000 });
     expect(december.map((row) => row.enrollment.id)).toContain('temp');
     expect(january.map((row) => row.enrollment.id)).not.toContain('temp');
-    expect(november.find((row) => row.enrollment.id === 'herm')).toMatchObject({ status: 'falta', owed: 360000 });
+    expect(november.find((row) => row.enrollment.id === 'herm')).toMatchObject({ status: 'falta', owed: 410000 });
     expect(december.map((row) => row.enrollment.id)).not.toContain('herm');
   });
 
@@ -331,14 +333,15 @@ describe('administración Colonia — reportes', () => {
     expect(COLONIA_REPORT_SHEETS).toHaveLength(10);
     expect(coloniaReportRows(roster, 'admin').map((row) => row.id)).toEqual(['e1', 'e4']);
     expect(coloniaReportRows(roster, 'portal').map((row) => row.id)).toEqual(['e2', 'e5']);
-    expect(coloniaReportRows(roster, 'externas').map((row) => row.id)).toEqual(['e3']);
+    expect(coloniaReportRows(roster, 'externas').map((row) => row.id)).toEqual([]);
     expect(coloniaReportRows(roster, 'pendientes').map((row) => row.id).sort()).toEqual(['e2', 'e4']);
     expect(coloniaReportRows(roster, 'confirmadas').map((row) => row.id)).toEqual(['e1', 'e5']);
     expect(coloniaReportRows(roster, 'canceladas').map((row) => row.id)).toEqual(['e3']);
-    expect(coloniaReportRows(roster, 'no_socios').map((row) => row.id)).toEqual(['e3']);
+    expect(coloniaReportRows(roster, 'no_socios').map((row) => row.id)).toEqual([]);
     expect(coloniaReportRows(roster, 'socios')).toHaveLength(4);
-    expect(coloniaReportRows(roster, 'resumen')).toHaveLength(5);
-    expect(coloniaReportRows(roster, 'inscriptos')).toHaveLength(5);
+    expect(coloniaReportRows(roster, 'resumen')).toHaveLength(4);
+    expect(coloniaReportRows(roster, 'inscriptos').map((row) => row.id)).not.toContain('e3');
+    expect(coloniaReportRows(roster, 'inscriptos')).toHaveLength(4);
   });
 
   it('la celda de reporte distingue socio y no socio', () => {
@@ -408,7 +411,7 @@ describe('administración Colonia — inscripción y cobro', () => {
       amount: 50000,
       enrollmentId: 'e1',
     }).ok).toBe(true);
-    for (const method of ['tarjeta', 'pos', 'debito']) {
+    for (const method of ['tarjeta', 'pos']) {
       expect(initialPaymentStatus(method, { operatorConfirmed: true })).toBe('confirmed');
       expect(validateColoniaPaymentInput({
         method,
@@ -417,6 +420,15 @@ describe('administración Colonia — inscripción y cobro', () => {
         operatorConfirmed: true,
       }).ok).toBe(true);
     }
+    const debit = validateColoniaPaymentInput({
+      method: 'debito',
+      amount: 50000,
+      enrollmentId: 'e1',
+      externalReference: 'DB-1',
+      bankId: 'macro',
+    });
+    expect(debit.ok).toBe(true);
+    expect(debit.status).toBe('confirmed');
     const transfer = validateColoniaPaymentInput({
       method: 'transferencia',
       amount: 50000,
@@ -424,7 +436,13 @@ describe('administración Colonia — inscripción y cobro', () => {
       externalReference: 'TR-1',
     });
     expect(transfer.ok).toBe(true);
-    expect(transfer.status).toBe('pending');
+    expect(transfer.status).toBe('confirmed');
+    expect(coloniaSettlementAccount('efectivo')).toBe('Caja General');
+    expect(coloniaSettlementAccount('tarjeta')).toBe('Tarjetas a cobrar');
+    expect(coloniaSettlementAccount('pos')).toBe('Tarjetas a cobrar');
+    expect(coloniaSettlementAccount('transferencia', 'macro')).toBe('Banco Macro');
+    expect(coloniaSettlementAccount('debito', 'mercadopago')).toBe('Mercado Pago');
+    expect(coloniaSettlementAccount('mercadopago')).toBe('Mercado Pago');
     const mp = validateColoniaPaymentInput({
       method: 'mercadopago',
       amount: 50000,
@@ -432,6 +450,14 @@ describe('administración Colonia — inscripción y cobro', () => {
     });
     expect(mp.ok).toBe(false);
     expect(mp.errors[0].code).toBe('mp_adapter_pending');
+    expect(coloniaEnrollPayReady({ method: 'efectivo', amount: 200000 }).status).toBe('confirmed');
+    expect(coloniaEnrollPayReady({ method: 'tarjeta', amount: 200000 }).ok).toBe(false);
+    expect(coloniaEnrollPayReady({ method: 'tarjeta', amount: 200000, operatorConfirmed: true }).ok).toBe(true);
+    expect(coloniaEnrollPayReady({ method: 'transferencia', amount: 200000, externalReference: 'TR-9' }).status).toBe('confirmed');
+    expect(coloniaEnrollPayReady({ method: 'debito', amount: 200000 }).ok).toBe(false);
+    expect(coloniaEnrollPayReady({ method: 'debito', amount: 200000, externalReference: 'DB-9' }).status).toBe('confirmed');
+    expect(coloniaEnrollPayReady({ method: 'mercadopago', amount: 200000 }).ok).toBe(false);
+    expect(coloniaEnrollPayReady({ method: 'mercadopago', amount: 200000, mpApproved: true }).ok).toBe(true);
     expect(coloniaMpPayable(200000, 50000)).toBe(150000);
     expect(coloniaMpPayable(10000, 10000)).toBe(0);
   });
@@ -579,8 +605,8 @@ describe('administración Colonia — inscripción y cobro', () => {
     });
     expect(promo.ok).toBe(true);
     expect(promo.warnings.some((warning) => warning.code === 'fourth_sibling_inscription_only')).toBe(true);
-    expect(planAmountFor(COLONIA_OFFICIAL_TARIFFS_2026_2027, 'socio', 'hermano_4')).toBe(360000);
-    expect(planAmountFor(COLONIA_OFFICIAL_TARIFFS_2026_2027, 'no_socio', 'hermano_4')).toBe(450000);
+    expect(planAmountFor(COLONIA_OFFICIAL_TARIFFS_2026_2027, 'socio', 'hermano_4')).toBe(410000);
+    expect(planAmountFor(COLONIA_OFFICIAL_TARIFFS_2026_2027, 'no_socio', 'hermano_4')).toBe(500000);
   });
 
   it('el mes que viene se nombra en español', () => {
