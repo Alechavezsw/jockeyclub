@@ -3,6 +3,8 @@ import {
   AlertTriangle,
   Baby,
   CalendarDays,
+  ChevronLeft,
+  ChevronRight,
   ClipboardList,
   Users,
   Wallet,
@@ -192,6 +194,41 @@ function ColoniaBars({ items }) {
   );
 }
 
+const COLONIA_PAGE_SIZE = 8;
+
+function ColoniaPager({ page, total, onPage }) {
+  const pages = Math.max(1, Math.ceil(total / COLONIA_PAGE_SIZE));
+  const safe = Math.min(Math.max(0, page), pages - 1);
+  const from = total ? safe * COLONIA_PAGE_SIZE + 1 : 0;
+  const to = total ? Math.min(total, (safe + 1) * COLONIA_PAGE_SIZE) : 0;
+  return (
+    <div className="dues-section-pager colonia-pager">
+      <span className="dues-section-pager-meta">{total ? `${from}–${to} de ${total}` : '0'}</span>
+      <div className="dues-section-pager-btns">
+        <button
+          type="button"
+          className="btn btn-secondary btn-sm"
+          disabled={safe <= 0}
+          onClick={() => onPage(safe - 1)}
+          aria-label="Página anterior"
+        >
+          <ChevronLeft size={16} />
+        </button>
+        <span className="dues-section-pager-page">{safe + 1} / {pages}</span>
+        <button
+          type="button"
+          className="btn btn-secondary btn-sm"
+          disabled={safe >= pages - 1}
+          onClick={() => onPage(safe + 1)}
+          aria-label="Página siguiente"
+        >
+          <ChevronRight size={16} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function ColoniaPayDesk({
   method,
   onMethod,
@@ -200,6 +237,7 @@ function ColoniaPayDesk({
   reference,
   onReference,
   disabled = false,
+  notes = true,
 }) {
   return (
     <>
@@ -209,7 +247,7 @@ function ColoniaPayDesk({
         disabled={disabled}
         ariaLabel="Método de pago de Colonia"
       />
-      {coloniaMethodUsesCash(method) ? (
+      {notes && coloniaMethodUsesCash(method) ? (
         <p className="pool-pay-note">
           Confirme el cobro en efectivo. Se registrará en <strong>Caja General</strong>.
         </p>
@@ -233,7 +271,7 @@ function ColoniaPayDesk({
           </label>
         </>
       ) : null}
-      {coloniaMethodUsesCard(method) ? (
+      {notes && coloniaMethodUsesCard(method) ? (
         <p className="pool-pay-note">
           Pago POS: queda en <strong>Tarjetas a cobrar</strong> con el asiento. No entra en la caja.
         </p>
@@ -304,6 +342,8 @@ export default function ColoniaTab({
   const [chosenKeys, setChosenKeys] = useState([]);
   const [extraStudents, setExtraStudents] = useState([]);
   const [rosterQuery, setRosterQuery] = useState('');
+  const [rosterPage, setRosterPage] = useState(0);
+  const [siblingPage, setSiblingPage] = useState(0);
   const [siblingQuery, setSiblingQuery] = useState('');
   const [slotQuery, setSlotQuery] = useState({});
   const [showFamilyPicker, setShowFamilyPicker] = useState(false);
@@ -378,20 +418,46 @@ export default function ColoniaTab({
   const planPrice = planAmountFor(COLONIA_OFFICIAL_TARIFFS_2026_2027, student.memberKind, planKey);
   const inscriptionPrice = inscriptionAmount(COLONIA_OFFICIAL_TARIFFS_2026_2027);
   const pupilCount = rosterPreview.length;
-  const rosterHits = rosterQuery.trim()
-    ? enrollments.filter((row) => enrollmentMatchesRoster(row, rosterQuery)).slice(0, 12)
-    : [];
+  const rosterRows = useMemo(() => {
+    const source = rosterQuery.trim()
+      ? enrollments.filter((row) => enrollmentMatchesRoster(row, rosterQuery))
+      : enrollments;
+    return source.toSorted((a, b) => String(a.student?.full_name || '').localeCompare(String(b.student?.full_name || ''), 'es'));
+  }, [enrollments, rosterQuery]);
+  const rosterPages = Math.max(1, Math.ceil(rosterRows.length / COLONIA_PAGE_SIZE));
+  const rosterPageSafe = Math.min(rosterPage, rosterPages - 1);
+  const rosterSlice = rosterRows.slice(rosterPageSafe * COLONIA_PAGE_SIZE, rosterPageSafe * COLONIA_PAGE_SIZE + COLONIA_PAGE_SIZE);
   const siblingNeedle = siblingQuery.trim();
-  const siblingGroupHits = siblingNeedle
-    ? siblingGroups.filter((group) => {
-      const folded = foldColoniaText(siblingNeedle);
-      return foldColoniaText(group.label).includes(folded)
-        || foldColoniaText(group.promotion_plan).includes(folded);
-    })
-    : siblingGroups;
-  const siblingKidHits = siblingNeedle
-    ? enrollments.filter((row) => enrollmentMatchesRoster(row, siblingQuery)).slice(0, 12)
-    : [];
+  const siblingTableRows = useMemo(() => {
+    const folded = foldColoniaText(siblingNeedle);
+    const groupById = new Map(siblingGroups.map((group) => [group.id, group]));
+    const groupMatches = (group) => foldColoniaText(group?.label).includes(folded)
+      || foldColoniaText(group?.promotion_plan).includes(folded);
+    const used = new Set();
+    const rows = [];
+    const kids = siblingNeedle
+      ? enrollments.filter((row) => enrollmentMatchesRoster(row, siblingQuery))
+      : enrollments.filter((row) => groupById.has(row.sibling_group_id));
+    kids
+      .toSorted((a, b) => String(a.student?.full_name || '').localeCompare(String(b.student?.full_name || ''), 'es'))
+      .forEach((row) => {
+        const group = groupById.get(row.sibling_group_id) || null;
+        if (group) used.add(group.id);
+        rows.push({ id: `kid-${row.id}`, enrollment: row, group });
+      });
+    siblingGroups.forEach((group) => {
+      if (used.has(group.id)) return;
+      if (siblingNeedle && !groupMatches(group)) return;
+      rows.push({ id: `group-${group.id}`, enrollment: null, group });
+    });
+    return rows;
+  }, [enrollments, siblingGroups, siblingNeedle, siblingQuery]);
+  const siblingPages = Math.max(1, Math.ceil(siblingTableRows.length / COLONIA_PAGE_SIZE));
+  const siblingPageSafe = Math.min(siblingPage, siblingPages - 1);
+  const siblingSlice = siblingTableRows.slice(
+    siblingPageSafe * COLONIA_PAGE_SIZE,
+    siblingPageSafe * COLONIA_PAGE_SIZE + COLONIA_PAGE_SIZE,
+  );
   const accountRows = useMemo(() => buildColoniaAccountRows({
     enrollments,
     charges: seasonCharges,
@@ -399,6 +465,10 @@ export default function ColoniaTab({
     tariffs: COLONIA_OFFICIAL_TARIFFS_2026_2027,
     periodicity: season?.promotion_periodicity || null,
   }), [enrollments, seasonCharges, seasonPayments, season?.promotion_periodicity]);
+  const accountById = useMemo(
+    () => new Map(accountRows.map((row) => [row.enrollment?.id, row])),
+    [accountRows],
+  );
   const monthBooks = useMemo(() => coloniaAccountMonths(seasonView).map((month) => ({
     ...month,
     lines: buildColoniaMonthRows({
@@ -1189,7 +1259,7 @@ export default function ColoniaTab({
     }
   }
 
-  async function submitPayment() {
+  async function submitPayment(amountOverride) {
     setMsg('');
     if (!selectedEnrollment?.id) {
       setMsg('Elegí una inscripción.');
@@ -1202,15 +1272,18 @@ export default function ColoniaTab({
     setBusy(true);
     try {
       const dueNow = fichaDue;
+      const charged = Number(amountOverride) > 0
+        ? Number(amountOverride)
+        : (Number(payAmount) > 0 ? Number(payAmount) : dueNow);
       const draft = buildColoniaPaymentDraft({
         enrollmentId: selectedEnrollment.id,
         seasonId,
         method: payMethod,
-        amount: Number(payAmount) > 0 ? Number(payAmount) : dueNow,
+        amount: charged,
         operatorConfirmed: coloniaMethodUsesCard(payMethod),
         externalReference: payRef,
         bankId: payBankId,
-        idempotencyKey: `colonia-${selectedEnrollment.id}-${payMethod}-${payAmount}-${payRef || 'x'}`,
+        idempotencyKey: `colonia-${selectedEnrollment.id}-${payMethod}-${charged}-${payRef || 'x'}`,
       });
       const result = await repos.coloniaRecordPayment({
         enrollmentId: draft.enrollmentId,
@@ -1919,45 +1992,71 @@ export default function ColoniaTab({
               <input
                 value={rosterQuery}
                 placeholder="Nombre, Nº o DNI"
-                onChange={(e) => setRosterQuery(e.target.value)}
+                onChange={(e) => {
+                  setRosterQuery(e.target.value);
+                  setRosterPage(0);
+                }}
               />
             </label>
           </div>
-          {rosterQuery.trim() && !rosterHits.length ? (
+          {rosterQuery.trim() && !rosterRows.length ? (
             <p className="colonia-search-miss">{clubMailSearchMissMessage(rosterQuery)}</p>
           ) : null}
-          {rosterHits.length ? (
-            <ul className="colonia-member-hits">
-              {rosterHits.map((row) => (
-                <li key={row.id}>
-                  <button type="button" onClick={() => openEnrollment(row)}>
-                    <strong>{row.student?.full_name || '—'}</strong>
-                    <span>
-                      {row.student?.member_number ? `Nº ${row.student.member_number} · ` : ''}
-                      DNI {row.student?.document_number || '—'}
-                      {' · '}
-                      {row.plan_key}
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          ) : null}
-          {!selectedEnrollment ? (
-            <p className="muted">Buscá un inscripto o elegilo desde Inscripciones.</p>
-          ) : (
+          <div className="table-container">
+            <table className="admin-table colonia-account-table">
+              <thead>
+                <tr>
+                  <th>Alumno</th>
+                  <th>Nº / DNI</th>
+                  <th>Plan</th>
+                  <th>Estado</th>
+                  <th>Origen</th>
+                  <th>Responsable</th>
+                  <th>Contratado</th>
+                  <th>Cobrado</th>
+                  <th>Saldo</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rosterSlice.map((row) => {
+                  const account = accountById.get(row.id);
+                  const summary = account?.summary;
+                  const selected = selectedEnrollment?.id === row.id;
+                  return (
+                    <tr
+                      key={row.id}
+                      className={selected ? 'is-on is-pick' : 'is-pick'}
+                      onClick={() => openEnrollment(row)}
+                    >
+                      <td>
+                        <strong>{row.student?.full_name || '—'}</strong>
+                        <span className="muted">{row.student?.member_kind === 'no_socio' ? 'No socio' : 'Socio'}</span>
+                      </td>
+                      <td>{row.student?.member_number || '—'} · {row.student?.document_number || '—'}</td>
+                      <td>{row.plan_key || '—'}</td>
+                      <td>{coloniaStatusLabel(row.status)}</td>
+                      <td>{coloniaSourceLabel(row.source)}</td>
+                      <td>
+                        {row.guardian?.full_name || '—'}
+                        <span className="muted">{row.guardian?.phone || ''}</span>
+                      </td>
+                      <td>{money(summary?.totalContracted)}</td>
+                      <td>{money(summary?.totalCollected)}</td>
+                      <td>{money(summary?.balanceDue)}</td>
+                    </tr>
+                  );
+                })}
+                {!rosterSlice.length ? (
+                  <tr>
+                    <td colSpan={9} className="muted">Sin inscriptos en esta temporada.</td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
+          <ColoniaPager page={rosterPageSafe} total={rosterRows.length} onPage={setRosterPage} />
+          {selectedEnrollment ? (
             <div className="colonia-ficha">
-              <p><strong>{selectedEnrollment.student?.full_name}</strong></p>
-              <p>DNI {selectedEnrollment.student?.document_number || '—'} · {selectedEnrollment.student?.member_kind}</p>
-              <p>
-                Plan {selectedEnrollment.plan_key}
-                {' · '}
-                {coloniaStatusLabel(selectedEnrollment.status)}
-                {' · '}
-                origen {coloniaSourceLabel(selectedEnrollment.source)}
-              </p>
-              <p>Responsable: {selectedEnrollment.guardian?.full_name || '—'} · {selectedEnrollment.guardian?.phone || ''}</p>
-              <p className="muted">Cuenta Colonia — contratado {money(accountSummary.totalContracted)} · cobrado {money(accountSummary.totalCollected)} · saldo {money(accountSummary.balanceDue)}</p>
               {fichaSocio ? (
                 <div className="colonia-ficha-charge">
                   <p>
@@ -1965,7 +2064,7 @@ export default function ColoniaTab({
                     {fichaSocio.memberNumber ? ` · Nº ${fichaSocio.memberNumber}` : ''}.
                     No es la cuota social.
                   </p>
-                  {canCollect && selectedEnrollment.status !== 'cancelada' ? (
+                  {canCollect && selectedEnrollment.status !== 'cancelada' && fichaDue > 0 ? (
                     <>
                       <ColoniaPayDesk
                         method={payMethod}
@@ -1975,22 +2074,13 @@ export default function ColoniaTab({
                         reference={payRef}
                         onReference={setPayRef}
                         disabled={busy}
+                        notes={false}
                       />
-                      <label className="colonia-field"><span>Importe</span>
-                        <input
-                          type="number"
-                          min="0"
-                          step="1"
-                          placeholder={String(fichaDue || '')}
-                          value={payAmount}
-                          onChange={(e) => setPayAmount(e.target.value)}
-                        />
-                      </label>
                       {payMethod === 'mercadopago' ? (
                         <MercadoPagoCheckout
                           kind="colonia"
                           mode="qr"
-                          amount={Number(payAmount) > 0 ? Number(payAmount) : fichaDue}
+                          amount={fichaDue}
                           enrollmentId={selectedEnrollment.id}
                           memberNumber={fichaSocio.memberNumber}
                           concept={`Colonia de Verano · ${selectedEnrollment.student?.full_name || ''}`}
@@ -2001,11 +2091,13 @@ export default function ColoniaTab({
                           }}
                         />
                       ) : (
-                        <button type="button" className="btn primary" disabled={busy} onClick={submitPayment}>
-                          Cobrar al socio
+                        <button type="button" className="btn primary" disabled={busy} onClick={() => submitPayment(fichaDue)}>
+                          {`Cobrar al socio · ${money(fichaDue)}`}
                         </button>
                       )}
                     </>
+                  ) : canCollect && selectedEnrollment.status !== 'cancelada' ? (
+                    <p className="muted">Al día. No hay saldo de Colonia para cobrar.</p>
                   ) : null}
                 </div>
               ) : (
@@ -2038,7 +2130,7 @@ export default function ColoniaTab({
                 <p className="muted">Datos de salud de menores: solo personal administrativo autorizado.</p>
               )}
             </div>
-          )}
+          ) : null}
         </section>
       ) : null}
 
@@ -2150,38 +2242,55 @@ export default function ColoniaTab({
               <input
                 value={siblingQuery}
                 placeholder="Nombre, Nº o DNI"
-                onChange={(e) => setSiblingQuery(e.target.value)}
+                onChange={(e) => {
+                  setSiblingQuery(e.target.value);
+                  setSiblingPage(0);
+                }}
               />
             </label>
           </div>
-          {siblingNeedle && !siblingKidHits.length && !siblingGroupHits.length ? (
+          {siblingNeedle && !siblingTableRows.length ? (
             <p className="colonia-search-miss">{clubMailSearchMissMessage(siblingQuery)}</p>
           ) : null}
-          {siblingKidHits.length ? (
-            <ul className="colonia-member-hits">
-              {siblingKidHits.map((row) => (
-                <li key={row.id}>
-                  <button type="button" onClick={() => openEnrollment(row)}>
-                    <strong>{row.student?.full_name || '—'}</strong>
-                    <span>
-                      {row.student?.member_number ? `Nº ${row.student.member_number} · ` : ''}
-                      DNI {row.student?.document_number || '—'}
-                      {' · '}
-                      {row.plan_key}
-                      {' · '}
-                      {row.student?.member_kind === 'no_socio' ? 'No socio' : 'Socio'}
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          ) : null}
-          <ul className="colonia-list">
-            {siblingGroupHits.map((g) => (
-              <li key={g.id}><strong>{g.label || g.id}</strong> · promo {g.promotion_plan || '—'}</li>
-            ))}
-            {!siblingGroupHits.length && !siblingNeedle ? <li className="muted">Sin grupos cargados.</li> : null}
-          </ul>
+          <div className="table-container">
+            <table className="admin-table colonia-account-table">
+              <thead>
+                <tr>
+                  <th>Alumno</th>
+                  <th>Nº / DNI</th>
+                  <th>Plan</th>
+                  <th>Socio</th>
+                  <th>Grupo</th>
+                  <th>Promo</th>
+                </tr>
+              </thead>
+              <tbody>
+                {siblingSlice.map((row) => {
+                  const student = row.enrollment?.student;
+                  return (
+                    <tr
+                      key={row.id}
+                      className={row.enrollment ? (selectedEnrollment?.id === row.enrollment.id ? 'is-on is-pick' : 'is-pick') : ''}
+                      onClick={row.enrollment ? () => openEnrollment(row.enrollment) : undefined}
+                    >
+                      <td><strong>{student?.full_name || '—'}</strong></td>
+                      <td>{student ? `${student.member_number || '—'} · ${student.document_number || '—'}` : '—'}</td>
+                      <td>{row.enrollment?.plan_key || row.group?.promotion_plan || '—'}</td>
+                      <td>{student ? (student.member_kind === 'no_socio' ? 'No socio' : 'Socio') : '—'}</td>
+                      <td>{row.group?.label || 'Sin grupo'}</td>
+                      <td>{row.group?.promotion_plan || '—'}</td>
+                    </tr>
+                  );
+                })}
+                {!siblingSlice.length ? (
+                  <tr>
+                    <td colSpan={6} className="muted">Sin grupos cargados.</td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
+          <ColoniaPager page={siblingPageSafe} total={siblingTableRows.length} onPage={setSiblingPage} />
         </section>
       ) : null}
 
