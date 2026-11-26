@@ -189,6 +189,7 @@ export async function coloniaRecordPayment({
   operatorName,
   bankId,
   pos,
+  interest = 0,
 }) {
   requireCloud();
   const { data, error } = await sb().rpc('colonia_record_payment', {
@@ -201,6 +202,7 @@ export async function coloniaRecordPayment({
     p_operator_name: operatorName || null,
     p_bank_id: bankId || null,
     p_pos: pos || null,
+    p_interest: Number(interest) > 0 ? Number(interest) : 0,
   });
   if (error) mapRpcMissing(error, 'No se pudo registrar el pago de Colonia');
   return data;

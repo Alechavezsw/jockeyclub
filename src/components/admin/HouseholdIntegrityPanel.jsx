@@ -12,6 +12,9 @@ import {
 export default function HouseholdIntegrityPanel({
   embedded = false,
   members = [],
+  loading = false,
+  error = '',
+  complete = false,
   onOpenProfile,
 }) {
   const issues = scanPadronHouseholdIssues(members);
@@ -29,8 +32,9 @@ export default function HouseholdIntegrityPanel({
           <p className="household-integrity-kicker">Solo lectura · sin reasignación automática</p>
           <h3 className="serif-font">Revisión de vínculos y fichas</h3>
           <p className="household-integrity-lead">
-            Detecta integrantes sin titular, titulares inactivos con familia activa,
-            DNI repetidos y campos faltantes en el padrón ya cargado.
+            Revisa activos e inactivos: integrante sin titular, titular que no está operativo,
+            categoría de integrante sin vínculo, un familiar que apunta a otro familiar,
+            DNI repetidos y ficha sin documento o mail.
             Abrí la ficha y corregí a mano con evidencia.
           </p>
         </div>
@@ -41,11 +45,22 @@ export default function HouseholdIntegrityPanel({
         </div>
       </header>
 
-      {!issues.length ? (
+      {loading ? (
         <p className="household-integrity-empty" role="status">
           <Search size={16} aria-hidden />
-          Sin inconsistencias en el padrón cargado en esta sesión.
-          Si el listado está incompleto, buscá el socio o ampliá el padrón.
+          Leyendo el padrón completo, activos e inactivos.
+        </p>
+      ) : error ? (
+        <p className="household-integrity-empty" role="alert">
+          <AlertTriangle size={16} aria-hidden />
+          {error}
+        </p>
+      ) : !issues.length ? (
+        <p className="household-integrity-empty" role="status">
+          <Search size={16} aria-hidden />
+          {complete
+            ? 'Sin inconsistencias en el padrón.'
+            : 'Sin inconsistencias en el padrón de esta sesión.'}
         </p>
       ) : (
         <div className="household-integrity-lists">

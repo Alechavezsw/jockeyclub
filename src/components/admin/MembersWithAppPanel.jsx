@@ -216,7 +216,6 @@ export default function MembersWithAppPanel({
   /** Inbox ops en vivo (pagos entrantes); null = aún no hidrató → usa props. */
   const [opsInbox, setOpsInbox] = useState(null);
   const incomingDupesHandledRef = useRef(new Set());
-  const incomingCollectedHandledRef = useRef(new Set());
 
   const withApp = useMemo(
     () => (members || []).filter((m) => memberHasPortalAccess(m)),
@@ -375,7 +374,11 @@ export default function MembersWithAppPanel({
     if (isSupabaseConfigured && supabase) {
       channel = supabase
         .channel('members-app-ops-inbox')
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, schedule)
+        .on('postgres_changes', {
+          event: '*', schema: 'public', table: 'messages', filter: 'recipient_key=eq.ops',
+        }, schedule)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'member_payments' }, schedule)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'mp_intents' }, schedule)
         .subscribe();
     }
 
@@ -576,27 +579,8 @@ export default function MembersWithAppPanel({
     return () => { cancelled = true; };
   }, [inboxMessages]);
 
-  // Mercado Pago ya acreditado: se cierra solo. La transferencia queda hasta Imputar.
-  useEffect(() => {
-    const pending = Object.entries(incomingCollectedById)
-      .filter(([id, payment]) => {
-        if (!payment) return false;
-        const msg = (inboxMessages || []).find((row) => String(row.id) === String(id));
-        return Boolean(msg && isAppPaymentAuto(msg));
-      })
-      .map(([id]) => id)
-      .filter((id) => !incomingCollectedHandledRef.current.has(String(id)));
-    if (!pending.length) return undefined;
-    pending.forEach((id) => incomingCollectedHandledRef.current.add(String(id)));
-    let cancelled = false;
-    (async () => {
-      for (const id of pending) {
-        if (cancelled) return;
-        await markRequestHandled(id);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [incomingCollectedById, inboxMessages]);
+  // Mercado Pago queda visible hasta que Administración lo cierra.
+  // Si se marca solo, el aviso desaparece en el mismo instante en que entra.
 
   const payments = useMemo(() => {
     const rows = [...(selected?.paymentHistory || [])];
@@ -1051,8 +1035,9 @@ export default function MembersWithAppPanel({
             <div>
               <strong>Pagos entrantes</strong>
               <p>
-                Cuota social y reservas van aparte. Leer el comprobante no imputa.
-                La transferencia queda abierta hasta que Administración elige Imputar.
+                Entran al momento. Cuota social y reservas van aparte.
+                Mercado Pago queda acreditado hasta que lo cierres.
+                La transferencia queda abierta hasta Imputar.
               </p>
             </div>
           </div>
@@ -1103,7 +1088,11 @@ export default function MembersWithAppPanel({
                           : appPaymentRequestPeriodDisplay(msg, member);
                         const collected = incomingCollectedById[msg.id]
                           || findAppPaymentRequestCollection(msg, member);
-                        const collectedLabel = appPaymentRequestCollectionLabel(collected);
+                        const collectedLabel = collected
+                          ? (auto
+                            ? 'Acreditado por Mercado Pago. No hace falta imputar.'
+                            : appPaymentRequestCollectionLabel(collected))
+                          : '';
                         const auto = isAppPaymentAuto(msg) || booking;
                         return (
                           <li

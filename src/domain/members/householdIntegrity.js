@@ -12,6 +12,16 @@ import {
   memberNumberOf,
 } from './households';
 
+/** Categoría de integrante del hogar. No incluye al socio familiar que abona. */
+function isIntegranteCategory(member) {
+  const tier = String(member?.tier || '').trim().toLowerCase();
+  return tier.startsWith('grupo_familiar') || tier.includes('grupo_familiar');
+}
+
+function canonicalMemberId(member) {
+  return canonicalNumber(memberNumberOf(member));
+}
+
 /** Campos mínimos de una ficha usable en administración / portal. */
 export const FICHA_REQUIRED_FIELDS = [
   { key: 'documentNumber', label: 'Documento', severity: 'warn' },
@@ -53,10 +63,17 @@ export function memberFichaGaps(member) {
     }));
 }
 
+function canonicalNumber(raw) {
+  const digits = String(raw || '').replace(/\D/g, '');
+  if (!digits) return null;
+  const n = Number.parseInt(digits, 10);
+  return Number.isFinite(n) ? String(n) : null;
+}
+
 function findByNumber(rows, number) {
-  const key = String(number || '').replace(/\D/g, '');
+  const key = canonicalNumber(number);
   if (!key) return null;
-  return (rows || []).find((row) => memberNumberOf(row) === key) || null;
+  return (rows || []).find((row) => canonicalMemberId(row) === key) || null;
 }
 
 /**
@@ -88,6 +105,14 @@ export function assessHouseholdIntegrity({ member, householdRows = [] } = {}) {
         memberId: selfId,
         principalNumber: principal,
       });
+    } else if (titularInHousehold && isFamilyDependent(titularInHousehold)) {
+      warnings.push({
+        code: 'dependent_points_to_dependent',
+        severity: 'error',
+        message: `El Nº ${principal} no es titular: también es integrante de otro grupo.`,
+        memberId: selfId,
+        principalNumber: principal,
+      });
     } else if (titularInHousehold && !isLiveMember(titularInHousehold) && isLiveMember(member)) {
       warnings.push({
         code: 'inactive_titular_active_dependent',
@@ -97,6 +122,20 @@ export function assessHouseholdIntegrity({ member, householdRows = [] } = {}) {
         principalNumber: principal,
       });
     }
+  } else if (isIntegranteCategory(member)) {
+    warnings.push(dependents.length ? {
+      code: 'integrante_como_titular',
+      severity: 'warn',
+      message: `La categoría es de integrante y esta ficha figura como titular de ${dependents.length} persona${dependents.length === 1 ? '' : 's'}.`,
+      memberId: selfId,
+      principalNumber: principal,
+    } : {
+      code: 'integrante_sin_vinculo',
+      severity: 'error',
+      message: 'La categoría es de integrante y la ficha no tiene titular.',
+      memberId: selfId,
+      principalNumber: principal,
+    });
   } else if (dependents.length) {
     if (!isLiveMember(member)) {
       const activeDeps = dependents.filter((row) => isLiveMember(row));
@@ -139,15 +178,24 @@ function documentKey(member) {
 }
 
 /**
- * Escaneo del padrón ya hidratado (lista en memoria / búsqueda).
+ * Escaneo del padrón recibido.
+ * En cloud hay que pasarle activos e inactivos: si falta el titular,
+ * un integrante activo se leería como vínculo inexistente.
  * No muta ni inventa relaciones: solo reporta.
  */
 export function scanPadronHouseholdIssues(members = []) {
   const list = Array.isArray(members) ? members : [];
   const byNumber = new Map();
+  const dependentsByPrincipal = new Map();
   for (const row of list) {
-    const id = memberNumberOf(row);
+    const id = canonicalMemberId(row);
     if (id) byNumber.set(id, row);
+    if (!isFamilyDependent(row)) continue;
+    const principal = familyPrincipalOf(row);
+    if (!principal) continue;
+    const bucket = dependentsByPrincipal.get(principal);
+    if (bucket) bucket.push(row);
+    else dependentsByPrincipal.set(principal, [row]);
   }
 
   const issues = [];
@@ -166,8 +214,9 @@ export function scanPadronHouseholdIssues(members = []) {
   };
 
   for (const row of list) {
-    const id = memberNumberOf(row);
+    const id = canonicalMemberId(row);
     if (!id) continue;
+    const memberName = row.name || row.full_name || '';
 
     if (isFamilyDependent(row)) {
       const principal = familyPrincipalOf(row);
@@ -177,36 +226,60 @@ export function scanPadronHouseholdIssues(members = []) {
         push({
           code: 'dependent_missing_titular',
           severity: 'error',
-          message: `Nº ${id} apunta a titular ${principal} que no está en el padrón cargado.`,
+          message: `Nº ${id} apunta al Nº ${principal}, que no está en el padrón.`,
           memberId: id,
-          memberName: row.name || row.full_name || '',
+          memberName,
           principalNumber: principal,
+        });
+      } else if (isFamilyDependent(titular)) {
+        push({
+          code: 'dependent_points_to_dependent',
+          severity: 'error',
+          message: `Nº ${id} apunta al Nº ${principal}, que también es integrante de otro grupo.`,
+          memberId: id,
+          memberName,
+          principalNumber: principal,
+          principalName: titular.name || titular.full_name || '',
         });
       } else if (!isLiveMember(titular) && isLiveMember(row)) {
         push({
           code: 'inactive_titular_active_dependent',
           severity: 'warn',
-          message: `Nº ${id} activo bajo titular inactivo Nº ${principal}.`,
+          message: `Nº ${id} sigue activo y el titular Nº ${principal} no está operativo.`,
           memberId: id,
-          memberName: row.name || row.full_name || '',
+          memberName,
           principalNumber: principal,
           principalName: titular.name || titular.full_name || '',
         });
       }
     } else {
-      const principal = familyPrincipalOf(row) || id;
-      const dependents = list.filter(
-        (other) => isFamilyDependent(other) && familyPrincipalOf(other) === principal,
-      );
+      const dependents = dependentsByPrincipal.get(id) || [];
       if (!isLiveMember(row) && dependents.some((d) => isLiveMember(d))) {
         const activeCount = dependents.filter((d) => isLiveMember(d)).length;
         push({
           code: 'inactive_titular_active_dependents',
           severity: 'warn',
-          message: `Titular Nº ${id} inactivo con ${activeCount} integrante${activeCount === 1 ? '' : 's'} activo${activeCount === 1 ? '' : 's'}.`,
+          message: `Titular Nº ${id} no está operativo y tiene ${activeCount} integrante${activeCount === 1 ? '' : 's'} activo${activeCount === 1 ? '' : 's'}.`,
           memberId: id,
-          memberName: row.name || row.full_name || '',
-          principalNumber: principal,
+          memberName,
+          principalNumber: id,
+        });
+      }
+      if (isIntegranteCategory(row)) {
+        push(dependents.length ? {
+          code: 'integrante_como_titular',
+          severity: 'warn',
+          message: `Nº ${id} tiene categoría de integrante y figura como titular de ${dependents.length} persona${dependents.length === 1 ? '' : 's'}.`,
+          memberId: id,
+          memberName,
+          principalNumber: id,
+        } : {
+          code: 'integrante_sin_vinculo',
+          severity: 'error',
+          message: `Nº ${id} tiene categoría de integrante y no tiene titular.`,
+          memberId: id,
+          memberName,
+          principalNumber: id,
         });
       }
     }
@@ -234,7 +307,7 @@ export function scanPadronHouseholdIssues(members = []) {
   for (const [dni, group] of byDni) {
     if (group.length < 2) continue;
     const principals = new Set(
-      group.map((row) => familyPrincipalOf(row) || memberNumberOf(row)).filter(Boolean),
+      group.map((row) => familyPrincipalOf(row) || canonicalMemberId(row)).filter(Boolean),
     );
     if (principals.size > 1) {
       push({
@@ -285,8 +358,11 @@ export function summarizeHouseholdIssues(issues = []) {
 /** Etiquetas cortas para la UI de administración. */
 export const HOUSEHOLD_ISSUE_LABELS = {
   dependent_missing_titular: 'Integrante sin titular',
-  inactive_titular_active_dependent: 'Titular inactivo / integrante activo',
-  inactive_titular_active_dependents: 'Titular inactivo con familia activa',
+  dependent_points_to_dependent: 'El vínculo no es un titular',
+  inactive_titular_active_dependent: 'Titular no operativo / integrante activo',
+  inactive_titular_active_dependents: 'Titular no operativo con familia activa',
+  integrante_sin_vinculo: 'Categoría de integrante sin titular',
+  integrante_como_titular: 'Categoría de integrante y figura como titular',
   mixed_principals_in_household: 'Titulares mezclados en el hogar',
   same_document_multiple_households: 'Mismo DNI en varias familias',
   duplicate_document: 'Documento duplicado',

@@ -3,6 +3,7 @@
  */
 
 import { COLONIA_CHARGE_CONCEPTS, coloniaMethodLabel } from './coloniaConstants';
+import { coloniaPaymentCapital } from './coloniaLate';
 import { inscriptionAmount, planAmountFor } from './coloniaTariffs';
 
 export function moneyArs(value) {
@@ -309,7 +310,7 @@ export function buildColoniaAccountRows({
 function paymentPool(payments = [], status) {
   return (payments || [])
     .filter((payment) => String(payment.status || '') === status)
-    .reduce((sum, payment) => sum + moneyArs(payment.amount), 0);
+    .reduce((sum, payment) => sum + coloniaPaymentCapital(payment), 0);
 }
 
 function confirmedPool(payments = []) {
@@ -332,7 +333,10 @@ function monthDueParts(charges, { tariff, inscription }) {
     .filter((charge) => String(charge.concept || '') === 'colonia_inscripcion')
     .reduce((sum, charge) => sum + moneyArs(charge.amount), 0);
   const monthTariff = live
-    .filter((charge) => String(charge.concept || '') !== 'colonia_inscripcion')
+    .filter((charge) => {
+      const concept = String(charge.concept || '');
+      return concept !== 'colonia_inscripcion' && concept !== 'colonia_interes';
+    })
     .reduce((sum, charge) => sum + moneyArs(charge.amount), 0);
   return { firstExtra, monthTariff };
 }
