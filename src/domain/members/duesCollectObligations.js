@@ -186,6 +186,26 @@ export function listFeeLedgerAdminReconcileClears(member) {
   return out;
 }
 
+/**
+ * Abonos de tenis del libro, también los ya regularizados (pending = 0).
+ * La cuota social del mismo mes no entra.
+ */
+export function tennisLedgerByDueOn(member) {
+  const map = new Map();
+  for (const line of ledgerLinesOf(member)) {
+    if (!feeLedgerLineIsTennis(line)) continue;
+    const ym = linePeriodYm(line);
+    if (!ym) continue;
+    const dueOn = dueOnFromPeriodYm(ym, DEFAULT_DUE_DAY);
+    const pending = money(Number(line?.pending) || 0);
+    const prev = map.get(dueOn) || { dueOn, pending: 0, lines: 0 };
+    prev.pending = money(prev.pending + pending);
+    prev.lines += 1;
+    map.set(dueOn, prev);
+  }
+  return map;
+}
+
 export function feeLedgerPendingCapital(member, { chargeScope = 'all' } = {}) {
   const scope = String(chargeScope || 'all').toLowerCase();
   let total = 0;

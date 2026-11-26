@@ -33,6 +33,7 @@ import {
   feeLedgerPendingCapital,
   listFeeLedgerAdminReconcileClears,
   socialExigibleCapitalForCollect,
+  tennisLedgerByDueOn,
 } from './duesCollectObligations';
 
 const DAY_MS = 86400000;
@@ -2113,6 +2114,18 @@ function choicesFromStoredOpenPeriods(member, paidOn, paidSet, scopeOpts = {}) {
   return null;
 }
 
+/** Un recibo de solo cuota social no salda el abono de tenis. */
+function paymentSettlesTennis(payment) {
+  if (!payment || paymentIsVoided(payment)) return false;
+  const scope = normalizeDuesChargeScope(payment?.chargeScope || payment?.meta?.chargeScope || '');
+  if (scope === 'social') return false;
+  const concept = String(payment?.concept || '').toLowerCase();
+  const socialWording = /cuota social/.test(concept) && !/tenis/.test(concept);
+  if (socialWording && !paymentIsTennisAbonoOnly(payment)) return false;
+  if (paymentIsTennisAbonoOnly(payment) || scope === 'addon') return true;
+  return scope === 'all';
+}
+
 export function memberCoveredTennisDueOns(member) {
   const set = new Set();
   const push = (value) => {
@@ -2120,12 +2133,16 @@ export function memberCoveredTennisDueOns(member) {
     if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) set.add(iso);
   };
   for (const payment of member?.paymentHistory || []) {
-    if (paymentIsVoided(payment)) continue;
+    if (!paymentSettlesTennis(payment)) continue;
     for (const due of payment?.periodDueOns || []) push(due);
+    for (const due of payment?.addonPeriodDueOns || payment?.meta?.addonPeriodDueOns || []) push(due);
     for (const row of payment?.imputations || []) {
       if (row?.voidedAt) continue;
       push(row?.dueOn);
     }
+  }
+  for (const row of tennisLedgerByDueOn(member).values()) {
+    if (row.lines > 0 && !(row.pending > 0.009)) push(row.dueOn);
   }
   return set;
 }
@@ -2142,35 +2159,51 @@ export function collectionTennisPeriodChoices(member, today = new Date(), {
   );
   if (!(monthly > 0.01)) return [];
   const covered = memberCoveredTennisDueOns(member);
-  const toRow = (dueOn, kind) => ({
+  const toRow = (dueOn, kind, capital = monthly) => ({
     id: dueOn,
     dueOn,
     monthKey: String(dueOn).slice(0, 7),
     label: periodChoiceLabel(dueOn),
-    capital: monthly,
+    capital,
     lateBase: 0,
     surcharge: 0,
-    payable: monthly,
+    payable: capital,
     kind,
     chargeScope: 'abono_tenis',
   });
 
   // Misma ventana de meses abiertos que la cuota, pero solo el capital de tenis.
+  let rows = [];
   if (!isDuesExemptMember(member)) {
     const social = collectionPeriodChoices(member, today)
       .filter((row) => (Number(row.capital) || 0) > 0 && !dueOnAlreadyCovered(row.dueOn, covered));
-    if (social.length) {
-      return social.map((row) => toRow(row.dueOn, row.kind || 'overdue'));
+    if (social.length) rows = social.map((row) => toRow(row.dueOn, row.kind || 'overdue'));
+  }
+
+  if (!rows.length) {
+    const day = duesDueDayForMember(member);
+    const currentDue = toISODate(duesDateOnDueDay(paidOn.getFullYear(), paidOn.getMonth(), day));
+    if (duesPeriodMonthStarted(currentDue, paidOn) && !dueOnAlreadyCovered(currentDue, covered)) {
+      const dueDate = parseDate(currentDue);
+      const kind = dueDate && dueDate < paidOn ? 'overdue' : 'upcoming';
+      rows = [toRow(currentDue, kind)];
     }
   }
 
-  const day = duesDueDayForMember(member);
-  const currentDue = toISODate(duesDateOnDueDay(paidOn.getFullYear(), paidOn.getMonth(), day));
-  if (!duesPeriodMonthStarted(currentDue, paidOn)) return [];
-  if (dueOnAlreadyCovered(currentDue, covered)) return [];
-  const dueDate = parseDate(currentDue);
-  const kind = dueDate && dueDate < paidOn ? 'overdue' : 'upcoming';
-  return [toRow(currentDue, kind)];
+  const ledger = tennisLedgerByDueOn(member);
+  if (!ledger.size) return rows;
+
+  // El libro manda: pending 0 no se regenera; el remanente reemplaza la tarifa llena.
+  const kept = rows.filter((row) => !ledger.has(String(row.dueOn).slice(0, 10)));
+  for (const entry of ledger.values()) {
+    if (!(entry.pending > 0.009)) continue;
+    const dueOn = entry.dueOn;
+    const dueDate = parseDate(dueOn);
+    const kind = dueDate && dueDate < paidOn ? 'overdue' : 'upcoming';
+    kept.push(toRow(dueOn, kind, entry.pending));
+  }
+  kept.sort((a, b) => String(a.dueOn).localeCompare(String(b.dueOn)));
+  return kept;
 }
 
 export function collectionTennisPreview(member, today = new Date(), {

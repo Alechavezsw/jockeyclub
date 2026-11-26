@@ -274,6 +274,35 @@ export async function listFeeLedgerLinesByMemberNumber(memberNumber) {
   return lines;
 }
 
+/** Abonos de tenis del libro para varios socios. Una lectura, sin armar pagos. */
+export async function listTennisFeeLedgerLines(memberNumbers = []) {
+  const numbers = [...new Set(
+    (memberNumbers || []).map((value) => String(value || '').trim()).filter(Boolean),
+  )];
+  if (!numbers.length) return [];
+  const lines = [];
+  const chunkSize = 80;
+  for (let index = 0; index < numbers.length; index += chunkSize) {
+    const chunk = numbers.slice(index, index + chunkSize);
+    const pageSize = 1000;
+    for (let from = 0; ; from += pageSize) {
+      const batch = await unwrap(
+        sb()
+          .from('fee_ledger_lines')
+          .select('id, account_id, member_number, member_name, dni, line_date, date_label, collected_at, collected_at_label, type_label, description, amount, collected, pending, source')
+          .in('member_number', chunk)
+          .ilike('type_label', '%ABONO TENIS%')
+          .order('line_date', { ascending: true })
+          .range(from, from + pageSize - 1),
+        'No se pudo leer el abono de tenis del libro',
+      );
+      lines.push(...(batch || []).map(feeLedgerLineFromRow).filter(Boolean));
+      if (!batch || batch.length < pageSize) break;
+    }
+  }
+  return lines;
+}
+
 function feeLedgerLineToRow(line) {
   return {
     id: line.id,

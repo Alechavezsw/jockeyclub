@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Banknote,
   ChevronLeft,
@@ -28,6 +28,8 @@ import { persistDuesCollection, recordTennisAbonoCollection } from '../../domain
 import { deliverPaymentReceipt } from '../../domain/payments/deliverPaymentReceipt';
 import CollectDuesModal from './CollectDuesModal';
 import CollectReceiptActionsBanner from '../erp/CollectReceiptActionsBanner';
+import { repos } from '../../data/bootstrap';
+import { isSupabaseConfigured } from '../../lib/supabase';
 
 function latestTennisPayment(account) {
   const history = Array.isArray(account?.paymentHistory) ? account.paymentHistory : [];
@@ -138,6 +140,49 @@ export default function TenisMembersPanel({
   const [flash, setFlash] = useState('');
   const [receiptBanner, setReceiptBanner] = useState(null);
   const [pdfBusyId, setPdfBusyId] = useState('');
+  const [ledgerByNumber, setLedgerByNumber] = useState({});
+  const [ledgerReady, setLedgerReady] = useState(!isSupabaseConfigured);
+  const tennisNumbers = useMemo(() => (
+    (members || [])
+      .filter((row) => isLiveMember(row) && memberHasTennisAbono(row))
+      .map((row) => memberNumberOf(row))
+      .filter(Boolean)
+      .toSorted()
+  ), [members]);
+  const tennisNumberKey = tennisNumbers.join(',');
+
+  useEffect(() => {
+    if (!isSupabaseConfigured || typeof repos.listTennisFeeLedgerLines !== 'function') {
+      setLedgerReady(true);
+      return undefined;
+    }
+    if (!tennisNumbers.length) {
+      setLedgerByNumber({});
+      setLedgerReady(true);
+      return undefined;
+    }
+    let cancelled = false;
+    setLedgerReady(false);
+    repos.listTennisFeeLedgerLines(tennisNumbers)
+      .then((lines) => {
+        if (cancelled) return;
+        const map = {};
+        for (const line of lines || []) {
+          const nro = String(line.memberNumber || '');
+          if (!nro) continue;
+          if (!map[nro]) map[nro] = [];
+          map[nro].push(line);
+        }
+        setLedgerByNumber(map);
+      })
+      .catch(() => {
+        if (!cancelled) setLedgerByNumber({});
+      })
+      .finally(() => {
+        if (!cancelled) setLedgerReady(true);
+      });
+    return () => { cancelled = true; };
+  }, [tennisNumberKey, tennisNumbers]);
 
   const tennisRows = useMemo(() => {
     const today = new Date();
@@ -150,9 +195,13 @@ export default function TenisMembersPanel({
         const tennisAmount = Number(duesTennisAbonoAmount(m, today)) || 0;
         const balance = Math.max(0, Number(account.outstandingBalance) || 0);
         const dependent = isFamilyDependent(m) || !isTitularMember(m);
-        const tennisOpen = collectionTennisPeriodChoices(account, today, {
-          monthlyAmount: tennisAmount,
-        });
+        const ledgerLines = ledgerByNumber[String(memberNumberOf(account) || '')] || account.feeLedgerLines;
+        const priced = Array.isArray(ledgerLines)
+          ? { ...account, feeLedgerLines: ledgerLines }
+          : account;
+        const tennisOpen = ledgerReady
+          ? collectionTennisPeriodChoices(priced, today, { monthlyAmount: tennisAmount })
+          : [];
         const lastTennisPayment = latestTennisPayment(account);
         return {
           ...m,
@@ -172,7 +221,7 @@ export default function TenisMembersPanel({
       .toSorted((a, b) => (Number(b.tennisPending) - Number(a.tennisPending))
         || (b.balance - a.balance)
         || String(a.name || '').localeCompare(String(b.name || ''), 'es'));
-  }, [members]);
+  }, [members, ledgerByNumber, ledgerReady]);
 
   const titulares = useMemo(
     () => tennisRows.filter((m) => m.role === 'titular'),
