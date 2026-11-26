@@ -355,6 +355,8 @@ export default function MembersTab({
   const [inactiveCount, setInactiveCount] = useState(null);
   const [inactiveReady, setInactiveReady] = useState(false);
   const [inactiveLoading, setInactiveLoading] = useState(false);
+  const [padronReview, setPadronReview] = useState(null);
+  const [padronReviewError, setPadronReviewError] = useState('');
   const [membersPanel, setMembersPanel] = useState(() => readMembersPanel('titulares'));
   const [searchQuery, setSearchQuery] = useState('');
   const [requestFocus, setRequestFocus] = useState(null);
@@ -775,10 +777,29 @@ export default function MembersTab({
   }, [onPadronOpsChange]);
 
   const familyGroups = useMemo(() => listFamilyGroups(searchDirectory), [searchDirectory]);
+  const reviewDirectory = isSupabaseConfigured ? padronReview : searchDirectory;
   const householdIntegrityIssues = useMemo(
-    () => scanPadronHouseholdIssues(searchDirectory),
-    [searchDirectory],
+    () => (Array.isArray(reviewDirectory) ? scanPadronHouseholdIssues(reviewDirectory) : []),
+    [reviewDirectory],
   );
+  const householdIntegrityCount = padronReviewError || !Array.isArray(reviewDirectory)
+    ? null
+    : householdIntegrityIssues.length;
+
+  useEffect(() => {
+    if (!isSupabaseConfigured) return undefined;
+    let cancelled = false;
+    repos.listMembers({ scope: 'all' })
+      .then((rows) => {
+        if (!cancelled) setPadronReview(Array.isArray(rows) ? rows : []);
+      })
+      .catch((err) => {
+        if (!cancelled) setPadronReviewError(err?.message || 'No se pudo leer el padrón completo.');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const filteredFamilies = useMemo(() => {
     const q = searchQuery.trim();
@@ -2470,7 +2491,7 @@ export default function MembersTab({
           {
             id: 'revision',
             label: 'Revisión vínculos',
-            count: householdIntegrityIssues.length,
+            count: householdIntegrityCount,
             accent: '#c45c26',
           },
         ].map((tab) => (
@@ -3123,7 +3144,10 @@ export default function MembersTab({
       {activePanel === 'revision' ? (
         <HouseholdIntegrityPanel
           embedded
-          members={searchDirectory}
+          members={Array.isArray(reviewDirectory) ? reviewDirectory : []}
+          loading={isSupabaseConfigured && !padronReview && !padronReviewError}
+          error={padronReviewError}
+          complete={isSupabaseConfigured && Array.isArray(padronReview)}
           onOpenProfile={onOpenProfile}
         />
       ) : null}

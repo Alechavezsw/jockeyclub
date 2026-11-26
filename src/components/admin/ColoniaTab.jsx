@@ -53,6 +53,7 @@ import {
   coloniaAccountMonths,
   summarizeColoniaAccount,
 } from '../../domain/colonia/coloniaLedger';
+import { quoteColoniaEnrollmentDue, quoteColoniaOpenDue } from '../../domain/colonia/coloniaLate';
 import { buildColoniaEnrollmentReceipt, downloadColoniaEnrollmentReceipt } from '../../domain/colonia/coloniaReceipt';
 import {
   buildColoniaPaymentDraft,
@@ -468,7 +469,15 @@ export default function ColoniaTab({
   const fichaSocio = selectedEnrollment && selectedEnrollment.student?.member_kind !== 'no_socio'
     ? responsibleSocio(selectedEnrollment)
     : null;
-  const fichaDue = Math.max(0, (Number(accountSummary.balanceDue) || 0) - (Number(accountSummary.pendingConfirmation) || 0));
+  const openDue = useMemo(() => quoteColoniaOpenDue({
+    charges,
+    payments,
+    paidOn: todayIso(),
+    season: season || COLONIA_SEASON_2026_2027,
+    planKey: selectedEnrollment?.plan_key || selectedEnrollment?.planKey,
+  }), [charges, payments, season, selectedEnrollment]);
+  const fichaDue = openDue.capital;
+  const fichaPayable = openDue.payable;
   const memberParsed = clubMailMemberQuery(memberQuery);
   const memberSearchReady = student.memberKind === 'socio' && (
     memberParsed.kind === 'number'
@@ -477,6 +486,14 @@ export default function ColoniaTab({
   const planPrice = planAmountFor(COLONIA_OFFICIAL_TARIFFS_2026_2027, student.memberKind, planKey);
   const inscriptionPrice = inscriptionAmount(COLONIA_OFFICIAL_TARIFFS_2026_2027);
   const pupilCount = rosterPreview.length;
+  const enrollQuote = quoteColoniaEnrollmentDue({
+    planKey,
+    memberKind: student.memberKind,
+    pupilCount,
+    tariffs: COLONIA_OFFICIAL_TARIFFS_2026_2027,
+    paidOn: todayIso(),
+    season: season || COLONIA_SEASON_2026_2027,
+  });
   const rosterRows = useMemo(() => {
     const source = rosterQuery.trim()
       ? enrollments.filter((row) => enrollmentMatchesRoster(row, rosterQuery))
@@ -548,8 +565,8 @@ export default function ColoniaTab({
     ? accountRows
     : (monthBooks.find((month) => month.key === accountMonthKey)?.lines || []);
   const accountVisible = monthRows;
-  const inscriptionDue = planKey === 'hermano_4' ? 0 : (Number(inscriptionPrice) || 0);
-  const enrollmentTotal = (inscriptionDue * pupilCount) + (Number(planPrice) || 0);
+  const inscriptionDue = enrollQuote.inscriptionEach;
+  const enrollmentTotal = enrollQuote.total;
   const seasonAge = {
     activitiesStartOn: season?.activities_start_on || COLONIA_SEASON_2026_2027.activitiesStartOn,
     ageMin: season?.age_min ?? 3,
@@ -654,13 +671,13 @@ export default function ColoniaTab({
 
   useEffect(() => {
     if (student.memberKind !== 'socio') {
-      setMemberHits([]);
+      setMemberHits((curr) => (curr.length ? [] : curr));
       setMemberSearchBusy(false);
       return undefined;
     }
     const parsed = clubMailMemberQuery(memberQuery);
     if (parsed.kind === 'empty' || (parsed.kind === 'text' && parsed.text.length < 2)) {
-      setMemberHits([]);
+      setMemberHits((curr) => (curr.length ? [] : curr));
       setMemberSearchBusy(false);
       return undefined;
     }
@@ -1033,7 +1050,7 @@ export default function ColoniaTab({
 
   useEffect(() => {
     if (student.memberKind !== 'socio' || !anchorMember) {
-      setHousehold([]);
+      setHousehold((curr) => (curr.length ? [] : curr));
       setHouseholdBusy(false);
       return undefined;
     }
@@ -1158,12 +1175,12 @@ export default function ColoniaTab({
 
   useEffect(() => {
     if (!canHealth || !isSupabaseConfigured) {
-      setHealthRows([]);
+      setHealthRows((curr) => (curr.length ? [] : curr));
       return undefined;
     }
     const ids = enrollments.map((row) => row.student?.id).filter(Boolean);
     if (!ids.length) {
-      setHealthRows([]);
+      setHealthRows((curr) => (curr.length ? [] : curr));
       return undefined;
     }
     let cancelled = false;
@@ -1312,7 +1329,13 @@ export default function ColoniaTab({
         });
         amount += planAmount;
       }
-      slices.push({ id: savedEnrollment.id, amount, enrollment: savedEnrollment });
+      const interest = index === 0 ? (enrollQuote.interest || 0) : 0;
+      slices.push({
+        id: savedEnrollment.id,
+        amount: amount + interest,
+        interest,
+        enrollment: savedEnrollment,
+      });
     }
     return slices;
   }
@@ -1409,6 +1432,7 @@ export default function ColoniaTab({
           operatorName: 'Mostrador Colonia',
           bankId: draft.bankId,
           pos,
+          interest: slice.interest || 0,
         });
       }
       setEnrollHold({
@@ -1452,6 +1476,7 @@ export default function ColoniaTab({
       memberKind: student.memberKind,
       inscriptionAmount: inscriptionDue,
       planAmount: planPrice,
+      interestAmount: enrollQuote.interest,
       socioName: student.memberKind === 'no_socio'
         ? guardian.fullName
         : (titular?.fullName || titular?.name || titular?.full_name || guardian.fullName),
@@ -1504,10 +1529,11 @@ export default function ColoniaTab({
       setMsg('Sin permiso de cobranza Colonia.');
       return;
     }
-    const dueNow = fichaDue;
+    const dueNow = fichaPayable;
     const charged = Number(amountOverride) > 0
       ? Number(amountOverride)
       : (Number(payAmount) > 0 ? Number(payAmount) : dueNow);
+    const interest = Math.abs(charged - fichaPayable) < 0.5 ? openDue.interest : 0;
     let payPos = null;
     if (coloniaMethodUsesCard(payMethod)) {
       payPos = posFor(payPosRef, charged);
@@ -1538,6 +1564,7 @@ export default function ColoniaTab({
         operatorName: 'Mostrador Colonia',
         bankId: draft.bankId,
         pos: payPos?.meta || null,
+        interest,
       });
       const payment = result?.payment || result;
       if (draft.status === 'confirmed' && payment) {
@@ -1897,7 +1924,7 @@ export default function ColoniaTab({
 
   return (
     <div className="colonia-shell">
-      {!onlySection ? <header className="colonia-hero-band">
+      {!onlySection ? <header className={`colonia-hero-band${seasons.length ? ' has-season' : ''}`}>
         <div className="colonia-hero-copy">
           <p className="colonia-kicker">Temporada {seasonView.code || '2026-2027'}</p>
           <h2 className="serif-font">Colonia de Verano</h2>
@@ -1911,22 +1938,22 @@ export default function ColoniaTab({
           <span>13:00</span>
           <small>lun a vie</small>
         </div>
-        <label className="colonia-field colonia-season-pick">
-          <span>Temporada</span>
-          <select
-            value={seasonId || ''}
-            onChange={(e) => setSeasonId(e.target.value || null)}
-            disabled={!seasons.length}
-          >
-            {!seasons.length ? <option value="">Sin temporada en base</option> : null}
-            {seasons.map((s) => (
-              <option key={s.id} value={s.id}>{s.code} — {s.name}</option>
-            ))}
-          </select>
-        </label>
+        {seasons.length ? (
+          <label className="colonia-field colonia-season-pick">
+            <span>Temporada</span>
+            <select
+              value={seasonId || ''}
+              onChange={(e) => setSeasonId(e.target.value || null)}
+            >
+              {seasons.map((s) => (
+                <option key={s.id} value={s.id}>{s.code} — {s.name}</option>
+              ))}
+            </select>
+          </label>
+        ) : null}
       </header> : null}
 
-      {!isSupabaseConfigured || !cloudReady ? (
+      {isSupabaseConfigured && !cloudReady ? (
         <p className="colonia-banner warn">
           <AlertTriangle size={16} /> La migración de Colonia aún no está publicada. El dominio y la UI están listos; no se inventan estadísticas.
         </p>
@@ -2295,7 +2322,7 @@ export default function ColoniaTab({
                   <span>
                     {planKey === 'hermano_4'
                       ? `Plan ${money(planPrice)} · sin inscripción`
-                      : `Inscripción ${money(inscriptionPrice)}${pupilCount > 1 ? ` × ${pupilCount}` : ''}${Number(planPrice) > 0 ? ` + plan ${money(planPrice)}` : ''}`}
+                      : `Inscripción ${money(inscriptionPrice)}${pupilCount > 1 ? ` × ${pupilCount}` : ''}${Number(planPrice) > 0 ? ` + ${planKey === 'cuota' ? 'cuota' : 'plan'} ${money(planPrice)}` : ''}${enrollQuote.interest > 0 ? ` + interés 15 % ${money(enrollQuote.interest)}` : ''}`}
                   </span>
                   <strong>{money(enrollmentTotal)}</strong>
                 </div>
@@ -2443,14 +2470,19 @@ export default function ColoniaTab({
                         disabled={busy}
                         notes={false}
                         plans={paymentPlans}
-                        amount={fichaDue}
+                        amount={fichaPayable}
                         posRef={payPosRef}
                       />
+                      {openDue.late ? (
+                        <p className="colonia-banner warn">
+                          La cuota se paga después del 10: lleva 15 % de interés ({money(openDue.interest)}). La inscripción no.
+                        </p>
+                      ) : null}
                       {payMethod === 'mercadopago' ? (
                         <MercadoPagoCheckout
                           kind="colonia"
                           mode="qr"
-                          amount={fichaDue}
+                          amount={fichaPayable}
                           enrollmentId={selectedEnrollment.id}
                           memberNumber={fichaSocio.memberNumber}
                           concept={`Colonia de Verano · ${selectedEnrollment.student?.full_name || ''}`}
@@ -2461,8 +2493,8 @@ export default function ColoniaTab({
                           }}
                         />
                       ) : (
-                        <button type="button" className="btn primary" disabled={busy} onClick={() => submitPayment(fichaDue)}>
-                          {`Cobrar al socio · ${money(fichaDue)}`}
+                        <button type="button" className="btn primary" disabled={busy} onClick={() => submitPayment(fichaPayable)}>
+                          {`Cobrar al socio · ${money(fichaPayable)}`}
                         </button>
                       )}
                     </>
@@ -2695,7 +2727,7 @@ export default function ColoniaTab({
               onReference={setPayRef}
               disabled={busy}
               plans={paymentPlans}
-              amount={Number(payAmount) > 0 ? Number(payAmount) : fichaDue}
+              amount={Number(payAmount) > 0 ? Number(payAmount) : fichaPayable}
               posRef={payPosRef}
             />
             <label className="colonia-field"><span>Importe</span>
@@ -2705,9 +2737,7 @@ export default function ColoniaTab({
               <MercadoPagoCheckout
                 kind="colonia"
                 mode="qr"
-                amount={Number(payAmount) > 0
-                  ? Number(payAmount)
-                  : Math.max(0, (Number(accountSummary.balanceDue) || 0) - (Number(accountSummary.pendingConfirmation) || 0))}
+                amount={Number(payAmount) > 0 ? Number(payAmount) : fichaPayable}
                 enrollmentId={selectedEnrollment?.id}
                 memberNumber={responsibleSocio(selectedEnrollment)?.memberNumber || selectedEnrollment?.student?.member_number || ''}
                 concept={`Colonia de Verano${selectedEnrollment?.student?.full_name ? ` · ${selectedEnrollment.student.full_name}` : ''}`}
@@ -2723,7 +2753,11 @@ export default function ColoniaTab({
                 Registrar cobro Colonia
               </button>
             )}
-            <p className="muted">Saldo inscripción: {money(accountSummary.balanceDue)} · Pend. confirmar {money(accountSummary.pendingConfirmation)}</p>
+            <p className="muted">
+              Saldo {money(fichaDue)}
+              {openDue.late ? ` · con interés 15 % ${money(fichaPayable)}` : ''}
+              {' '}· Pend. confirmar {money(accountSummary.pendingConfirmation)}
+            </p>
           </div>
           <div>
             <h4>Cargos</h4>

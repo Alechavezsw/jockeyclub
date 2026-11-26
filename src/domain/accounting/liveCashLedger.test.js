@@ -368,6 +368,32 @@ describe('liveCashLedger', () => {
     expect(live.bancos).toBeCloseTo(65400, 2);
   });
 
+  it('incluye el cobro de Colonia en la hoja de caja', () => {
+    const live = buildLiveCashLedger({
+      snapshot: SNAPSHOT,
+      bankAccounts: BANKS,
+      journalEntries: [{
+        id: 'je-colonia-1',
+        date: '2026-10-18',
+        status: 'posted',
+        sourceModule: 'colonia',
+        origin: 'app',
+        description: 'Colonia de Verano · SANCHEZ LUPE · Banco Macro',
+        lines: [
+          { account: 'Banco Macro', type: 'debit', amount: 50000 },
+          { account: 'Colonia de Verano', type: 'credit', amount: 50000 },
+        ],
+      }],
+      today: TODAY,
+    });
+    const row = live.ledger.find((item) => /SANCHEZ LUPE/.test(item.description || ''));
+    expect(row).toMatchObject({
+      amount: 50000,
+      walletName: 'Banco Macro',
+      date: '2026-10-18',
+    });
+  });
+
   it('no duplica un movimiento de caja que ya tiene asiento', () => {
     const live = buildLiveCashLedger({
       snapshot: SNAPSHOT,

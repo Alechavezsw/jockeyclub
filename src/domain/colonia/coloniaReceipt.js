@@ -60,6 +60,7 @@ export function buildColoniaEnrollmentReceipt({
   memberKind = 'socio',
   inscriptionAmount = 0,
   planAmount = 0,
+  interestAmount = 0,
   socioName = '',
   socioNumber = '',
   method = 'efectivo',
@@ -72,6 +73,7 @@ export function buildColoniaEnrollmentReceipt({
   const names = (pupils || []).map(pupilName).filter(Boolean);
   const inscription = planKey === 'hermano_4' ? 0 : Math.round(Number(inscriptionAmount) || 0);
   const plan = Math.round(Number(planAmount) || 0);
+  const interest = Math.round(Number(interestAmount) || 0);
   const lines = [];
   for (const name of names) {
     if (inscription > 0) {
@@ -91,6 +93,15 @@ export function buildColoniaEnrollmentReceipt({
       alumno: names.join(', ') || '—',
       mes: month,
       amount: plan,
+    });
+  }
+  if (interest > 0) {
+    lines.push({
+      concept: 'Interés',
+      detail: '15 % por pago de la cuota después del 10',
+      alumno: names.join(', ') || '—',
+      mes: month,
+      amount: interest,
     });
   }
   const total = lines.reduce((sum, line) => sum + line.amount, 0);

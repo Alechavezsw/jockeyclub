@@ -133,4 +133,94 @@ describe('householdIntegrity', () => {
     expect(summary.errors).toBeGreaterThan(0);
     expect(summary.total).toBe(issues.length);
   });
+
+  it('distingue titular inactivo de titular inexistente y marca la cadena', () => {
+    const issues = scanPadronHouseholdIssues([
+      {
+        memberId: '50',
+        name: 'Titular baja',
+        status: 'inactive',
+        tier: 'socio_familiar',
+        familyPrincipalNumber: '50',
+        documentNumber: '20111000',
+        email: 't@x.com',
+      },
+      {
+        memberId: '51',
+        name: 'Hijo activo',
+        status: 'active',
+        tier: 'grupo_familiar_familiar',
+        familyPrincipalNumber: '50',
+        documentNumber: '30111000',
+        email: 'h@x.com',
+      },
+      {
+        memberId: '70',
+        name: 'Integrante puente',
+        status: 'active',
+        tier: 'grupo_familiar_familiar',
+        familyPrincipalNumber: '80',
+        documentNumber: '40111000',
+        email: 'p@x.com',
+      },
+      {
+        memberId: '71',
+        name: 'Nieto',
+        status: 'active',
+        tier: 'grupo_familiar_familiar',
+        familyPrincipalNumber: '70',
+        documentNumber: '50111000',
+        email: 'n@x.com',
+      },
+      {
+        memberId: '90',
+        name: 'Sin numero',
+        status: 'active',
+        tier: 'grupo_familiar_familiar',
+        documentNumber: '60111000',
+        email: 's@x.com',
+      },
+    ]);
+
+    expect(issues.some((i) => i.code === 'dependent_missing_titular' && i.memberId === '51')).toBe(false);
+    expect(issues.some((i) => i.code === 'inactive_titular_active_dependent' && i.memberId === '51')).toBe(true);
+    expect(issues.some((i) => i.code === 'dependent_points_to_dependent' && i.memberId === '71')).toBe(true);
+    expect(issues.some((i) => i.code === 'integrante_sin_vinculo' && i.memberId === '90')).toBe(true);
+    expect(issues.some((i) => i.code === 'dependent_missing_titular' && i.memberId === '70')).toBe(true);
+  });
+
+  it('marca categoría de integrante que opera como titular y no toca al socio familiar', () => {
+    const issues = scanPadronHouseholdIssues([
+      {
+        memberId: '10',
+        name: 'Cabeza mal categorizada',
+        status: 'active',
+        tier: 'grupo_familiar_familiar',
+        familyPrincipalNumber: '10',
+        documentNumber: '20111222',
+        email: 'c@x.com',
+      },
+      {
+        memberId: '11',
+        name: 'Hijo',
+        status: 'active',
+        tier: 'grupo_familiar_familiar',
+        familyPrincipalNumber: '10',
+        documentNumber: '30111222',
+        email: 'i@x.com',
+      },
+      {
+        memberId: '12',
+        name: 'Familiar que abona',
+        status: 'active',
+        tier: 'socio_familiar',
+        documentNumber: '40111222',
+        email: 'f@x.com',
+      },
+    ]);
+
+    expect(issues.some((i) => i.code === 'integrante_como_titular' && i.memberId === '10')).toBe(true);
+    expect(issues.some((i) => i.code === 'integrante_sin_vinculo' && i.memberId === '12')).toBe(false);
+    expect(issues.some((i) => i.memberId === '11' && i.code === 'integrante_sin_vinculo')).toBe(false);
+  });
 });

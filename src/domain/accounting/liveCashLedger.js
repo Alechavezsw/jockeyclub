@@ -476,7 +476,7 @@ export function asLedgerRowsFromJournal(entries = [], chart = DEFAULT_CHART_OF_A
     if (!date || (after && date < after)) return;
     const source = String(entry.sourceModule || '');
     // Impuestos / otros ingresos / reservas (seña MP, saldo) mueven tesorería si asientan contra caja o banco.
-    if (source && !['cuotas', 'caja', 'gastos', 'pileta', 'eventos', 'otros_ingresos', 'impuestos', 'reservas'].includes(source)) return;
+    if (source && !['cuotas', 'caja', 'gastos', 'pileta', 'eventos', 'otros_ingresos', 'impuestos', 'reservas', 'colonia'].includes(source)) return;
     normalizeLines(entry.lines || [], list).forEach((line) => {
       const accountId = resolveAccountId(list, line.accountId) || line.accountId;
       const account = getAccountById(list, accountId);

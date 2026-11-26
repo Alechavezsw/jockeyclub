@@ -28,6 +28,7 @@ export const COLONIA_PAYMENT_METHOD_KEYS = Object.freeze([
 export const COLONIA_CHARGE_CONCEPTS = Object.freeze({
   colonia_inscripcion: 'Inscripción',
   colonia_cuota: 'Cuota Colonia',
+  colonia_interes: 'Interés cuota Colonia',
   colonia_temporada: 'Temporada completa',
   colonia_promocion: 'Promoción hermanos',
   colonia_ajuste: 'Ajuste',

@@ -11,11 +11,7 @@ import MercadoPagoCheckout from '../components/MercadoPagoCheckout';
 import { repos } from '../data/bootstrap';
 import { isSupabaseConfigured } from '../lib/supabase';
 import { COLONIA_SEASON_2026_2027, COLONIA_MP_ENABLED } from '../domain/colonia/coloniaConstants';
-import {
-  COLONIA_OFFICIAL_TARIFFS_2026_2027,
-  inscriptionAmount,
-  planAmountFor,
-} from '../domain/colonia/coloniaTariffs';
+import { COLONIA_OFFICIAL_TARIFFS_2026_2027 } from '../domain/colonia/coloniaTariffs';
 import {
   buildMemberColoniaHome,
   buildPortalEnrollmentPayload,
@@ -25,7 +21,7 @@ import {
   portalEnabledPlans,
   validatePortalEnrollmentWizard,
 } from '../domain/colonia/coloniaPortal';
-import { coloniaMpPayable } from '../domain/colonia/coloniaPayments';
+import { quoteColoniaEnrollmentDue, quoteColoniaOpenDue } from '../domain/colonia/coloniaLate';
 import { todayISODateAR } from '../lib/arDate';
 
 function PortalDonut({ parts, total }) {
@@ -240,29 +236,34 @@ export default function ColoniaPortalView({
   );
 
   const quote = useMemo(() => {
-    const kind = student.memberKind || 'socio';
-    const tariffs = COLONIA_OFFICIAL_TARIFFS_2026_2027;
-    const inscription = planKey === 'hermano_4' ? 0 : inscriptionAmount(tariffs);
-    const plan = planAmountFor(tariffs, kind, planKey) || 0;
+    const due = quoteColoniaEnrollmentDue({
+      planKey,
+      memberKind: student.memberKind || 'socio',
+      pupilCount: 1,
+      tariffs: COLONIA_OFFICIAL_TARIFFS_2026_2027,
+      paidOn: todayIso,
+      season: seasonView,
+    });
     return {
-      inscription: Number(inscription) || 0,
-      plan: Number(plan) || 0,
-      total: (Number(inscription) || 0) + (Number(plan) || 0),
+      inscription: due.inscription,
+      plan: due.planCapital,
+      interest: due.interest,
+      total: due.total,
     };
-  }, [student.memberKind, planKey]);
+  }, [student.memberKind, planKey, todayIso, seasonView]);
 
   const portalMpAmount = useMemo(() => {
-    const posted = charges
-      .filter((row) => String(row.status || 'posted') !== 'void')
-      .reduce((sum, row) => sum + (Number(row.amount) || 0), 0);
-    const confirmed = payments
-      .filter((row) => row.status === 'confirmed' || row.status === 'confirmado')
-      .reduce((sum, row) => sum + (Number(row.amount) || 0), 0);
-    const pending = payments
-      .filter((row) => row.status === 'pending')
-      .reduce((sum, row) => sum + (Number(row.amount) || 0), 0);
-    return coloniaMpPayable(posted - confirmed, pending);
-  }, [charges, payments]);
+    const planKey = (enrollments || []).some((row) => (row.plan_key || row.planKey) === 'cuota')
+      ? 'cuota'
+      : ((enrollments || [])[0]?.plan_key || (enrollments || [])[0]?.planKey || '');
+    return quoteColoniaOpenDue({
+      charges,
+      payments,
+      paidOn: todayISODateAR(),
+      season: seasonView,
+      planKey,
+    }).payable;
+  }, [charges, payments, seasonView, enrollments]);
   const home = useMemo(() => buildMemberColoniaHome(enrollments), [enrollments]);
   const { mine, dueTotal, paidTotal, nextLabel } = home;
   const statusParts = home.statusParts.map((part, index) => ({
@@ -621,6 +622,7 @@ export default function ColoniaPortalView({
             <div>
               <p>{planKey === 'hermano_4' ? 'Sin inscripción' : `Inscripción: ${money(quote.inscription)}`}</p>
               <p>Plan ({planKey}): {money(quote.plan)}</p>
+              {quote.interest > 0 ? <p>Interés 15 % (cuota después del 10): {money(quote.interest)}</p> : null}
               <p><strong>Total orientativo: {money(quote.total)}</strong></p>
               <p className="muted">Los cargos definitivos los confirma Administración. No afecta tu cuota social.</p>
             </div>
