@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   coloniaBadgeForHouseholdMember,
   coloniaEnrollmentBalance,
+  coloniaOperationalStatus,
   coloniaStatusLabel,
   portalEnabledPlans,
   validatePortalEnrollmentWizard,
@@ -21,6 +22,17 @@ describe('coloniaPortal', () => {
   it('etiqueta estados de portal', () => {
     expect(coloniaStatusLabel('pendiente')).toBe('Pendiente de validación');
     expect(coloniaStatusLabel('pendiente_pago')).toBe('Pendiente de pago');
+  });
+
+  it('si ya pagó no sigue en pendiente de pago', () => {
+    expect(coloniaOperationalStatus(
+      { status: 'pendiente_pago' },
+      { isSettled: true, balanceDue: 0, pendingConfirmation: 0 },
+    )).toBe('confirmada');
+    expect(coloniaOperationalStatus(
+      { status: 'pendiente_pago' },
+      { isSettled: false, balanceDue: 1000, pendingConfirmation: 0 },
+    )).toBe('pendiente_pago');
   });
 
   it('calcula saldo Colonia sin mezclar cuota social', () => {

@@ -12,6 +12,97 @@ export function moneyArs(value) {
   return Math.round(n * 100) / 100;
 }
 
+function isLiveColoniaCharge(charge) {
+  return String(charge?.status || 'posted') !== 'void';
+}
+
+function isConfirmedColoniaPayment(payment) {
+  const status = String(payment?.status || '');
+  return status === 'confirmed' || status === 'confirmado';
+}
+
+function isInscriptionConcept(concept) {
+  return String(concept || '') === 'colonia_inscripcion';
+}
+
+/**
+ * Imputa cobros confirmados a los cargos: primero inscripción, después mes/plan.
+ * Permite cobrar inscripción y mes por separado sin partir la lógica de saldo.
+ */
+export function allocateColoniaPayments({ charges = [], payments = [] } = {}) {
+  const live = (charges || [])
+    .filter(isLiveColoniaCharge)
+    .map((charge) => ({
+      id: charge.id || null,
+      concept: String(charge.concept || ''),
+      label: COLONIA_CHARGE_CONCEPTS[charge.concept] || charge.concept || 'Cargo',
+      amount: moneyArs(charge.amount),
+      paid: 0,
+      open: moneyArs(charge.amount),
+      createdAt: charge.created_at || charge.createdAt || '',
+    }))
+    .toSorted((a, b) => {
+      const aIns = isInscriptionConcept(a.concept) ? 0 : 1;
+      const bIns = isInscriptionConcept(b.concept) ? 0 : 1;
+      if (aIns !== bIns) return aIns - bIns;
+      return String(a.createdAt).localeCompare(String(b.createdAt));
+    });
+
+  let remaining = moneyArs(
+    (payments || [])
+      .filter(isConfirmedColoniaPayment)
+      .reduce((sum, payment) => sum + moneyArs(payment.amount), 0),
+  );
+
+  for (const row of live) {
+    const applied = Math.min(row.amount, remaining);
+    row.paid = moneyArs(applied);
+    row.open = moneyArs(row.amount - applied);
+    remaining = moneyArs(remaining - applied);
+  }
+
+  return live;
+}
+
+/** Saldos abiertos separables: inscripción vs mes/plan vs total. */
+export function coloniaCollectableScopes({ charges = [], payments = [] } = {}) {
+  const rows = allocateColoniaPayments({ charges, payments });
+  const inscriptionCharged = moneyArs(
+    rows.filter((row) => isInscriptionConcept(row.concept)).reduce((sum, row) => sum + row.amount, 0),
+  );
+  const planCharged = moneyArs(
+    rows.filter((row) => !isInscriptionConcept(row.concept)).reduce((sum, row) => sum + row.amount, 0),
+  );
+  const inscriptionOpen = moneyArs(
+    rows.filter((row) => isInscriptionConcept(row.concept)).reduce((sum, row) => sum + row.open, 0),
+  );
+  const planOpen = moneyArs(
+    rows.filter((row) => !isInscriptionConcept(row.concept)).reduce((sum, row) => sum + row.open, 0),
+  );
+  const totalOpen = moneyArs(inscriptionOpen + planOpen);
+  return {
+    rows,
+    inscriptionCharged,
+    planCharged,
+    inscriptionOpen,
+    planOpen,
+    totalOpen,
+    canPayInscription: inscriptionOpen > 0.009,
+    canPayPlan: planOpen > 0.009,
+    canPayAll: totalOpen > 0.009,
+  };
+}
+
+/** Importe a cobrar según alcance elegido en mostrador. */
+export function coloniaAmountForPayScope(scope, { inscriptionAmount = 0, planAmount = 0 } = {}) {
+  const inscription = moneyArs(inscriptionAmount);
+  const plan = moneyArs(planAmount);
+  const key = String(scope || 'todo');
+  if (key === 'inscripcion') return inscription;
+  if (key === 'plan') return plan;
+  return moneyArs(inscription + plan);
+}
+
 export function summarizeColoniaAccount({ charges = [], payments = [] } = {}) {
   const charged = moneyArs(
     (charges || [])
@@ -32,12 +123,17 @@ export function summarizeColoniaAccount({ charges = [], payments = [] } = {}) {
       .reduce((sum, p) => sum + moneyArs(p.amount), 0),
   );
   const balance = moneyArs(charged - confirmed);
+  const scopes = coloniaCollectableScopes({ charges, payments });
   return {
     totalContracted: charged,
     totalCollected: confirmed,
     pendingConfirmation: pending,
     balanceDue: balance,
     isSettled: balance <= 0 && pending === 0,
+    inscriptionOpen: scopes.inscriptionOpen,
+    planOpen: scopes.planOpen,
+    inscriptionCharged: scopes.inscriptionCharged,
+    planCharged: scopes.planCharged,
   };
 }
 

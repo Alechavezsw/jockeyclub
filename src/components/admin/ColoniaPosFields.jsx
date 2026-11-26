@@ -104,10 +104,12 @@ export default function ColoniaPosFields({
             {' '}(no la cambia el operador de caja).
           </p>
         ) : null}
-        {selected?.allowOperatorOverride && (selected.installments || 1) > 1 ? (
+        {(selected?.installments || 1) > 1
+          && (selected.allowOperatorOverride
+            || (selected.financingPercent == null && selected.financingFixed == null)) ? (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '0.5rem' }}>
             <label className="form-group" style={{ margin: 0 }}>
-              <span className="form-label">% financiación</span>
+              <span className="form-label">% financiación / intereses</span>
               <input
                 className="form-input"
                 type="number"
@@ -141,6 +143,14 @@ export default function ColoniaPosFields({
               />
             </label>
           </div>
+        ) : null}
+        {(selected?.installments || 1) > 1
+          && !selected.allowOperatorOverride
+          && selected.financingPercent == null
+          && selected.financingFixed == null ? (
+          <p style={{ margin: 0, fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+            Cargá el % o el importe de intereses del cupón. El capital de Colonia no cambia.
+          </p>
         ) : null}
         {preview?.quote ? (
           <div style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', display: 'grid', gap: 4 }}>

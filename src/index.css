@@ -20491,6 +20491,13 @@ a.ops-outline-btn {
   flex: 1;
 }
 
+.mp-hero-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem;
+}
+
 .mp-back {
   display: inline-flex;
   align-items: center;
@@ -21785,6 +21792,89 @@ a.ops-outline-btn {
 .pool-hero-kpis span {
   font-size: 0.72rem;
   color: var(--text-muted);
+}
+
+.pool-stats-panel {
+  margin: 1rem 0;
+}
+
+.pool-stats-note {
+  margin: 0.35rem 0 0.85rem;
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+}
+
+.pool-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr));
+  gap: 0.55rem;
+  margin-bottom: 0.85rem;
+}
+
+.pool-kpi-grid article {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding: 0.65rem 0.75rem;
+  border-radius: 10px;
+  border: 1px solid var(--border-glass);
+  border-left: 3px solid #0ea5e9;
+  background: color-mix(in srgb, var(--bg-tertiary) 75%, transparent);
+}
+
+.pool-kpi-grid article:nth-child(3n) { border-left-color: #1a7a8c; }
+.pool-kpi-grid article:nth-child(3n + 2) { border-left-color: #0369a1; }
+
+.pool-kpi-grid span {
+  font-size: 0.68rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.pool-kpi-grid strong {
+  font-size: 1.1rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+
+.pool-sheets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-bottom: 0.65rem;
+}
+
+.pool-sheets button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  border: 1px solid var(--border-glass);
+  background: color-mix(in srgb, var(--bg-tertiary) 70%, transparent);
+  color: var(--text-secondary);
+  border-radius: 999px;
+  padding: 0.35rem 0.7rem;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.pool-sheets button.is-on {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-weight: 700;
+}
+
+.pool-sheets b {
+  font-variant-numeric: tabular-nums;
+  font-size: 0.75rem;
+  color: var(--text-gold);
+}
+
+.pool-account-table .muted {
+  display: block;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  font-weight: 400;
 }
 
 .pool-layout {
@@ -32364,6 +32454,12 @@ button.debit-moves-row:disabled {
   text-transform: uppercase;
   color: #1a7a8c;
   font-weight: 700;
+}
+.colonia-pay-scopes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
 }
 .colonia-plans {
   display: grid;

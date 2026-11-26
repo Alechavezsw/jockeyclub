@@ -20,7 +20,7 @@ import {
   coloniaSourceLabel,
   coloniaStatusLabel,
 } from '../../domain/colonia/coloniaPortal';
-import { summarizeColoniaAccount } from '../../domain/colonia/coloniaLedger';
+import { coloniaCollectableScopes, summarizeColoniaAccount } from '../../domain/colonia/coloniaLedger';
 import { canCollectColonia } from '../../domain/auth/roles';
 
 function money(n) {
@@ -56,6 +56,10 @@ export default function ColoniaCashPanel({ roles = [], role, operatorName = '', 
   const mpSpec = coloniaMercadoPagoAdapterSpec();
   const account = useMemo(
     () => summarizeColoniaAccount({ charges, payments }),
+    [charges, payments],
+  );
+  const scopes = useMemo(
+    () => coloniaCollectableScopes({ charges, payments }),
     [charges, payments],
   );
 
@@ -243,6 +247,10 @@ export default function ColoniaCashPanel({ roles = [], role, operatorName = '', 
             Cargos {money(account.totalContracted)} · Cobrado {money(account.totalCollected)} · Saldo {money(account.balanceDue)}
             {account.pendingConfirmation > 0 ? ` · Pendiente verificación ${money(account.pendingConfirmation)}` : ''}
           </p>
+          <p className="muted">
+            Abierto: inscripción {money(scopes.inscriptionOpen)} · mes/plan {money(scopes.planOpen)}.
+            Se cobran por separado o juntos, en la misma cuenta Colonia.
+          </p>
 
           {canCollect ? (
             <div className="colonia-cash-form">
@@ -262,6 +270,23 @@ export default function ColoniaCashPanel({ roles = [], role, operatorName = '', 
                   </select>
                 </label>
               ) : null}
+              <div className="colonia-pay-scopes" role="group" aria-label="Cobro separable">
+                {scopes.canPayInscription ? (
+                  <button type="button" className="btn btn-sm" disabled={busy} onClick={() => setAmount(String(scopes.inscriptionOpen))}>
+                    {`Inscripción · ${money(scopes.inscriptionOpen)}`}
+                  </button>
+                ) : null}
+                {scopes.canPayPlan ? (
+                  <button type="button" className="btn btn-sm" disabled={busy} onClick={() => setAmount(String(scopes.planOpen))}>
+                    {`Mes/plan · ${money(scopes.planOpen)}`}
+                  </button>
+                ) : null}
+                {scopes.canPayAll ? (
+                  <button type="button" className="btn btn-sm primary" disabled={busy} onClick={() => setAmount(String(scopes.totalOpen))}>
+                    {`Todo · ${money(scopes.totalOpen)}`}
+                  </button>
+                ) : null}
+              </div>
               <label>Importe</label>
               <input value={amount} onChange={(e) => setAmount(e.target.value)} />
               {coloniaMethodUsesBank(method) ? (

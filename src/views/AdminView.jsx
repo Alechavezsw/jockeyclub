@@ -1874,7 +1874,13 @@ export default function AdminView({
       )}
 
       {activeTab === 'settings_colonia' && (
-        <ColoniaTab roles={user?.roles || []} role={userRole} members={members} onlySection="configuracion" />
+        <ColoniaTab
+          roles={user?.roles || []}
+          role={userRole}
+          members={members}
+          onlySection="configuracion"
+          paymentPlans={paymentPlans}
+        />
       )}
 
       {activeTab === 'settings_bookings' && (

@@ -3,6 +3,12 @@
  */
 
 import { coloniaMethodLabel } from './coloniaConstants';
+import { allocateColoniaPayments } from './coloniaLedger';
+import {
+  COLONIA_OFFICIAL_TARIFFS_2026_2027,
+  inscriptionAmount,
+  planAmountFor,
+} from './coloniaTariffs';
 import { loadJsPdf } from '../../lib/office';
 import {
   CLUB_NAME,
@@ -112,8 +118,11 @@ export function buildColoniaEnrollmentReceipt({
     fiscalNote: 'Recibo interno de Colonia. No es la cuota social ni una factura.',
     alumnos: names,
     socioName: String(socioName || '').trim() || '—',
-    socioNumber: isSocio ? (String(socioNumber || '').replace(/\D/g, '').replace(/^0+/, '') || '—') : '—',
+    /** Etiqueta de la persona a cargo: Socio solo si la ficha es de socio. */
+    responsibleLabel: isSocio ? 'Socio' : 'Responsable',
+    socioNumber: isSocio ? (String(socioNumber || '').replace(/\D/g, '').replace(/^0+/, '') || '—') : '',
     socioKind: isSocio ? 'Socio' : 'No socio',
+    isSocio,
     month,
     planKey,
     planLabel,
@@ -127,6 +136,94 @@ export function buildColoniaEnrollmentReceipt({
     total,
     when,
   };
+}
+
+function enrollmentRowId(row) {
+  return row?.enrollment_id || row?.enrollmentId || null;
+}
+
+function isConfirmedColoniaPayment(payment) {
+  const status = String(payment?.status || '');
+  return status === 'confirmed' || status === 'confirmado';
+}
+
+function isLiveColoniaCharge(charge) {
+  return String(charge?.status || 'posted') !== 'void';
+}
+
+/**
+ * Comprobante de pago acreditado: inscripción + mes/plan de esa ficha.
+ * Usa cargos publicados y el último pago confirmado (método y fecha).
+ */
+export function buildColoniaPaidReceiptFromEnrollment({
+  enrollment,
+  charges = [],
+  payments = [],
+  tariffs = COLONIA_OFFICIAL_TARIFFS_2026_2027,
+  socioName = '',
+  socioNumber = '',
+  when = new Date(),
+} = {}) {
+  if (!enrollment?.id) return null;
+  const student = enrollment.student || {};
+  const guardian = enrollment.guardian || {};
+  const planKey = enrollment.plan_key || enrollment.planKey || 'cuota';
+  const kind = student.member_kind || student.memberKind || 'socio';
+  const ownCharges = (charges || []).filter(
+    (charge) => enrollmentRowId(charge) === enrollment.id && isLiveColoniaCharge(charge),
+  );
+  const confirmed = (payments || []).filter(
+    (payment) => enrollmentRowId(payment) === enrollment.id && isConfirmedColoniaPayment(payment),
+  );
+  if (!confirmed.length) return null;
+
+  // Preferir lo efectivamente cobrado (inscripción y mes separables).
+  const allocated = allocateColoniaPayments({ charges: ownCharges, payments: confirmed });
+  let inscription = allocated
+    .filter((row) => String(row.concept || '') === 'colonia_inscripcion')
+    .reduce((sum, row) => sum + Math.round(Number(row.paid) || 0), 0);
+  let plan = allocated
+    .filter((row) => String(row.concept || '') !== 'colonia_inscripcion')
+    .reduce((sum, row) => sum + Math.round(Number(row.paid) || 0), 0);
+  if (!(inscription + plan > 0)) {
+    inscription = ownCharges
+      .filter((charge) => String(charge.concept || '') === 'colonia_inscripcion')
+      .reduce((sum, charge) => sum + Math.round(Number(charge.amount) || 0), 0);
+    plan = ownCharges
+      .filter((charge) => String(charge.concept || '') !== 'colonia_inscripcion')
+      .reduce((sum, charge) => sum + Math.round(Number(charge.amount) || 0), 0);
+  }
+  if (!(inscription + plan > 0)) {
+    inscription = planKey === 'hermano_4' ? 0 : inscriptionAmount(tariffs);
+    plan = Math.round(Number(planAmountFor(tariffs, kind, planKey)) || 0);
+  }
+  if (!(inscription + plan > 0)) return null;
+
+  const latest = [...confirmed].toSorted((a, b) => String(
+    b.confirmed_at || b.confirmedAt || b.created_at || b.createdAt || '',
+  ).localeCompare(String(
+    a.confirmed_at || a.confirmedAt || a.created_at || a.createdAt || '',
+  )))[0];
+  const paidAt = latest?.confirmed_at || latest?.confirmedAt || latest?.created_at || latest?.createdAt;
+
+  return buildColoniaEnrollmentReceipt({
+    pupils: [{ fullName: student.full_name || student.fullName }],
+    planKey,
+    memberKind: kind,
+    inscriptionAmount: inscription,
+    planAmount: plan,
+    socioName: socioName
+      || guardian.full_name
+      || guardian.fullName
+      || '',
+    socioNumber: socioNumber
+      || student.member_number
+      || student.memberNumber
+      || '',
+    method: latest?.method || 'efectivo',
+    paymentStatus: 'confirmed',
+    when: paidAt ? new Date(paidAt) : when,
+  });
 }
 
 function fileSlug(value) {
@@ -173,8 +270,10 @@ export async function downloadColoniaEnrollmentReceipt(receipt) {
     ['Colonia', receipt.concept],
     ['Mes', receipt.month],
     ['Alumno', receipt.alumnos.join(', ') || '—'],
-    ['Socio', receipt.socioName],
-    ['Nº de socio', receipt.socioNumber],
+    [receipt.responsibleLabel || (receipt.isSocio === false ? 'Responsable' : 'Socio'), receipt.socioName],
+    ...(receipt.isSocio === false || !String(receipt.socioNumber || '').trim()
+      ? []
+      : [['Nº de socio', receipt.socioNumber]]),
     ['Condición', receipt.socioKind],
     ['Promoción', receipt.promoLabel],
     ['Plan', receipt.planLabel],

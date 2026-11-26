@@ -5,7 +5,7 @@ import {
   MessageSquare, ClipboardList, Activity, Phone, Mail, MapPin,
   Pencil, FileText, Ticket, Bell, IdCard, Cake, Heart, Flag, Clock,
   ShieldCheck, CalendarClock, Banknote, Building2, AlertTriangle,
-  Camera, X, Plus, Loader2, UserMinus, Trash2, Baby,
+  Camera, X, Plus, Loader2, UserMinus, Trash2, Baby, FileDown,
 } from 'lucide-react';
 import MemberColoniaPanel from './MemberColoniaPanel';
 import { coloniaBadgeForHouseholdMember } from '../../domain/colonia/coloniaPortal';
@@ -16,6 +16,7 @@ import GuestPassPanel from '../GuestPassPanel';
 import CollectDuesModal from './CollectDuesModal';
 import ModalDialog from '../ModalDialog';
 import { MemberLifecycleModal } from './MemberAdminModals';
+import { downloadMemberFichaPdf } from '../../domain/members/exportMemberFichaPdf';
 import {
   dbMemberIsDuesExempt,
   formatShortDate,
@@ -418,6 +419,7 @@ export default function MemberProfilePanel({
   const [householdReady, setHouseholdReady] = useState(false);
   const [householdEpoch, setHouseholdEpoch] = useState(0);
   const [coloniaEnrollments, setColoniaEnrollments] = useState([]);
+  const [fichaPdfBusy, setFichaPdfBusy] = useState(false);
   const setMembersRef = useRef(setMembers);
   setMembersRef.current = setMembers;
   const [searchParams, setSearchParams] = useSearchParams();
@@ -1159,13 +1161,41 @@ export default function MemberProfilePanel({
   ].filter(Boolean).join(' · ');
   const doc = documentParts(member.documentType, member.documentNumber);
 
+  const downloadFichaPdf = async () => {
+    setFichaPdfBusy(true);
+    setEditMsg('');
+    try {
+      await downloadMemberFichaPdf(member, {
+        tierCatalog,
+        household: householdReady ? householdExtras : [],
+        formatCurrency,
+      });
+    } catch (err) {
+      setEditMsg(err?.message || 'No se pudo generar el PDF de la ficha.');
+    } finally {
+      setFichaPdfBusy(false);
+    }
+  };
+
   return (
     <div className="glass-card fade-in member-profile">
       <header className="mp-hero">
         <div className="mp-hero-main">
-          <button type="button" className="btn btn-secondary btn-sm mp-back" onClick={onBack}>
-            <ArrowLeft size={14} /> {backLabel}
-          </button>
+          <div className="mp-hero-toolbar">
+            <button type="button" className="btn btn-secondary btn-sm mp-back" onClick={onBack}>
+              <ArrowLeft size={14} /> {backLabel}
+            </button>
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              disabled={fichaPdfBusy || !member}
+              onClick={downloadFichaPdf}
+              title="Descargar ficha del socio en PDF"
+            >
+              <FileDown size={14} aria-hidden="true" />
+              {fichaPdfBusy ? 'PDF…' : 'Descargar ficha PDF'}
+            </button>
+          </div>
 
           <div className="mp-identity">
             <div
