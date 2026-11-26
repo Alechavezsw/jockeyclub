@@ -2,6 +2,8 @@ import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { unwrap } from './errors';
 
 const BUCKET = 'concession-docs';
+/** Portadas/galería de la revista: público (concession-docs es privado). */
+const NEWS_BUCKET = 'news-media';
 const MAX_BYTES = 10 * 1024 * 1024;
 const ALLOWED = new Set([
   'application/pdf',
@@ -72,7 +74,7 @@ export async function removeConcessionDocumentFile(path) {
 }
 
 /**
- * Sube imagen de portada/galería de la revista a Storage (misma bucket, carpeta news/).
+ * Sube imagen de portada/galería de la revista a Storage (bucket público news-media).
  * @returns {{ path, url, name, mimeType, size }}
  */
 export async function uploadNewsImage(file, { articleId = 'draft' } = {}) {
@@ -88,14 +90,14 @@ export async function uploadNewsImage(file, { articleId = 'draft' } = {}) {
   const folder = String(articleId || 'draft').replace(/[^a-z0-9_-]/gi, '') || 'draft';
   const path = `news/${folder}/${Date.now()}-${Math.random().toString(36).slice(2, 7)}.${extFromFile(file)}`;
 
-  const { error } = await supabase.storage.from(BUCKET).upload(path, file, {
+  const { error } = await supabase.storage.from(NEWS_BUCKET).upload(path, file, {
     cacheControl: '3600',
     upsert: false,
     contentType: file.type || undefined,
   });
   if (error) throw new Error(error.message || 'No se pudo subir la imagen.');
 
-  const { data } = supabase.storage.from(BUCKET).getPublicUrl(path);
+  const { data } = supabase.storage.from(NEWS_BUCKET).getPublicUrl(path);
   return {
     path,
     url: data?.publicUrl || '',
@@ -103,6 +105,20 @@ export async function uploadNewsImage(file, { articleId = 'draft' } = {}) {
     mimeType: file.type || '',
     size: file.size || 0,
   };
+}
+
+/** Si una URL vieja apunta a concession-docs/news/, la firma para poder mostrarla. */
+export async function resolveNewsImageUrl(url, seconds = 60 * 60 * 24 * 7) {
+  const raw = String(url || '');
+  if (!raw || !isSupabaseConfigured || !supabase) return raw;
+  const marker = `/storage/v1/object/public/${BUCKET}/`;
+  const idx = raw.indexOf(marker);
+  if (idx < 0) return raw;
+  const path = decodeURIComponent(raw.slice(idx + marker.length).split('?')[0] || '');
+  if (!path.startsWith('news/')) return raw;
+  const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(path, seconds);
+  if (error || !data?.signedUrl) return raw;
+  return data.signedUrl;
 }
 
 /**

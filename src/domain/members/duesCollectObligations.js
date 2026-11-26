@@ -8,6 +8,7 @@ import { money } from '../money.js';
 import { duesMonthLabel } from './duesImputations.js';
 import { isFamilyDependent } from './households.js';
 import { DUES_LATE_RATE, DUES_LATE_TIER_IDS } from './tiers.js';
+import { frozenPeriodByDueOn } from './frozenDuesAgreement.js';
 
 const EPS = 0.009;
 const DEFAULT_DUE_DAY = 10;
@@ -117,8 +118,25 @@ function lineBlob(line) {
   ].map((value) => String(value || '').toLowerCase()).join(' ');
 }
 
+function foldLedgerText(value) {
+  return String(value || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+}
+
+/**
+ * Línea de recargo. Una cuota que aclara «sin recargo» sigue siendo capital:
+ * la palabra en la descripción no cancela la deuda.
+ */
 export function feeLedgerLineIsSurcharge(line) {
-  return /recargo/.test(lineBlob(line));
+  const type = foldLedgerText(`${line?.type || ''} ${line?.type_label || ''} ${line?.typeLabel || ''}`);
+  const desc = foldLedgerText(line?.description);
+  if (/\brecargo\b/.test(type)) return true;
+  if (/\bsin recargo\b/.test(desc)) return false;
+  if (/^\s*recargo\b/.test(desc)) return true;
+  if (/\brecargo\b/.test(desc) && !/\bcuota\b/.test(desc)) return true;
+  return false;
 }
 
 /** Ajuste sin mes: no es una cuota y no se reparte solo. */
@@ -610,13 +628,14 @@ export function collectionChoicesFromFeeLedger(member, paidOn = new Date(), {
   if (!periods.length) return null;
   const recorded = recordedSurchargeByYm(member);
   const allowsLate = !tennisScope && memberAllowsMonthlyLate(member);
+  const frozenByDue = tennisScope ? new Map() : frozenPeriodByDueOn(member);
   const rows = periods.map((row) => {
     const dueOn = String(row.dueOn).slice(0, 10);
     const due = new Date(`${dueOn}T12:00:00`);
     const overdue = Number.isFinite(due.getTime()) && due < paidOn;
     const pending = money(row.capitalOpen);
     const applied = money(row.collected || 0);
-    const originalCapital = money(row.amount || row.capital || pending);
+    let originalCapital = money(row.amount || row.capital || pending);
     const partial = applied > EPS && pending + EPS < originalCapital;
     let capital = pending;
     let tariffUpdate = 0;
@@ -636,6 +655,16 @@ export function collectionChoicesFromFeeLedger(member, paidOn = new Date(), {
     if (needsReview || tennisScope) surcharge = 0;
     else if (alreadyCharged > EPS) surcharge = alreadyCharged;
     else if (!partial && overdue && allowsLate) surcharge = money(capital * DUES_LATE_RATE);
+    const frozenHit = frozenByDue.get(dueOn);
+    if (frozenHit) {
+      const authorized = money(frozenHit.capitalAuthorized ?? frozenHit.capitalOpen ?? pending);
+      const open = money(frozenHit.capitalOpen ?? authorized);
+      capital = open > EPS ? open : pending;
+      originalCapital = authorized > EPS ? authorized : originalCapital;
+      tariffUpdate = 0;
+      surcharge = 0;
+      needsReview = false;
+    }
     return {
       id: dueOn,
       dueOn,
@@ -655,6 +684,7 @@ export function collectionChoicesFromFeeLedger(member, paidOn = new Date(), {
       historicalSurcharge: money(row.historicalSurcharge || 0),
       needsReview,
       partial,
+      frozenHistorical: Boolean(frozenByDue.get(dueOn)),
     };
   }).filter((row) => row.capital > EPS);
   return rows.length ? rows : null;

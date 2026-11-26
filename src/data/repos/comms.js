@@ -1,5 +1,6 @@
 import * as M from '../mappers';
 import { unwrap } from '../errors';
+import { resolveNewsImageUrl } from '../storage';
 import { dedupeMessages, withoutDuesBroadcasts } from '../../domain/messaging/messages';
 import { sb, audit } from './shared.js';
 
@@ -230,7 +231,12 @@ export async function listNews({ limit } = {}) {
   let q = sb().from('news_posts').select('*').order('created_at', { ascending: false });
   if (limit && Number(limit) > 0) q = q.limit(Number(limit));
   const rows = await unwrap(q);
-  return (rows || []).map(M.newsFromRow);
+  const list = (rows || []).map(M.newsFromRow);
+  return Promise.all(list.map(async (item) => {
+    const image = await resolveNewsImageUrl(item.image);
+    const gallery = await Promise.all((item.gallery || []).map((url) => resolveNewsImageUrl(url)));
+    return { ...item, image, gallery };
+  }));
 }
 
 export async function upsertNews(item) {

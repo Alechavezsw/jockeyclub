@@ -429,6 +429,12 @@ export function AuthProvider({ children }) {
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
+/** Igual que useAuth, pero devuelve null fuera del provider (modales usados en tests). */
+// eslint-disable-next-line react-refresh/only-export-components -- hook de conveniencia junto al provider
+export function useOptionalAuth() {
+  return useContext(AuthContext);
+}
+
 // eslint-disable-next-line react-refresh/only-export-components -- hook de conveniencia junto al provider
 export function useAuth() {
   const ctx = useContext(AuthContext);

@@ -20,6 +20,8 @@ import { isFamilyDependent, isTitularMember } from './households';
 import { familyDependentShouldLeave } from './familyStanding';
 import { todayAR } from '../../lib/arDate';
 import { money } from '../money';
+import { activeDuesPeriodAdjustments, applyDuesPeriodAdjustments } from './duesPeriodAdjustments';
+import { applyFrozenDuesPeriods } from './frozenDuesAgreement';
 import {
   duesMonthLabel,
   isJoinFeeDueOn,
@@ -2196,7 +2198,28 @@ export function collectionTennisPreview(member, today = new Date(), {
   };
 }
 
+/**
+ * Meses a cobrar. Los ajustes administrativos por período (auditados) se aplican al final:
+ * corrigen el capital de un mes o lo sacan, sin tocar el saldo de la ficha.
+ */
 export function collectionPeriodChoices(member, today = new Date(), { chargeScope = 'all' } = {}) {
+  const paidOn = startOfDay(today);
+  let rows = baseCollectionPeriodChoices(member, today, { chargeScope });
+  if (
+    member
+    && !isDuesExemptMember(member)
+    && !isFamilyDependent(member)
+    && activeDuesPeriodAdjustments(member).length
+  ) {
+    rows = applyDuesPeriodAdjustments(member, rows, paidOn, {
+      chargeScope: normalizeDuesChargeScope(chargeScope) === 'addon' ? 'abono_tenis' : chargeScope,
+      coveredDueOns: memberCoveredDueOns(member, { chargeScope: 'social' }),
+    });
+  }
+  return applyFrozenDuesPeriods(member, rows, paidOn);
+}
+
+function baseCollectionPeriodChoices(member, today = new Date(), { chargeScope = 'all' } = {}) {
   if (!member || isDuesExemptMember(member) || isFamilyDependent(member)) return [];
   const paidOn = startOfDay(today);
   const scopeOpts = { chargeScope };

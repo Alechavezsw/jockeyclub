@@ -56,6 +56,7 @@ import {
   resolvePosVoucherAmount,
 } from './posFinancing';
 import { findPaymentPlan, paymentPlanSnapshot } from '../system/paymentPlans';
+import { adjustmentsForPayment, periodAdjustmentNote } from './duesPeriodAdjustments';
 
 function attachLedgerDesync(preview, member, {
   ledgerLines = null,
@@ -1517,9 +1518,14 @@ export function recordDuesCollection(member, {
   chargeScope = 'all',
   monthlyAmount = null,
   tennisPeriodDueOns = null,
+  /** Ajustes administrativos por período (auditados) de la cuenta que paga. */
+  duesPeriodAdjustments = null,
 } = {}) {
   if (!member) throw new Error('Socio no encontrado.');
-  const account = billingAccountMember(member, members);
+  const billing = billingAccountMember(member, members);
+  const account = billing && Array.isArray(duesPeriodAdjustments)
+    ? { ...billing, duesPeriodAdjustments }
+    : billing;
   if (!account) throw new Error('El cobro va a la cuenta del titular. No está en el padrón.');
   const scope = String(chargeScope || '').trim().toLowerCase();
   const tennisPeriods = Array.isArray(tennisPeriodDueOns)
@@ -1564,6 +1570,7 @@ export function recordDuesCollection(member, {
         discountDetail,
         chargeScope: 'social',
         monthlyAmount,
+        duesPeriodAdjustments,
       })
       : { member: account, payment: null };
     const tennisResult = tennisPaid > 0.009
@@ -1754,6 +1761,13 @@ export function recordDuesCollection(member, {
     amount: concession.discount > 0 ? concession.cash : paid.payment.amount,
     discount: concession.discount,
     discountDetail: concession.detail || null,
+    // El servidor vuelve a escribir esto desde dues_period_adjustments (no confía en el navegador).
+    periodAdjustments: adjustmentsForPayment(
+      account,
+      Array.isArray(paid.payment.periodDueOns) && paid.payment.periodDueOns.length
+        ? paid.payment.periodDueOns
+        : periodDueOns,
+    ),
   };
 
   if (!mixed && isCardPosDuesMethod(resolvedMethod)) {
@@ -1808,12 +1822,14 @@ export function recordDuesCollection(member, {
   const financingNote = paymentWithBalance.cardFinancing?.financingAmount > 0.009
     ? ` · Financ. ${money(paymentWithBalance.cardFinancing.financingAmount)}`
     : '';
+  const adjustmentText = periodAdjustmentNote(paymentWithBalance.periodAdjustments);
+  const adjustmentNote = adjustmentText ? ` · ${adjustmentText}` : '';
   let journalEntry = null;
   if (paymentWithBalance.amount > 0 || concession.discount > 0) {
     const income = money(paymentWithBalance.amount + concession.discount);
     journalEntry = {
       date: paymentWithBalance.date,
-      description: `${cobroLabel} (${label}) - Socio: ${account.name} (Cred. ${account.memberId})${receiptNote}${planNote}${discountNote}${financingNote}`,
+      description: `${cobroLabel} (${label}) - Socio: ${account.name} (Cred. ${account.memberId})${receiptNote}${planNote}${discountNote}${financingNote}${adjustmentNote}`,
       lines: buildDuesCollectionJournalLines({
         cashReceived: paymentWithBalance.amount,
         socialIncome: income,
@@ -2557,11 +2573,14 @@ export function duesCollectionGate(member, {
   const theoretical = money(choices.reduce((sum, row) => sum + (
     skipSurcharge ? (Number(row.capital) || 0) : (Number(row.payable) || 0)
   ), 0));
+  const frozenChoices = choices.filter((row) => row.frozenHistorical);
+  const frozenLocked = frozenChoices.length > 0 && frozenChoices.length === choices.length;
+  const overFrozen = frozenLocked && asked > theoretical + 0.01;
   // La diferencia entre la tarifa vigente y el saldo de ficha no es un cargo aparte ni frena el cobro.
   const difference = 0;
   const ceiling = money(Math.max(theoretical, recorded));
   const noDebt = asked > 0.009 && theoretical <= 0.009 && recorded <= 0.009 && !adelanto;
-  const blocked = needsReview || (asked > 0.009 && noDebt);
+  const blocked = needsReview || overFrozen || (asked > 0.009 && noDebt);
   const lines = choices.map((row) => ({
     dueOn: row.dueOn,
     label: row.label,
@@ -2574,6 +2593,8 @@ export function duesCollectionGate(member, {
   let message = '';
   if (needsReview) {
     message = 'Requiere revisión. Falta una tarifa vigente para calcular este cobro.';
+  } else if (overFrozen) {
+    message = 'El importe supera el capital autorizado del acuerdo histórico.';
   } else if (blocked) {
     message = 'No hay deuda de cuota para acreditar.';
   }
@@ -2914,6 +2935,9 @@ export async function persistDuesCollection(result, {
       paymentPlanLabel: committedPay.paymentPlanLabel || payment.paymentPlanLabel || null,
       paymentPlanSnapshot: committedPay.paymentPlanSnapshot || payment.paymentPlanSnapshot || null,
       paymentSplits: committedPay.paymentSplits || payment.paymentSplits || null,
+      periodAdjustments: Array.isArray(committedPay.periodAdjustments) && committedPay.periodAdjustments.length
+        ? committedPay.periodAdjustments
+        : (payment.periodAdjustments || []),
     };
     const atomicEntry = committed.journal?.entry || null;
     const journalAlreadyPosted = Boolean(atomicEntry?.id);

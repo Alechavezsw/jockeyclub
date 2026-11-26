@@ -160,6 +160,28 @@ export function receiptDiscountLine(payment) {
 }
 
 /**
+ * Ajuste administrativo por mes que cubre el cobro: qué mes, capital corregido y quién lo hizo.
+ * Es informativo: el importe ya está dentro del cobro, no suma otra vez.
+ */
+export function receiptAdjustmentLines(payment) {
+  const list = Array.isArray(payment?.periodAdjustments) ? payment.periodAdjustments : [];
+  return list
+    .filter((row) => row && String(row.action || 'set') === 'set' && /^\d{4}-\d{2}/.test(String(row.dueOn || '')))
+    .map((row) => {
+      const dueOn = String(row.dueOn).slice(0, 10);
+      const month = periodLabelFromDueOn(dueOn.length === 7 ? `${dueOn}-10` : dueOn) || dueOn.slice(0, 7);
+      const by = String(row.by || '').trim();
+      const at = String(row.at || '').slice(0, 10);
+      const who = [by, at ? formatShortDateAr(at) : ''].filter(Boolean).join(' ');
+      return {
+        dueOn,
+        capital: Number(row.capital) || 0,
+        detail: `Ajuste adm. ${month}: cuota corregida${who ? ` (${who})` : ''}`,
+      };
+    });
+}
+
+/**
  * A qué corresponde el cobro: meses imputados / período / concepto limpio.
  * Sin mezclar el medio de pago (eso va en TIPO).
  */
@@ -575,6 +597,11 @@ async function buildPaymentReceiptDoc({ member, payment, kind = 'recibo' }) {
   const discountLine = isBooking ? null : receiptDiscountLine(payment);
   if (discountLine) {
     bodyRows.push(['', discountLine.detail, formatCurrency(-discountLine.amount), formatCurrency(-discountLine.amount)]);
+  }
+  if (!isBooking) {
+    for (const line of receiptAdjustmentLines(payment)) {
+      bodyRows.push(['', line.detail, formatCurrency(line.capital), '']);
+    }
   }
 
   if (isBooking && Number.isFinite(totalPrice) && totalPrice > 0) {

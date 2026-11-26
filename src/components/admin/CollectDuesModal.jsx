@@ -50,6 +50,10 @@ import { parseDuesReceipt } from '../../data/parseDuesReceipt';
 import { money } from '../../domain/money';
 import { isSupabaseConfigured } from '../../lib/supabase';
 import * as repos from '../../data/repos';
+import { FROZEN_DUES_NOTICE } from '../../domain/members/frozenDuesAgreement';
+import { useOptionalAuth } from '../../context/AuthContext';
+import { hasSystemAdminRole } from '../../domain/auth/roles';
+import DuesPeriodAdjustPanel from './DuesPeriodAdjustPanel';
 
 const METHODS = [
   { id: 'efectivo', label: 'Efectivo', icon: Banknote, hint: 'Caja general' },
@@ -67,6 +71,14 @@ const MIX_METHOD_OPTIONS = MIXED_DUES_METHODS.map((id) => ({
 }));
 
 function ledgerRowDetail(row, formatCurrency, skipSurcharge) {
+  if (row?.frozenHistorical) {
+    const bits = [`Cuota original ${formatCurrency(row.originalCapital || row.capital)}`];
+    if (Math.abs(Number(row.originalCapital) - Number(row.capital)) > 0.009) {
+      bits.push(`Saldo ${formatCurrency(row.capital)}`);
+    }
+    bits.push('Sin recargo', 'Sin actualización');
+    return bits.join(' · ');
+  }
   if (!row?.fromFeeLedger) return '';
   const bits = [`Exigible ${formatCurrency(row.capital)}`];
   if (Number(row.originalCapital) > 0.009 && Math.abs(Number(row.originalCapital) - Number(row.capital)) > 0.009) {
@@ -330,11 +342,18 @@ export default function CollectDuesModal({
   chargeScope = null,
   /** Monto mensual de tenis (fila del padrón); si falta, se usa el de la cuenta. */
   tennisMonthlyAmount = null,
+  /** Fuerza el permiso de ajuste (tests). Por defecto: rol admin / superadmin de la sesión. */
+  canAdjustDues = null,
 }) {
+  const auth = useOptionalAuth();
+  const isDuesAdmin = canAdjustDues == null
+    ? hasSystemAdminRole({ roles: auth?.roles || [], role: auth?.role || null })
+    : Boolean(canAdjustDues);
   const forcedTennis = String(chargeScope || '').trim().toLowerCase() === 'abono_tenis';
   const forcedSocial = ['social', 'cuota', 'quota'].includes(String(chargeScope || '').trim().toLowerCase());
   const [liveMember, setLiveMember] = useState(member);
   const [hydrating, setHydrating] = useState(Boolean(isSupabaseConfigured && member));
+  const [agreementError, setAgreementError] = useState('');
   const [includeSocial, setIncludeSocial] = useState(!forcedTennis);
   const [includeTennis, setIncludeTennis] = useState(forcedTennis);
   const [seededAttachment, setSeededAttachment] = useState(() => (
@@ -369,10 +388,26 @@ export default function CollectDuesModal({
             ledgerLines = [];
           }
         }
+        let agreement = null;
+        let agreementFailed = '';
+        const agreementId = full?.id || dbId;
+        if (agreementId && typeof repos.listFrozenDuesAgreement === 'function') {
+          try {
+            agreement = await repos.listFrozenDuesAgreement(agreementId);
+          } catch (err) {
+            agreementFailed = err?.message || 'No se pudo leer el acuerdo de deuda histórica.';
+          }
+        }
+        if (!cancelled) setAgreementError(agreementFailed);
+        const withBooks = (base) => ({
+          ...base,
+          ...(ledgerLines.length ? { feeLedgerLines: ledgerLines } : {}),
+          ...(agreement ? { frozenDuesAgreement: agreement } : {}),
+        });
         if (!cancelled && full) {
-          setLiveMember(ledgerLines.length ? { ...full, feeLedgerLines: ledgerLines } : full);
-        } else if (!cancelled && ledgerLines.length) {
-          setLiveMember((prev) => ({ ...(prev || member), feeLedgerLines: ledgerLines }));
+          setLiveMember(withBooks(full));
+        } else if (!cancelled && (ledgerLines.length || agreement)) {
+          setLiveMember((prev) => withBooks(prev || member));
         }
       } catch {
         /* se mantiene el miembro del padrón */
@@ -383,7 +418,27 @@ export default function CollectDuesModal({
     return () => { cancelled = true; };
   }, [member?.id, member?.memberId]);
 
-  const accountBase = billingAccountMember(liveMember, members) || liveMember;
+  const accountRaw = billingAccountMember(liveMember, members) || liveMember;
+  // Ajustes administrativos por período de la cuenta que paga (auditados en la base).
+  const [periodAdjustments, setPeriodAdjustments] = useState(null);
+  const accountDbId = accountRaw?.id || null;
+  useEffect(() => {
+    setPeriodAdjustments(null);
+    if (!isSupabaseConfigured || !accountDbId || typeof repos.listDuesPeriodAdjustments !== 'function') {
+      return undefined;
+    }
+    let cancelled = false;
+    repos.listDuesPeriodAdjustments(accountDbId)
+      .then((rows) => { if (!cancelled) setPeriodAdjustments(rows || []); })
+      .catch(() => { if (!cancelled) setPeriodAdjustments([]); });
+    return () => { cancelled = true; };
+  }, [accountDbId]);
+  const accountBase = useMemo(() => {
+    if (!accountRaw) return accountRaw;
+    const list = periodAdjustments ?? accountRaw.duesPeriodAdjustments;
+    if (!Array.isArray(list) || list === accountRaw.duesPeriodAdjustments) return accountRaw;
+    return { ...accountRaw, duesPeriodAdjustments: list };
+  }, [accountRaw, periodAdjustments]);
   const historyMemberKey = `${accountBase?.memberNumber || ''}|${accountBase?.memberId || ''}`;
   const providedHistory = accountBase?.accessinHistory;
   const accessinHistory = useMemo(
@@ -497,6 +552,10 @@ export default function CollectDuesModal({
     account?.accessinHistory,
     account?.meta?.feeLedgerAdminReconcile,
     account?.meta?.feeLedgerAdminPartialReconcile,
+    account?.duesPeriodAdjustments,
+    account?.frozenDuesAgreement?.id,
+    account?.frozenDuesAgreement?.remainingAmount,
+    account?.frozenDuesAgreement?.periods?.length,
   ]);
   const choiceKey = periodChoices.map((row) => row.selectKey || row.dueOn).join('|');
   const [selectedDueOns, setSelectedDueOns] = useState([]);
@@ -648,7 +707,7 @@ export default function CollectDuesModal({
     tennisOnly,
     method,
   ]);
-  const collectionBlocked = Boolean(gate.blocked);
+  const collectionBlocked = Boolean(gate.blocked) || Boolean(agreementError);
   const onAccountAmount = money(onAccountInput === '' ? 0 : onAccountInput);
   const amount = isOnAccount ? onAccountAmount : quotedAmount;
   const [discountInput, setDiscountInput] = useState('');
@@ -1194,6 +1253,9 @@ export default function CollectDuesModal({
           discount: concession.discount,
           discountDetail: concession.detail,
           periodDueOns: dueOnsPayload.length ? dueOnsPayload : chargeDueOns,
+          duesPeriodAdjustments: Array.isArray(account?.duesPeriodAdjustments)
+            ? account.duesPeriodAdjustments
+            : null,
           paymentSplits,
           ...scopePayload,
           ...tennisPayload,
@@ -1253,6 +1315,9 @@ export default function CollectDuesModal({
           discount: concession.discount,
           discountDetail: concession.detail,
           periodDueOns: dueOnsPayload.length ? dueOnsPayload : chargeDueOns,
+          duesPeriodAdjustments: Array.isArray(account?.duesPeriodAdjustments)
+            ? account.duesPeriodAdjustments
+            : null,
           ...tennisPayload,
           paymentPlanId: isCardPosDuesMethod(recordMethod) ? (selectedPlan?.id || null) : null,
           paymentPlanLabel: isCardPosDuesMethod(recordMethod) ? (selectedPlan?.label || null) : null,
@@ -1288,6 +1353,44 @@ export default function CollectDuesModal({
       setSubmitting(false);
     }
   };
+
+  const reloadPeriodAdjustments = async () => {
+    if (!accountDbId) return;
+    const rows = await repos.listDuesPeriodAdjustments(accountDbId);
+    setPeriodAdjustments(rows || []);
+  };
+  const savePeriodAdjustment = async ({ dueOn, action, capital, reason }) => {
+    if (!accountDbId) throw new Error('El socio no está cargado en la base.');
+    await repos.ajustarCuotaPeriodo({ memberDbId: accountDbId, dueOn, action, capital, reason });
+    await reloadPeriodAdjustments();
+  };
+  const voidPeriodAdjustment = async ({ adjustmentId, reason }) => {
+    await repos.anularAjusteCuotaPeriodo({ adjustmentId, reason });
+    await reloadPeriodAdjustments();
+  };
+  const showAdjustPanel = isDuesAdmin
+    && !hydrating
+    && !tennisOnly
+    && !duesExempt
+    && Boolean(accountDbId)
+    && isSupabaseConfigured;
+
+  const frozenChoices = periodChoices.filter((row) => row.frozenHistorical);
+  const frozenAgreement = account?.frozenDuesAgreement || null;
+  const showFrozenAgreement = frozenChoices.length > 0;
+  const frozenCapital = money(frozenChoices.reduce((sum, row) => sum + (Number(row.capital) || 0), 0));
+  const frozenUpdate = money(frozenChoices.reduce((sum, row) => sum + (Number(row.tariffUpdate) || 0), 0));
+  const frozenSurcharge = money(frozenChoices.reduce((sum, row) => sum + (Number(row.surcharge) || 0), 0));
+  const selectedFrozenCapital = !selectedDueOns.length
+    ? frozenCapital
+    : money(frozenChoices
+      .filter((row) => selectedDueOns.includes(row.selectKey || String(row.dueOn).slice(0, 10)))
+      .reduce((sum, row) => sum + (Number(row.capital) || 0), 0));
+  const memberIdentity = [
+    account?.name || liveMember?.name || member?.name,
+    (account?.memberId || account?.memberNumber) ? `Nº ${account?.memberId || account?.memberNumber}` : '',
+    account?.documentNumber ? `DNI ${account.documentNumber}` : '',
+  ].filter(Boolean).join(' · ');
 
   if (!member && !liveMember) return null;
 
@@ -1349,6 +1452,47 @@ export default function CollectDuesModal({
           </p>
         ) : null}
 
+        {agreementError ? (
+          <p style={{ margin: '0 0 1rem', fontSize: '0.85rem', color: 'var(--danger, #b42318)' }}>
+            {agreementError} El cobro queda frenado hasta leer el acuerdo.
+          </p>
+        ) : null}
+
+        {showFrozenAgreement ? (
+          <div
+            style={{
+              marginBottom: '1rem',
+              padding: '0.85rem 0.95rem',
+              borderRadius: 10,
+              border: '1px solid rgba(var(--primary-gold-rgb), 0.45)',
+              background: 'rgba(var(--primary-gold-rgb), 0.08)',
+            }}
+          >
+            <p style={{ margin: 0, fontWeight: 700, color: 'var(--text-gold)' }}>
+              Acuerdo de deuda histórica
+            </p>
+            <p style={{ margin: '0.35rem 0 0', fontSize: '0.84rem', color: 'var(--text-secondary)' }}>
+              {memberIdentity}
+              {frozenAgreement?.authorizedByLabel
+                ? ` · Autorizó ${frozenAgreement.authorizedByLabel}`
+                : ''}
+              {frozenAgreement?.authorizedAt
+                ? ` · ${String(frozenAgreement.authorizedAt).slice(0, 10)}`
+                : ''}
+            </p>
+            <p style={{ margin: '0.45rem 0 0', fontSize: '0.84rem', color: 'var(--text-secondary)' }}>
+              {FROZEN_DUES_NOTICE}
+            </p>
+            <p style={{ margin: '0.55rem 0 0', fontSize: '0.84rem', color: 'var(--text-primary)' }}>
+              {frozenChoices.length} períodos
+              {' · '}Capital {formatCurrency(frozenCapital)}
+              {' · '}Recargos {formatCurrency(frozenSurcharge)}
+              {' · '}Actualización {formatCurrency(frozenUpdate)}
+              {' · '}Total a cobrar {formatCurrency(selectedFrozenCapital)}
+            </p>
+          </div>
+        ) : null}
+
         {isClear ? (
           <div
             style={{
@@ -1408,6 +1552,9 @@ export default function CollectDuesModal({
                         <small style={{ color: 'var(--text-muted)' }}>
                           {ledgerRowDetail(row, formatCurrency, skipSurcharge || row.rowScope === 'tenis')
                             || periodChargePhrase(account, row, formatCurrency, { skipSurcharge, tennisOnly })}
+                          {row.adjustment
+                            ? ` · Ajuste adm. (${row.adjustment.by || 'administrador'})`
+                            : ''}
                         </small>
                       </span>
                       <b className="tabular-nums" style={{ color: 'var(--text-gold)' }}>
@@ -1432,6 +1579,16 @@ export default function CollectDuesModal({
               </div>
             ) : null}
           </div>
+        ) : null}
+
+        {showAdjustPanel ? (
+          <DuesPeriodAdjustPanel
+            choices={periodChoices}
+            adjustments={account?.duesPeriodAdjustments || []}
+            formatCurrency={formatCurrency}
+            onSave={savePeriodAdjustment}
+            onVoid={voidPeriodAdjustment}
+          />
         ) : null}
 
         {!isClear && isOnAccount && periodChoices.length ? (

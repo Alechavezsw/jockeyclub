@@ -95,7 +95,8 @@ export function openPeriodsFromChoices(choices = [], balance = 0) {
     rows.push({
       dueOn: String(row.dueOn).slice(0, 10),
       capital,
-      lateBase,
+      lateBase: row.frozenHistorical ? 0 : lateBase,
+      frozenHistorical: Boolean(row.frozenHistorical),
     });
     left = money(left - capital);
   }
@@ -122,11 +123,14 @@ export function imputeDuesPayment(periods = [], cash, paidOn) {
     if (!(left > 0.009)) break;
     const capitalOpen = money(period.capitalOpen ?? period.capital);
     const due = String(period.dueOn).slice(0, 10);
-    const storedBase = isJoinFeeDueOn(due) ? 0 : money(period.lateBase);
+    const storedBase = isJoinFeeDueOn(due) || period.frozenHistorical ? 0 : money(period.lateBase);
     // Desde octubre, si el mes está en mora y no quedó base, el 10 % es de la cuota abierta.
-    const lateBase = storedBase > 0.009
-      ? storedBase
-      : (due >= '2026-10-10' ? capitalOpen : 0);
+    // Un período del acuerdo histórico no usa esa actualización ni ese recargo.
+    const lateBase = period.frozenHistorical
+      ? 0
+      : (storedBase > 0.009
+        ? storedBase
+        : (due >= '2026-10-10' ? capitalOpen : 0));
     const overdue = paid > due && due > OPENING_DUE_ON;
     const surchargeOpen = overdue ? money(lateBase * 0.1) : 0;
     if (!(capitalOpen > 0) && !(surchargeOpen > 0)) continue;

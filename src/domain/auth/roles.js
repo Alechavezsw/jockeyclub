@@ -468,6 +468,15 @@ export function canReadMemberCards(roleOrRolesOrProfile) {
   return keys.includes('superadmin') || keys.includes('accountant');
 }
 
+/**
+ * Crear o revocar un acuerdo de deuda histórica congelada.
+ * Caja y el portal no pueden. La base lo exige en authorize_frozen_dues_agreement.
+ */
+export function canManageFrozenDuesAgreement(roleOrRolesOrProfile) {
+  const keys = collectRoleKeys(roleOrRolesOrProfile).map((key) => String(key || '').toLowerCase());
+  return keys.includes('superadmin') || keys.includes('admin') || keys.includes('accountant');
+}
+
 /** Ajustar el saldo a mano: solo superadmin o contador. La base lo exige en post_member_dues_delta. */
 export function canAdjustMemberBalance(roleOrRolesOrProfile) {
   const keys = collectRoleKeys(roleOrRolesOrProfile).map((key) => String(key || '').toLowerCase());
