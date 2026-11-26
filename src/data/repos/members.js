@@ -17,6 +17,7 @@ import { todayAR } from '../../lib/arDate';
 import { supabase } from '../../lib/supabase';
 import { isUuid, sb, fetchAllRows, fetchAllRowsParallel, audit } from './shared.js';
 import { createPortalUser, replaceProfileRoles } from './profiles.js';
+import { portalIdentityConflict } from '../../domain/auth/identityConflict.js';
 import { changeDuesPaymentMethod } from '../../domain/members/duesPaymentMethodChange';
 import { syncDuesPaymentMethodAccounting } from './accounting.js';
 
@@ -1386,6 +1387,38 @@ export async function provisionMemberPortalAccess(member, creds, { actorName = '
       ? [{ idType: 'dni', identifier: String(member.documentNumber).replace(/\D/g, '') || member.documentNumber }]
       : [],
   };
+  const conflict = portalIdentityConflict({
+    memberNumber: member.memberId || member.member_number || '',
+    memberEmail: member.email || '',
+    memberDocument: member.documentNumber || member.document_number || '',
+    accountEmail: payload.email || '',
+    accountDocument: payload.documentNumber || '',
+  });
+  if (conflict) {
+    await audit('identity.conflict', 'members', member.id || null, {
+      member_number: member.memberId || member.member_number || null,
+      reason: conflict,
+    });
+    throw new Error(conflict);
+  }
+  if (isUuid(member.id)) {
+    const { data: blockReason, error: blockError } = await sb().rpc('portal_identity_block_reason', {
+      p_member_id: member.id,
+      p_email: payload.email || null,
+      p_document_number: payload.documentNumber || null,
+      p_profile_id: null,
+    });
+    if (blockError && !/does not exist|schema cache|PGRST202/i.test(blockError.message || '')) {
+      throw new Error(blockError.message || 'No se pudo comprobar la identidad');
+    }
+    if (blockReason) {
+      await audit('identity.conflict', 'members', member.id, {
+        member_number: member.memberId || member.member_number || null,
+        reason: blockReason,
+      });
+      throw new Error(blockReason);
+    }
+  }
   const profile = await createPortalUser({
     ...payload,
     memberId: member.id || null,

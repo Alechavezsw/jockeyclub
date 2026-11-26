@@ -31,6 +31,24 @@ function isUuid(value: unknown) {
     .test(String(value || ""));
 }
 
+/** Frena el alta si el correo, el DNI y la ficha no son la misma persona. */
+async function assertPortalIdentity(
+  admin: ReturnType<typeof createClient>,
+  memberId: string,
+  email: string,
+  documentNumber: string,
+  profileId: string | null,
+) {
+  const { data, error } = await admin.rpc("portal_identity_block_reason", {
+    p_member_id: memberId,
+    p_email: email || null,
+    p_document_number: documentNumber || null,
+    p_profile_id: profileId,
+  });
+  if (error) throw new Error(error.message || "No se pudo comprobar la identidad");
+  if (data) throw new Error(String(data));
+}
+
 /** Vincula el usuario member a la ficha (staff no tiene members.write en RLS). */
 async function linkMemberPortal(
   admin: ReturnType<typeof createClient>,
@@ -162,6 +180,16 @@ Deno.serve(async (req) => {
       }
 
       const loginEmail = String(body.email || "").trim().toLowerCase();
+      const memberIdForCheck = String(body.memberId || "").trim();
+      if (targetRole === "member" && isUuid(memberIdForCheck)) {
+        await assertPortalIdentity(
+          admin,
+          memberIdForCheck,
+          loginEmail,
+          String(body.documentNumber || ""),
+          userId,
+        );
+      }
       const authPatch: { password: string; email?: string; email_confirm?: boolean } = { password };
       if (loginEmail.includes("@")) {
         authPatch.email = loginEmail;
@@ -217,6 +245,17 @@ Deno.serve(async (req) => {
     }
     if (!fullName) {
       return json(400, { error: "Nombre y apellido son obligatorios" });
+    }
+
+    const memberIdForCreate = String(body.memberId || "").trim();
+    if (role === "member" && isUuid(memberIdForCreate)) {
+      await assertPortalIdentity(
+        admin,
+        memberIdForCreate,
+        email,
+        String(body.documentNumber || ""),
+        null,
+      );
     }
 
     const userMeta = {
