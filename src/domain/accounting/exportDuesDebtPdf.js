@@ -1,6 +1,7 @@
 /** PDF detallado de deuda de cuota social (capital + intereses). */
 
 import { loadJsPdf } from '../../lib/office.js';
+import { FROZEN_DUES_NOTICE } from '../members/frozenDuesAgreement.js';
 import {
   BRAND,
   CLUB_NAME,
@@ -196,12 +197,12 @@ export async function downloadDuesDebtPdf({ member, debt, asOf = new Date() }) {
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8);
     doc.setTextColor(...BRAND.muted);
-    doc.text(
-      'Los intereses son el recargo del 10 % de cada mes de cuota social vencido (desde el día 11). No incluyen otros cargos de cuenta.',
-      14,
-      y,
-      { maxWidth: pageW - 28 },
-    );
+    const note = debt?.frozenHistorical
+      ? (interest > 0.009
+        ? `${FROZEN_DUES_NOTICE} Los meses que no están en el acuerdo siguen con el recargo del 10 % desde el día 11.`
+        : FROZEN_DUES_NOTICE)
+      : 'Los intereses son el recargo del 10 % de cada mes de cuota social vencido (desde el día 11). No incluyen otros cargos de cuenta.';
+    doc.text(note, 14, y, { maxWidth: pageW - 28 });
   }
 
   drawReportFooter(doc);

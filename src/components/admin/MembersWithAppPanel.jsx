@@ -859,7 +859,12 @@ export default function MembersWithAppPanel({
   const handleDebtPdf = async (member) => {
     setPdfBusy(true);
     try {
-      const debt = appMonthlyDebtForMember(member, {
+      let priced = member;
+      if (member?.id && typeof repos.listFrozenDuesAgreement === 'function') {
+        const agreement = await repos.listFrozenDuesAgreement(member.id).catch(() => null);
+        if (agreement) priced = { ...member, frozenDuesAgreement: agreement };
+      }
+      const debt = appMonthlyDebtForMember(priced, {
         today: new Date(),
         entries: journalEntries,
       });

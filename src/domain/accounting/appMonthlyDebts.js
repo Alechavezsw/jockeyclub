@@ -32,6 +32,7 @@ import {
 import { duesNoticeCalendar, duesNoticeStagesForDay } from '../members/duesNotices';
 import { isFamilyDependent, memberNumberOf } from '../members/households';
 import { getTierDisplayName } from '../members/tiers';
+import { activeFrozenAgreement } from '../members/frozenDuesAgreement';
 
 const MAX_MONTHS = 36;
 const EPS = 0.009;
@@ -213,6 +214,62 @@ function allocateJoinFee(member, remaining) {
   };
 }
 
+/**
+ * Meses posteriores al acuerdo. El acuerdo no se reprecio: el excedente
+ * de la ficha, si lo hay, sigue la tarifa y el recargo generales.
+ */
+function allocateAfterFrozen(member, agreement, excess, { today, todayIso }) {
+  if (!(excess > EPS)) return { months: [], unallocated: 0 };
+  const frozenDue = new Set((agreement.periods || []).map((period) => period.dueOn));
+  const lastFrozen = agreement.periods[agreement.periods.length - 1]?.dueOn || '';
+  let dueOn = lastFrozen ? nextDueAfter(lastFrozen, member) : '';
+  let leftover = excess;
+  const months = [];
+  for (let i = 0; i < MAX_MONTHS && leftover > EPS; i += 1) {
+    if (!dueOn || !periodMonthOpened(dueOn, todayIso)) break;
+    if (frozenDue.has(dueOn)) {
+      dueOn = nextDueAfter(dueOn, member);
+      continue;
+    }
+    const taken = takeMonth(months, member, dueOn, leftover, { today });
+    leftover = taken.leftover;
+    if (taken.status === 'zero' || taken.status === 'short') break;
+    dueOn = nextDueAfter(dueOn, member);
+  }
+  return { months, unallocated: Math.max(0, money(leftover)) };
+}
+
+/**
+ * Excepción: un acuerdo activo reemplaza la tarifa y el 10 % solo en sus períodos.
+ * Sin acuerdo, esta función no interviene.
+ */
+function exceptionalFrozenBreakdown(member, { remaining, today, todayIso }) {
+  const agreement = activeFrozenAgreement(member);
+  if (!agreement?.periods?.length) return null;
+  const months = [];
+  for (const period of agreement.periods) {
+    if (!(period.capitalOpen > EPS)) continue;
+    if (!periodMonthOpened(period.dueOn, todayIso)) continue;
+    months.push({
+      ...periodFromDueOn(period.dueOn),
+      capital: money(period.capitalOpen),
+      interest: 0,
+      frozenHistorical: true,
+    });
+  }
+  if (!months.length) return null;
+  const frozenCapital = money(months.reduce((sum, row) => sum + row.capital, 0));
+  const excess = money(Math.max(0, remaining - frozenCapital));
+  const extra = allocateAfterFrozen(member, agreement, excess, { today, todayIso });
+  const all = [...months, ...extra.months];
+  let accumulated = 0;
+  for (const row of all) {
+    accumulated += (Number(row.capital) || 0) + (Number(row.interest) || 0);
+    row.accumulated = money(accumulated);
+  }
+  return { months: all, unallocated: extra.unallocated, frozenHistorical: true };
+}
+
 function allocateMonths(member, { remaining, firstUnpaid, lastPaymentDate, todayIso, today }) {
   let leftover = remaining;
   const current = [];
@@ -277,6 +334,41 @@ export function appMonthlyDebtForMember(member, { today = new Date(), entries = 
 
   if (persisted <= EPS) {
     return null;
+  }
+
+  const frozenBreakdown = exceptionalFrozenBreakdown(member, {
+    remaining: persisted,
+    today,
+    todayIso,
+  });
+  if (frozenBreakdown) {
+    const { months, unallocated } = frozenBreakdown;
+    const capital = money(months.reduce((sum, row) => sum + (Number(row.capital) || 0), 0));
+    const interest = money(months.reduce((sum, row) => sum + (Number(row.interest) || 0), 0));
+    const totalDebt = money(capital + interest + unallocated);
+    const cal = duesNoticeCalendar(duesDueDayForMember(member));
+    return {
+      memberNumber,
+      memberName: memberDisplayName(member),
+      firstName: member.firstName || '',
+      lastName: member.lastName || '',
+      dni: member.documentNumber || member.dni || '',
+      socialFee: getTierDisplayName(member.tier),
+      sportsFee: '',
+      status: member.status || 'active',
+      standing: standingLabel(member, { todayIso, monthsBehind: months.length }),
+      monthsBehind: months.length,
+      dueDay: cal.dueDay,
+      moraDay: cal.moraDay,
+      totalDebt,
+      capital,
+      interest,
+      unallocated,
+      frozenHistorical: true,
+      months,
+      lines: linesFromEntries(entries),
+      accessinId: member.memberId || memberNumber,
+    };
   }
 
   if (Array.isArray(member?.feeLedgerLines) && member.feeLedgerLines.length) {

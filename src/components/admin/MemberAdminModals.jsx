@@ -601,8 +601,13 @@ export function MemberReactivateModal({
     setPdfBusy(true);
     setError('');
     try {
-      const debt = reactivateDebtPdfPayload(selected);
-      await downloadDuesDebtPdf({ member: selected, debt, asOf: new Date() });
+      let priced = selected;
+      if (selected?.id && typeof repos.listFrozenDuesAgreement === 'function') {
+        const agreement = await repos.listFrozenDuesAgreement(selected.id).catch(() => null);
+        if (agreement) priced = { ...selected, frozenDuesAgreement: agreement };
+      }
+      const debt = reactivateDebtPdfPayload(priced);
+      await downloadDuesDebtPdf({ member: priced, debt, asOf: new Date() });
     } catch (err) {
       setError(err?.message || 'No se pudo generar el PDF de meses adeudados.');
     } finally {

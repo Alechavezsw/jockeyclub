@@ -7,6 +7,7 @@ import {
   feeLedgerLineIsSocial,
   feeLedgerLineIsSurcharge,
 } from './duesCollectObligations';
+import { appMonthlyDebtForMember } from '../accounting/appMonthlyDebts';
 import {
   assertFrozenCollectionAuthorized,
   frozenAgreementFromDb,
@@ -99,6 +100,46 @@ describe('acuerdo de deuda histórica congelada', () => {
       type: 'Recargo de Cuota (FIJO)',
       description: 'Febrero del 2026',
     })).toBe(true);
+  });
+
+  it('la consulta de deuda lista los 22 períodos autorizados, sin el 10 %', () => {
+    const debt = appMonthlyDebtForMember(usin(), { today: TODAY });
+    expect(debt.frozenHistorical).toBe(true);
+    expect(debt.months).toHaveLength(22);
+    expect(debt.capital).toBe(1071000);
+    expect(debt.interest).toBe(0);
+    expect(debt.unallocated).toBe(0);
+    expect(debt.totalDebt).toBe(1071000);
+    expect(debt.months.find((row) => row.dueOn === '2025-01-10')).toMatchObject({ capital: 35000, interest: 0 });
+    expect(debt.months.find((row) => row.dueOn === '2025-04-10')).toMatchObject({ capital: 41000, interest: 0 });
+    expect(debt.months.find((row) => row.dueOn === '2025-10-10')).toMatchObject({ capital: 50000, interest: 0 });
+    expect(debt.months.find((row) => row.dueOn === '2026-05-10')).toMatchObject({ capital: 60000, interest: 0 });
+    expect(debt.months.find((row) => row.dueOn === '2026-10-10')).toMatchObject({ capital: 70000, interest: 0 });
+  });
+
+  it('un mes fuera del acuerdo sigue con tarifa y recargo', () => {
+    const member = usin();
+    member.outstandingBalance = 1071000 + 40000;
+    const debt = appMonthlyDebtForMember(member, { today: TODAY });
+    const frozen = debt.months.filter((row) => row.frozenHistorical);
+    const november = debt.months.find((row) => row.dueOn === '2026-11-10');
+    expect(frozen).toHaveLength(22);
+    expect(november).toMatchObject({ capital: 40000, interest: 4000 });
+    expect(november.frozenHistorical).toBeFalsy();
+    expect(debt.capital).toBe(1111000);
+    expect(debt.interest).toBe(4000);
+    expect(debt.unallocated).toBe(0);
+  });
+
+  it('sin acuerdo la consulta no congela la deuda', () => {
+    const member = usin();
+    delete member.frozenDuesAgreement;
+    member.meta = {};
+    member.feeLedgerLines = [];
+    const debt = appMonthlyDebtForMember(member, { today: TODAY });
+    expect(debt.frozenHistorical).toBeFalsy();
+    expect(debt.interest).toBeGreaterThan(0);
+    expect(debt.totalDebt).not.toBe(1071000);
   });
 
   it('cobra los 22 períodos a $ 1.071.000, sin recargo ni actualización', () => {

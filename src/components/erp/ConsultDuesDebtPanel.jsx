@@ -49,12 +49,46 @@ export default function ConsultDuesDebtPanel({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [ledgerLines, setLedgerLines] = useState([]);
+  const [agreementReady, setAgreementReady] = useState(false);
+  const [frozenAgreement, setFrozenAgreement] = useState(null);
+  const agreementMemberId = selected?.id || '';
+  const [trackedMemberId, setTrackedMemberId] = useState(agreementMemberId);
+  if (trackedMemberId !== agreementMemberId) {
+    setTrackedMemberId(agreementMemberId);
+    setFrozenAgreement(null);
+    setAgreementReady(
+      !agreementMemberId
+      || !isSupabaseConfigured
+      || typeof repos.listFrozenDuesAgreement !== 'function',
+    );
+  }
 
   useEffect(() => {
     if (typeof repos.invalidateMemberSearchCache === 'function') {
       repos.invalidateMemberSearchCache();
     }
   }, []);
+
+  useEffect(() => {
+    if (!selected?.id || !isSupabaseConfigured || typeof repos.listFrozenDuesAgreement !== 'function') {
+      setFrozenAgreement(null);
+      setAgreementReady(true);
+      return undefined;
+    }
+    let cancelled = false;
+    setAgreementReady(false);
+    repos.listFrozenDuesAgreement(selected.id)
+      .then((row) => {
+        if (!cancelled) setFrozenAgreement(row);
+      })
+      .catch(() => {
+        if (!cancelled) setFrozenAgreement(null);
+      })
+      .finally(() => {
+        if (!cancelled) setAgreementReady(true);
+      });
+    return () => { cancelled = true; };
+  }, [selected?.id]);
 
   useEffect(() => {
     if (!selected || !isSupabaseConfigured || typeof repos.listFeeLedgerLinesByMemberNumber !== 'function') {
@@ -128,19 +162,22 @@ export default function ConsultDuesDebtPanel({
   }, [members, query, remoteHits, selected]);
 
   const standing = useMemo(() => {
-    if (!selected) return null;
+    if (!selected || !agreementReady) return null;
     const nro = memberNumberOf(selected);
     const entries = (accountEntries || []).filter((row) => {
       const id = String(row?.memberNumber || row?.memberId || '');
       return id && (id === String(nro) || id === String(selected.memberId));
     });
-    return buildOperationalDuesStanding(selected, {
+    const member = frozenAgreement
+      ? { ...selected, frozenDuesAgreement: frozenAgreement }
+      : selected;
+    return buildOperationalDuesStanding(member, {
       today: new Date(),
       entries,
       ledgerLines,
       payments: selected.paymentHistory || [],
     });
-  }, [selected, accountEntries, ledgerLines]);
+  }, [selected, accountEntries, ledgerLines, agreementReady, frozenAgreement]);
   const debt = standing?.debt || null;
 
   const ledgerByYm = useMemo(() => {
@@ -314,7 +351,7 @@ export default function ConsultDuesDebtPanel({
               <button
                 type="button"
                 className="btn btn-primary consult-debt-action-btn"
-                disabled={busy}
+                disabled={busy || !agreementReady}
                 onClick={() => { void download(); }}
               >
                 <Download size={15} aria-hidden />
@@ -447,7 +484,9 @@ export default function ConsultDuesDebtPanel({
 
               <p className="consult-debt-note">
                 <AlertTriangle size={14} aria-hidden />
-                Intereses = recargo del 10 % de cada mes vencido (desde el día 11). Solo cuota social.
+                {debt?.frozenHistorical
+                  ? 'Deuda histórica con importe congelado por autorización administrativa. No se aplican actualizaciones ni recargos a los períodos incluidos en el acuerdo.'
+                  : 'Intereses = recargo del 10 % de cada mes vencido (desde el día 11). Solo cuota social.'}
               </p>
             </>
           )}

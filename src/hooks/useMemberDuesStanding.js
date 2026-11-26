@@ -47,6 +47,7 @@ export function useMemberDuesStanding(member) {
   ));
   const [remoteFicha, setRemoteFicha] = useState(null);
   const [remoteLedger, setRemoteLedger] = useState([]);
+  const [frozenAgreement, setFrozenAgreement] = useState(null);
   const [persisted, setPersisted] = useState(null);
   const [loading, setLoading] = useState(false);
   const syncedFor = useRef('');
@@ -61,6 +62,7 @@ export function useMemberDuesStanding(member) {
     setRemoteHistory(Array.isArray(member?.paymentHistory) ? member.paymentHistory : []);
     setRemoteFicha(null);
     setRemoteLedger([]);
+    setFrozenAgreement(null);
     setPersisted(null);
     setLoading(false);
   }
@@ -87,17 +89,21 @@ export function useMemberDuesStanding(member) {
       try {
         const dbId = knownId || await repos.findMemberDbIdByNumber(number);
         if (!alive) return;
-        const [rows, ficha, ledgerLines] = await Promise.all([
+        const [rows, ficha, ledgerLines, agreement] = await Promise.all([
           dbId ? repos.listMemberPayments(dbId) : Promise.resolve([]),
           dbId ? repos.getMember(dbId, { withPayments: false }) : Promise.resolve(null),
           number && typeof repos.listFeeLedgerLinesByMemberNumber === 'function'
             ? repos.listFeeLedgerLinesByMemberNumber(number).catch(() => [])
             : Promise.resolve([]),
+          dbId && typeof repos.listFrozenDuesAgreement === 'function'
+            ? repos.listFrozenDuesAgreement(dbId).catch(() => null)
+            : Promise.resolve(null),
         ]);
         if (!alive) return;
         if (rows.length) setRemoteHistory(rows);
         if (ficha) setRemoteFicha(ficha);
         if (ledgerLines?.length) setRemoteLedger(ledgerLines);
+        setFrozenAgreement(agreement || null);
       } catch {
         /* se conserva lo que ya se ve */
       } finally {
@@ -130,9 +136,12 @@ export function useMemberDuesStanding(member) {
   const memberForHistory = useMemo(() => {
     if (!member) return member;
     const base = remoteFicha ? { ...member, ...remoteFicha } : member;
-    const withLedgerBase = remoteLedger.length
-      ? { ...base, feeLedgerLines: remoteLedger }
+    const withAgreement = frozenAgreement
+      ? { ...base, frozenDuesAgreement: frozenAgreement }
       : base;
+    const withLedgerBase = remoteLedger.length
+      ? { ...withAgreement, feeLedgerLines: remoteLedger }
+      : withAgreement;
     const accessinHistory = accessinHistoryForMember(withLedgerBase);
     const withLedger = accessinHistory.length && withLedgerBase.accessinHistory !== accessinHistory
       ? { ...withLedgerBase, accessinHistory }
@@ -159,7 +168,7 @@ export function useMemberDuesStanding(member) {
       };
     }
     return withLedger;
-  }, [member, remoteHistory, persisted, remoteFicha, remoteLedger]);
+  }, [member, remoteHistory, persisted, remoteFicha, remoteLedger, frozenAgreement]);
 
   const history = useMemo(
     () => getMemberPaymentHistory(memberForHistory, {
