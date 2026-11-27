@@ -568,7 +568,7 @@ describe('administración Colonia — inscripción y cobro', () => {
     expect(planAmountFor(COLONIA_OFFICIAL_TARIFFS_2026_2027, 'socio', 'cuota')).toBe(150000);
     expect(planAmountFor(COLONIA_OFFICIAL_TARIFFS_2026_2027, 'no_socio', 'cuota')).toBe(180000);
     expect(planAmountFor(COLONIA_OFFICIAL_TARIFFS_2026_2027, 'socio', 'temporada')).toBe(390000);
-    expect(planAmountFor(COLONIA_OFFICIAL_TARIFFS_2026_2027, 'no_socio', 'promo_3')).toBe(500000);
+    expect(planAmountFor(COLONIA_OFFICIAL_TARIFFS_2026_2027, 'no_socio', 'promo_3')).toBe(490000);
   });
 
   it('la ficha también encuentra al responsable y ignora un acento', () => {
@@ -669,8 +669,8 @@ describe('administración Colonia — inscripción y cobro', () => {
     });
     expect(promo.ok).toBe(true);
     expect(promo.warnings.some((warning) => warning.code === 'fourth_sibling_inscription_only')).toBe(true);
-    expect(planAmountFor(COLONIA_OFFICIAL_TARIFFS_2026_2027, 'socio', 'hermano_4')).toBe(410000);
-    expect(planAmountFor(COLONIA_OFFICIAL_TARIFFS_2026_2027, 'no_socio', 'hermano_4')).toBe(500000);
+    expect(planAmountFor(COLONIA_OFFICIAL_TARIFFS_2026_2027, 'socio', 'hermano_4')).toBe(0);
+    expect(planAmountFor(COLONIA_OFFICIAL_TARIFFS_2026_2027, 'no_socio', 'hermano_4')).toBe(0);
   });
 
   it('el comprobante desde ficha junta inscripción + mes con el pago acreditado', () => {
@@ -754,11 +754,13 @@ describe('administración Colonia — inscripción y cobro', () => {
       when: new Date(2026, 10, 25),
     });
     expect(promo.promo).toBe(true);
-    expect(promo.promoLabel).toBe('Sí · 4º hermano · temporada');
+    expect(promo.promoLabel).toBe('Sí · 4º hermano · solo inscripción');
     expect(promo.month).toBe('Temporada 2026/2027');
     expect(promo.socioNumber).toBe('10146');
-    expect(promo.lines.map((line) => line.concept)).toEqual(['Promoción']);
-    expect(promo.total).toBe(410000);
+    expect(promo.lines.map((line) => [line.concept, line.amount])).toEqual([
+      ['Inscripción', 50000],
+    ]);
+    expect(promo.total).toBe(50000);
 
     const externo = buildColoniaEnrollmentReceipt({
       pupils: [{ fullName: 'Rodriguez Gaspar Leon' }],

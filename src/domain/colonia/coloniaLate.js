@@ -6,7 +6,7 @@
  */
 
 import { todayISODateAR } from '../../lib/arDate';
-import { inscriptionAmount, planAmountFor } from './coloniaTariffs';
+import { coloniaPlanChargedPerPupil, inscriptionAmount, planAmountFor } from './coloniaTariffs';
 
 export const COLONIA_CUOTA_LATE_RATE = 0.15;
 export const COLONIA_CUOTA_DUE_DAY = 10;
@@ -63,14 +63,19 @@ export function quoteColoniaEnrollmentDue({
 } = {}) {
   const kids = Math.max(0, Number(pupilCount) || 0);
   const plan = String(planKey || '');
-  const inscriptionEach = plan === 'hermano_4' ? 0 : inscriptionAmount(tariffs);
-  const planCapital = moneyArs(planAmountFor(tariffs, memberKind, plan) || 0);
+  const inscriptionEach = inscriptionAmount(tariffs);
+  const listed = plan === 'hermano_4' ? 0 : moneyArs(planAmountFor(tariffs, memberKind, plan) || 0);
+  const perPupil = coloniaPlanChargedPerPupil(memberKind, plan);
+  const planEach = listed;
+  const planCapital = perPupil ? moneyArs(planEach * kids) : planEach;
   const monthKey = plan === 'cuota' ? coloniaCuotaMonthKey(paidOn, season) : null;
   const interest = plan === 'cuota' ? coloniaCuotaInterest(planCapital, monthKey, paidOn, season) : 0;
   const inscription = moneyArs(inscriptionEach * kids);
   return {
     inscription,
     inscriptionEach: moneyArs(inscriptionEach),
+    planEach,
+    perPupil,
     planCapital,
     interest,
     monthKey,
@@ -91,7 +96,7 @@ export function coloniaEnrollPayChoices(args = {}) {
       : 'Solo el plan';
   const planDue = moneyArs(quote.planCapital + quote.interest);
   const choices = [];
-  if (quote.total > 0) {
+  if (planDue > 0) {
     choices.push({
       key: 'todo',
       label: quote.inscription > 0 ? 'Plan + inscripción' : 'Todo',

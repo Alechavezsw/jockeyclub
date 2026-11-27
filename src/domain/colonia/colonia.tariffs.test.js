@@ -223,11 +223,11 @@ describe('colonia domain', () => {
     expect(t.socio.temporada).toBe(390000);
     expect(t.no_socio.temporada).toBe(490000);
     expect(t.socio.promo_2).toBe(280000);
-    expect(t.no_socio.promo_2).toBe(340000);
+    expect(t.no_socio.promo_2).toBe(490000);
     expect(t.socio.promo_3).toBe(410000);
-    expect(t.no_socio.promo_3).toBe(500000);
-    expect(t.socio.hermano_4).toBe(410000);
-    expect(t.no_socio.hermano_4).toBe(500000);
+    expect(t.no_socio.promo_3).toBe(490000);
+    expect(t.socio.hermano_4).toBe(0);
+    expect(t.no_socio.hermano_4).toBe(0);
   });
 
   it('inscripción el 30/11/2026 incluida; fuera de ventana rechazada', () => {

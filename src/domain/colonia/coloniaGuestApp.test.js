@@ -210,7 +210,7 @@ describe('el no socio de colonia entra a la app', () => {
     expect(payload.student.member_number).toBeNull();
     expect(payload).not.toHaveProperty('outstanding_balance');
 
-    for (const plan of ['cuota', 'temporada', 'promo_2', 'promo_3', 'hermano_4']) {
+    for (const plan of ['cuota', 'temporada', 'promo_2', 'promo_3']) {
       const external = quoteColoniaEnrollmentDue({
         planKey: plan,
         memberKind: coloniaPortalMemberKind(guest()),
@@ -229,6 +229,24 @@ describe('el no socio de colonia entra a la app', () => {
       expect(external.planCapital).toBeGreaterThan(member.planCapital);
       expect(external.total).toBeGreaterThan(member.total);
     }
+    const fourthExternal = quoteColoniaEnrollmentDue({
+      planKey: 'hermano_4',
+      memberKind: 'no_socio',
+      tariffs: COLONIA_OFFICIAL_TARIFFS_2026_2027,
+      paidOn: '2026-11-05',
+      season: COLONIA_SEASON_2026_2027,
+    });
+    const fourthMember = quoteColoniaEnrollmentDue({
+      planKey: 'hermano_4',
+      memberKind: 'socio',
+      tariffs: COLONIA_OFFICIAL_TARIFFS_2026_2027,
+      paidOn: '2026-11-05',
+      season: COLONIA_SEASON_2026_2027,
+    });
+    expect(fourthExternal.planCapital).toBe(0);
+    expect(fourthMember.planCapital).toBe(0);
+    expect(fourthExternal.total).toBe(50000);
+    expect(fourthMember.total).toBe(50000);
     expect(planAmountFor(COLONIA_OFFICIAL_TARIFFS_2026_2027, 'no_socio', 'cuota')).toBe(180000);
     expect(planAmountFor(COLONIA_OFFICIAL_TARIFFS_2026_2027, 'no_socio', 'temporada')).toBe(490000);
     expect(planAmountFor(COLONIA_OFFICIAL_TARIFFS_2026_2027, 'socio', 'cuota')).toBe(150000);

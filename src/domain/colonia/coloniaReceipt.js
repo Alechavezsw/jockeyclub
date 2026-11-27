@@ -6,6 +6,7 @@ import { coloniaMethodLabel } from './coloniaConstants';
 import { allocateColoniaPayments } from './coloniaLedger';
 import {
   COLONIA_OFFICIAL_TARIFFS_2026_2027,
+  coloniaPlanChargedPerPupil,
   inscriptionAmount,
   planAmountFor,
 } from './coloniaTariffs';
@@ -28,7 +29,7 @@ const PLAN_LABELS = {
   temporada: 'Temporada',
   promo_2: '2 hermanos · temporada',
   promo_3: '3 hermanos · temporada',
-  hermano_4: '4º hermano · temporada',
+  hermano_4: '4º hermano · solo inscripción',
 };
 
 export function coloniaPlanLabel(planKey) {
@@ -77,8 +78,9 @@ export function buildColoniaEnrollmentReceipt({
   const promo = coloniaPlanIsPromo(planKey);
   const planLabel = coloniaPlanLabel(planKey);
   const names = (pupils || []).map(pupilName).filter(Boolean);
-  const inscription = planKey === 'hermano_4' ? 0 : Math.round(Number(inscriptionAmount) || 0);
-  const plan = Math.round(Number(planAmount) || 0);
+  const inscription = Math.round(Number(inscriptionAmount) || 0);
+  const plan = planKey === 'hermano_4' ? 0 : Math.round(Number(planAmount) || 0);
+  const perPupil = coloniaPlanChargedPerPupil(memberKind, planKey);
   const interest = Math.round(Number(interestAmount) || 0);
   const lines = [];
   for (const name of names) {
@@ -93,13 +95,16 @@ export function buildColoniaEnrollmentReceipt({
     }
   }
   if (plan > 0) {
-    lines.push({
-      concept: promo ? 'Promoción' : (planKey === 'temporada' ? 'Temporada' : 'Cuota Colonia'),
-      detail: planLabel,
-      alumno: names.join(', ') || '—',
-      mes: month,
-      amount: plan,
-    });
+    const planNames = perPupil ? names : [names.join(', ') || '—'];
+    for (const name of planNames) {
+      lines.push({
+        concept: promo ? 'Promoción' : (planKey === 'temporada' ? 'Temporada' : 'Cuota Colonia'),
+        detail: planLabel,
+        alumno: name,
+        mes: month,
+        amount: plan,
+      });
+    }
   }
   if (interest > 0) {
     lines.push({
@@ -194,8 +199,8 @@ export function buildColoniaPaidReceiptFromEnrollment({
       .reduce((sum, charge) => sum + Math.round(Number(charge.amount) || 0), 0);
   }
   if (!(inscription + plan > 0)) {
-    inscription = planKey === 'hermano_4' ? 0 : inscriptionAmount(tariffs);
-    plan = Math.round(Number(planAmountFor(tariffs, kind, planKey)) || 0);
+    inscription = inscriptionAmount(tariffs);
+    plan = planKey === 'hermano_4' ? 0 : Math.round(Number(planAmountFor(tariffs, kind, planKey)) || 0);
   }
   if (!(inscription + plan > 0)) return null;
 
