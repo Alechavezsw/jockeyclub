@@ -1,7 +1,10 @@
 import {
   afterCollectDues,
+  applySocialAdvanceStamp,
+  choicesForCollection,
   collectionPeriodChoices,
   collectionTennisPeriodChoices,
+  duesPeriodMonthStarted,
   collectionTennisPreview,
   duesAmountForMember,
   duesChargeBreakdown,
@@ -959,13 +962,13 @@ function duesOpenSnapshot(schedule, imputed, remainingChoices = []) {
 
 /** Meses abiertos, del más viejo al más nuevo, para imputar un pago a cuenta. */
 export function duesPaymentSchedule(member, today = new Date(), periodDueOns = null) {
-  const choices = collectionPeriodChoices(member, today);
+  const choices = choicesForCollection(member, today);
   const selected = Array.isArray(periodDueOns) && periodDueOns.length
     ? periodDueOns.map((value) => String(value || '').slice(0, 10))
     : null;
   const rows = selected
     ? choices.filter((row) => selected.includes(String(row.dueOn).slice(0, 10)))
-    : choices;
+    : choices.filter((row) => row.kind !== 'advance');
   const capital = money(rows.reduce((sum, row) => sum + (Number(row.capital) || 0), 0));
   if (!(capital > 0)) return [];
   return openPeriodsFromChoices(rows, capital)
@@ -1025,7 +1028,7 @@ export function payMemberDues(member, {
   const requested = amount != null ? Number(amount) : 0;
   const stored = Number(member.outstandingBalance) || 0;
   const operationalOwed = socialDuesStoredBalance(member);
-  const choices = collectionPeriodChoices(member, today, { chargeScope });
+  const choices = choicesForCollection(member, today, { chargeScope });
   let selected = null;
   if (Array.isArray(periodDueOns) && periodDueOns.length) {
     // Período pedido inválido → rechazo explícito. Nunca sustituir por otro mes.
@@ -1033,7 +1036,7 @@ export function payMemberDues(member, {
   }
   const selectedChoices = selected
     ? choices.filter((row) => selected.includes(String(row.dueOn).slice(0, 10)))
-    : choices;
+    : choices.filter((row) => row.kind !== 'advance');
   // Importe explícito (anticipo) solo si no hay deuda inventada; con deuda operativa vacía
   // y sin choices, el caller de caja ya bloquea en recordDuesCollection.
   if (!(operationalOwed > 0.01 || stored > 0.01 || selectedChoices.length || requested > 0.01)) {
@@ -1167,13 +1170,36 @@ export function payMemberDues(member, {
     lastPaymentBefore: member.lastPaymentDate || null,
     ...(creditInPool > 0.01 ? { creditApplied: creditInPool } : {}),
     ...(creditLeftover > 0.01 ? { creditLeftover } : {}),
+    ...(selectedChoices.some((row) => row.kind === 'advance') && stored <= 0.01 ? { adelanto: true } : {}),
   };
 
   const history = [payment, ...(member.paymentHistory || [])];
   const remainingCash = money(cashDue - paidAmount);
   const remainingChoices = selected
-    ? choices.filter((row) => !selected.includes(String(row.dueOn).slice(0, 10)))
+    ? choices.filter((row) => (
+      row.kind !== 'advance'
+      && !selected.includes(String(row.dueOn).slice(0, 10))
+    ))
     : [];
+  const advanceDueSet = new Set(
+    selectedChoices
+      .filter((row) => row.kind === 'advance')
+      .map((row) => String(row.dueOn).slice(0, 10)),
+  );
+  const advanceApplied = money((imputed?.allocations || []).reduce((sum, row) => {
+    if (!advanceDueSet.has(String(row.dueOn || '').slice(0, 10))) return sum;
+    return sum + (Number(row.capital) || 0);
+  }, 0));
+  const debtApplied = money(Math.max(0, (imputed?.capital || 0) - advanceApplied));
+  const stampAdvance = (row) => applySocialAdvanceStamp(
+    row,
+    (imputed?.allocations || [])
+      .filter((item) => (
+        advanceDueSet.has(String(item.dueOn || '').slice(0, 10))
+        && (Number(item.capital) || 0) > 0.009
+      ))
+      .map((item) => item.dueOn),
+  );
   const openSnapshot = imputed
     ? duesOpenSnapshot(schedule, imputed, remainingChoices)
     : null;
@@ -1183,7 +1209,7 @@ export function payMemberDues(member, {
   });
 
   if (imputed && stored > 0) {
-    const capitalLeft = money(stored - imputed.capital);
+    const capitalLeft = money(stored - debtApplied);
     const openDue = nextOpenDue(schedule, imputed.allocations);
     const lilaRaw = member?.unpaidCapital;
     const embedded = lilaRaw != null && lilaRaw !== ''
@@ -1205,13 +1231,13 @@ export function payMemberDues(member, {
     if ((capitalLeft <= 0.01 && !openDue) || duesSettled || debitClearsResidual) {
       const cleared = afterCollectDues(member, today);
       const balanceLeft = money(creditLeftover > 0.01 ? -creditLeftover : 0);
-      const settled = stampCredit({
+      const settled = stampAdvance(stampCredit({
         ...cleared,
         ...openSnapshot,
         outstandingBalance: balanceLeft,
         lastPaymentDate: date,
         paymentHistory: history,
-      });
+      }));
       return {
         member: settled,
         payment,
@@ -1219,14 +1245,14 @@ export function payMemberDues(member, {
         ledgerEntry: ledgerPago(settled, payment),
       };
     }
-    const next = stampCredit({
-      ...withPaidParts(member, imputed.capital, imputed.surcharge),
+    const next = stampAdvance(stampCredit({
+      ...withPaidParts(member, debtApplied, imputed.surcharge),
       ...openSnapshot,
       outstandingBalance: capitalLeft,
       nextDueDate: openDue || member.nextDueDate,
       lastPaymentDate: date,
       paymentHistory: history,
-    });
+    }));
     return {
       member: next,
       payment,
@@ -1235,17 +1261,17 @@ export function payMemberDues(member, {
     };
   }
 
-  const paidCapital = imputed ? imputed.capital : (lines.quota || 0);
+  const paidCapital = imputed ? debtApplied : (lines.quota || 0);
   const paidSurcharge = imputed ? imputed.surcharge : (lines.surcharge || 0);
 
   if (remainingCash > 0.01) {
-    const next = stampCredit({
+    const next = stampAdvance(stampCredit({
       ...withPaidParts(member, paidCapital, paidSurcharge),
       ...openSnapshot,
       outstandingBalance: money(Math.max(0, stored - paidCapital)),
       lastPaymentDate: date,
       paymentHistory: history,
-    });
+    }));
     return {
       member: next,
       payment,
@@ -1258,14 +1284,14 @@ export function payMemberDues(member, {
     const remainingCapital = money(
       remainingChoices.reduce((sum, row) => sum + (Number(row.capital) || 0), 0),
     );
-    const next = stampCredit({
+    const next = stampAdvance(stampCredit({
       ...withPaidParts(member, paidCapital, paidSurcharge),
       ...openSnapshot,
       outstandingBalance: remainingCapital,
       nextDueDate: remainingChoices[0].dueOn,
       lastPaymentDate: date,
       paymentHistory: history,
-    });
+    }));
     return {
       member: next,
       payment,
@@ -1279,13 +1305,13 @@ export function payMemberDues(member, {
     ? creditLeftover
     : money(preview.leftover || 0);
   const balanceLeft = leftoverCredit > 0.01 ? money(-leftoverCredit) : 0;
-  const next = stampCredit({
+  const next = stampAdvance(stampCredit({
     ...cleared,
     ...openSnapshot,
     outstandingBalance: balanceLeft,
     lastPaymentDate: date,
     paymentHistory: history,
-  });
+  }));
   return {
     member: next,
     payment,
@@ -1310,10 +1336,11 @@ export function collectionPreview(member, today = new Date(), {
   payments = null,
   imputations = null,
 } = {}) {
-  const choices = collectionPeriodChoices(member, today, { chargeScope });
-  const selected = Array.isArray(periodDueOns) && periodDueOns.length
+  const choices = choicesForCollection(member, today, { chargeScope });
+  const explicitPeriods = Array.isArray(periodDueOns) && periodDueOns.length;
+  const selected = explicitPeriods
     ? periodDueOns.map((value) => String(value || '').slice(0, 10)).filter(Boolean)
-    : choices.map((row) => row.dueOn);
+    : choices.filter((row) => row.kind !== 'advance').map((row) => row.dueOn);
   const selectedChoices = choices.filter((row) => selected.includes(String(row.dueOn).slice(0, 10)));
   const stored = Number(member?.outstandingBalance) || 0;
   const operationalOwed = socialDuesStoredBalance(member);
@@ -1344,7 +1371,7 @@ export function collectionPreview(member, today = new Date(), {
   }
 
   if (
-    selectedChoices.some((row) => row.kind === 'overdue')
+    selectedChoices.some((row) => row.kind === 'overdue' || row.kind === 'advance')
     || stored > 0.01
     || (operationalOwed > 0.01 && selectedChoices.length)
   ) {
@@ -1441,7 +1468,10 @@ export function payUpcomingDues(member, { method = 'transferencia', today = new 
   const date = todayISODateAR(today);
   const time = nowTimeAR(today);
   const paidAt = today.toISOString();
-  const monthPhrase = duesMonthsPhrase((preview.periods || []).map((row) => row.dueOn));
+  const dueOns = (preview.periods || []).map((row) => row.dueOn).filter(Boolean);
+  const monthPhrase = duesMonthsPhrase(dueOns);
+  const futureOnly = dueOns.length > 0 && dueOns.every((dueOn) => !duesPeriodMonthStarted(dueOn, today));
+  const prefix = futureOnly ? 'Cuota social anticipada' : 'Cuota social';
   const payment = {
     id: `pay-${member.memberId}-${Date.now()}`,
     date,
@@ -1449,11 +1479,11 @@ export function payUpcomingDues(member, { method = 'transferencia', today = new 
     paidAt,
     createdAt: paidAt,
     concept: duesChargeConcept(monthPhrase, {
-      prefix: 'Cuota social anticipada',
-      empty: `Cuota social anticipada · ${duesMethodLabel(method)}`,
+      prefix,
+      empty: `${prefix} · ${duesMethodLabel(method)}`,
     }),
     amount: preview.cash,
-    adelanto: true,
+    ...(futureOnly ? { adelanto: true } : {}),
     quota: preview.quota,
     surcharge: skipSurcharge ? 0 : preview.surcharge,
     waivedSurcharge: 0,
@@ -1672,6 +1702,7 @@ export function recordDuesCollection(member, {
 
   const choices = collectionPeriodChoices(account, today, { chargeScope });
   const hasOverdue = choices.some((row) => row.kind === 'overdue');
+  const monthAlreadyOpen = choices.some((row) => duesPeriodMonthStarted(row.dueOn, today));
   const due = Number(account.outstandingBalance) || 0;
   const operationalDue = socialDuesStoredBalance(account);
   // periodDueOns explícitos: validar acá (y otra vez en payMemberDues). Sin sustitución.
@@ -1694,12 +1725,18 @@ export function recordDuesCollection(member, {
   const collectAmount = concession.discount > 0
     ? concession.gross
     : (mixed ? mixed.total : amount);
-  const paid = (operationalDue > 0.01 || due > 0 || hasOverdue)
+  const openDueOns = choices
+    .filter((row) => duesPeriodMonthStarted(row.dueOn, today))
+    .map((row) => row.dueOn);
+  const zeroBalanceOpenMonth = monthAlreadyOpen && !(operationalDue > 0.01) && !(due > 0);
+  const paid = (operationalDue > 0.01 || due > 0 || hasOverdue || monthAlreadyOpen)
     ? payMemberDues(account, {
       method: resolvedMethod,
       amount: collectAmount,
       today,
-      periodDueOns,
+      periodDueOns: (Array.isArray(periodDueOns) && periodDueOns.length)
+        ? periodDueOns
+        : (zeroBalanceOpenMonth ? openDueOns : periodDueOns),
       skipSurcharge,
       chargeScope,
     })
@@ -2421,13 +2458,27 @@ function cobroSchedule(member, payment) {
     return openPeriodsFromChoices(rows, tennisCapital).map((row) => ({ ...row, lateBase: 0 }));
   }
   const balance = Math.max(Number(before.outstandingBalance) || 0, 0);
-  const choices = collectionPeriodChoices(before, paidOn);
-  const choiceCapital = choices.reduce((sum, row) => sum + (Number(row.capital) || 0), 0);
+  const choices = choicesForCollection(before, paidOn);
+  const selected = Array.isArray(payment.periodDueOns) && payment.periodDueOns.length
+    ? payment.periodDueOns.map((value) => String(value || '').slice(0, 10))
+    : choices.filter((row) => row.kind !== 'advance').map((row) => row.dueOn);
+  const rows = choices.filter((row) => selected.includes(String(row.dueOn).slice(0, 10)));
+  const debtRows = rows.filter((row) => row.kind !== 'advance');
+  const advanceRows = rows.filter((row) => row.kind === 'advance');
+  const choiceCapital = debtRows.reduce((sum, row) => sum + (Number(row.capital) || 0), 0);
   // El saldo puede traer recargos de Lila. Esos no son otra cuota.
-  const scheduleBalance = choiceCapital > 0.01 && choiceCapital < balance - 0.01
+  const scheduleBalance = (debtRows.length || !advanceRows.length)
+    && choiceCapital > 0.01
+    && choiceCapital < balance - 0.01
     ? choiceCapital
-    : balance;
-  return openPeriodsFromChoices(choices, scheduleBalance);
+    : ((debtRows.length || !advanceRows.length) ? balance : 0);
+  const debtSchedule = openPeriodsFromChoices(debtRows, scheduleBalance);
+  const advanceSchedule = advanceRows.map((row) => ({
+    dueOn: String(row.dueOn).slice(0, 10),
+    capital: money(row.capital),
+    lateBase: 0,
+  }));
+  return [...debtSchedule, ...advanceSchedule];
 }
 
 /**
@@ -2688,7 +2739,7 @@ export async function commitDuesCollection(member, payment, { journalEntry = nul
       };
       const paidOn = payment.paidAt || payment.date || new Date();
       const chargeScope = payment.chargeScope || payment.meta?.chargeScope || 'all';
-      const choices = collectionPeriodChoices(before, paidOn, { chargeScope });
+      const choices = choicesForCollection(before, paidOn, { chargeScope });
       assertRequestedDuesPeriodsCollectable(before, requestedDueOns, choices, { chargeScope });
     }
   }
