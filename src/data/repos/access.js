@@ -120,6 +120,8 @@ export async function insertPoolAccess(entry, memberDbId = null) {
     cash_movement_id: isUuid(entry.cashMovementId) ? entry.cashMovementId : null,
     meta: {
       clientId: clientId || undefined,
+      entered: entry.entered === false ? false : (entry.entered === true ? true : undefined),
+      paymentScope: entry.payment?.scope || null,
     },
   };
   const saved = await unwrap(

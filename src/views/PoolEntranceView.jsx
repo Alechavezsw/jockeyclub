@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Search, X, CheckCircle2, AlertCircle } from 'lucide-react';
+import { ArrowLeft, Search, X, CheckCircle2, AlertCircle, Download } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import {
   DEFAULT_POOL_SETTINGS,
@@ -17,6 +17,7 @@ import {
   poolMethodUsesCash,
   poolMethodUsesBank,
   poolMethodLabel,
+  memberPoolHistory,
 } from '../domain/pool/poolAccess';
 import { todayISODateAR } from '../lib/arDate';
 import { isSupabaseConfigured } from '../lib/supabase';
@@ -29,13 +30,28 @@ import {
 } from '../domain/pool/poolCheckout';
 import { verifyPoolCanonCircle } from '../domain/pool/poolCircle';
 import { deliverPaymentReceipt } from '../domain/payments/deliverPaymentReceipt';
+import { downloadPaymentReceiptPdf } from '../domain/members/exportPaymentReceiptPdf';
+import { familyPrincipalOf, memberNumberOf } from '../domain/members/households';
 import { CLUB_BANK_ACCOUNTS } from '../domain/members/clubBanks';
 import MercadoPagoCheckout from '../components/MercadoPagoCheckout';
 import PaymentMethodTiles from '../components/PaymentMethodTiles';
-import { listPoolAccesses } from '../data/repos';
+import { listHouseholdByPrincipal, listPoolAccesses } from '../data/repos';
 import { isPoolSeasonLive } from '../domain/pool/poolSeason';
 import { SEASON_DUES_GATE_COPY } from '../domain/pool/seasonDuesGate';
 import { isDuesExemptMember } from '../domain/members/dues';
+
+function poolBoletoPayment(charged, member, today) {
+  return {
+    id: charged?.journalEntryId || charged?.cashMovementId || charged?.id,
+    receiptNumber: charged?.cashMovementId || charged?.journalEntryId || charged?.id,
+    amount: Number(charged?.payment?.amount) || 0,
+    date: charged?.date || today,
+    method: charged?.payment?.method,
+    methodLabel: poolMethodLabel(charged?.payment?.method),
+    concept: charged?.payment?.concept || `Canon pileta temporada · ${member?.name || 'socio'}`,
+    kind: 'pileta',
+  };
+}
 
 function poolDuesOwed(member) {
   if (!member || isDuesExemptMember(member)) return 0;
@@ -78,6 +94,10 @@ export default function PoolEntranceView({
   const [error, setError] = useState('');
   const [payMethod, setPayMethod] = useState('efectivo');
   const [payBankId, setPayBankId] = useState(CLUB_BANK_ACCOUNTS[0]?.id || 'macro');
+  const [household, setHousehold] = useState([]);
+  const [chargeIds, setChargeIds] = useState([]);
+  const [boletos, setBoletos] = useState([]);
+  const [pdfBusyId, setPdfBusyId] = useState('');
   // false = la base dice que no hay caja del día abierta; null = todavía no se sabe.
   const cashClosed = dayCashOpen === false;
 
@@ -129,10 +149,62 @@ export default function PoolEntranceView({
       || remoteHits.find((m) => String(m.memberId) === id)
       || (picked && String(picked.memberId) === id ? picked : null);
   }, [directory, members, remoteHits, picked, selectedId]);
+  const roster = useMemo(() => {
+    const byId = new Map((directory || []).map((row) => [String(row.memberId), row]));
+    for (const row of household) {
+      if (!byId.has(String(row.memberId))) byId.set(String(row.memberId), row);
+    }
+    return [...byId.values()];
+  }, [directory, household]);
   const eval_ = useMemo(
-    () => evaluatePoolAccess(selected, { accesses: poolAccesses, today, settings, members: directory }),
-    [selected, poolAccesses, today, settings, directory],
+    () => evaluatePoolAccess(selected, { accesses: poolAccesses, today, settings, members: roster }),
+    [selected, poolAccesses, today, settings, roster],
   );
+  const householdSnaps = useMemo(
+    () => household.map((person) => ({
+      person,
+      snap: evaluatePoolAccess(person, { accesses: poolAccesses, today, settings, members: roster }),
+    })),
+    [household, poolAccesses, today, settings, roster],
+  );
+  const chargeTargets = householdSnaps.filter((row) => (
+    chargeIds.includes(String(row.person.memberId)) && row.snap.canPayCanon
+  ));
+  const paying = chargeTargets.length
+    ? chargeTargets
+    : (eval_.canPayCanon && selected ? [{ person: selected, snap: eval_ }] : []);
+  const householdPrincipal = selected
+    ? (familyPrincipalOf(selected) || memberNumberOf(selected) || '')
+    : '';
+
+  useEffect(() => {
+    if (!selected) {
+      setHousehold([]);
+      setChargeIds([]);
+      return undefined;
+    }
+    const local = (directory || []).filter((row) => {
+      const self = memberNumberOf(row);
+      const group = familyPrincipalOf(row);
+      return self === householdPrincipal || group === householdPrincipal;
+    });
+    setHousehold(local.length ? local : [selected]);
+    setChargeIds([String(selected.memberId)]);
+    if (!householdPrincipal || !isSupabaseConfigured) return undefined;
+    let cancel = false;
+    listHouseholdByPrincipal(householdPrincipal).then((rows) => {
+      if (cancel || !Array.isArray(rows) || !rows.length) return;
+      const byNumber = new Map((directory || []).map((row) => [String(row.memberId), row]));
+      setHousehold(rows.map((row) => {
+        const localRow = byNumber.get(String(row.memberId));
+        return localRow
+          ? { ...row, ...localRow, birthDate: localRow.birthDate || row.birthDate }
+          : row;
+      }));
+    }).catch(() => {});
+    return () => { cancel = true; };
+  }, [householdPrincipal]);
+
   const dues = poolDuesOwed(selected);
   const verdict = poolEntranceVerdict(selected, eval_, dues);
   const guests = selected ? guestDayAccessesForHost(poolAccesses, selected.memberId, today) : [];
@@ -179,8 +251,32 @@ export default function PoolEntranceView({
     };
   }, [query]);
 
-  const handleEnable = async () => {
-    if (!selected) return;
+  const rememberBoleto = (charged, member) => {
+    const payment = poolBoletoPayment(charged, member, today);
+    if (!(payment.amount > 0)) return payment;
+    setBoletos((prev) => [{ member, payment }, ...prev.filter((row) => row.payment.id !== payment.id)]);
+    return payment;
+  };
+
+  const handleDownloadBoleto = async (member, payment) => {
+    if (!member || !payment) return;
+    const key = String(payment.id || payment.receiptNumber || member.memberId);
+    setPdfBusyId(key);
+    setError('');
+    try {
+      await downloadPaymentReceiptPdf({ member, payment });
+    } catch (err) {
+      setError(err?.message || 'No se pudo descargar el boleto.');
+    } finally {
+      setPdfBusyId('');
+    }
+  };
+
+  const handleCharge = async (people) => {
+    if (!people?.length) {
+      setError('Elegí al menos una persona del grupo con canon pendiente.');
+      return;
+    }
     if (payMethod === 'mercadopago') {
       setError('Usá el QR de Mercado Pago para este medio.');
       return;
@@ -188,60 +284,66 @@ export default function PoolEntranceView({
     setBusy(true);
     setError('');
     try {
-      const { entry, accesses } = enableMemberPoolAccess({
-        member: selected,
-        accesses: poolAccesses,
-        method: payMethod,
-        today,
-        settings,
-        actorName,
-        members: directory,
-      });
-      const charged = await chargePoolCanon({
-        entry,
-        member: selected,
-        recordPoolCanon,
-        bankId: poolMethodUsesBank(payMethod) ? payBankId : null,
-      });
-      const circle = verifyPoolCanonCircle({ entry, charged, method: payMethod });
-      if (!circle.ok) {
-        throw new Error(`Canon incompleto: ${circle.issues.join(' · ')}`);
-      }
-      setPoolAccesses(withChargedPoolEntry(accesses, entry, charged));
-      for (const row of charged.accountEntries || []) onUpsertMemberAccountEntry?.(row);
-      if (typeof setMembers === 'function' && charged.accountEntries?.length) {
-        setMembers((prev) => applyPoolAccountPass(prev, charged.accountEntries));
-      }
-      if (typeof setEntryLogs === 'function') {
-        const log = poolIngressToAccessLog(charged);
-        if (log) setEntryLogs((prev) => [log, ...(prev || [])]);
-      }
-      const amount = Number(charged?.payment?.amount) || 0;
-      const method = charged?.payment?.method || payMethod;
-      if (amount > 0 && method !== 'mercadopago') {
-        void deliverPaymentReceipt({
-          member: selected,
-          payment: {
-            amount,
-            date: charged.date || today,
-            method,
-            methodLabel: poolMethodLabel(method),
-            receiptNumber: charged.cashMovementId || charged.journalEntryId || charged.id,
-            concept: `Canon pileta · ${selected.name || 'socio'}`,
-          },
-          onSendMessage,
-          kind: 'pileta',
+      let accesses = poolAccesses;
+      const names = [];
+      for (const person of people) {
+        const snap = evaluatePoolAccess(person, { accesses, today, settings, members: roster });
+        if (!snap.canPayCanon) continue;
+        const { entry, accesses: next } = enableMemberPoolAccess({
+          member: person,
+          accesses,
+          method: payMethod,
+          today,
+          settings,
+          actorName,
+          members: roster,
+          requireMedical: false,
         });
+        const charged = await chargePoolCanon({
+          entry,
+          member: person,
+          recordPoolCanon,
+          bankId: poolMethodUsesBank(payMethod) ? payBankId : null,
+        });
+        const circle = verifyPoolCanonCircle({ entry, charged, method: payMethod });
+        if (!circle.ok) throw new Error(`Canon incompleto: ${circle.issues.join(' · ')}`);
+        accesses = withChargedPoolEntry(next, entry, charged);
+        setPoolAccesses(accesses);
+        for (const row of charged.accountEntries || []) onUpsertMemberAccountEntry?.(row);
+        if (typeof setMembers === 'function' && charged.accountEntries?.length) {
+          setMembers((prev) => applyPoolAccountPass(prev, charged.accountEntries));
+        }
+        if (typeof setEntryLogs === 'function') {
+          const log = poolIngressToAccessLog(charged);
+          if (log) setEntryLogs((prev) => [log, ...(prev || [])]);
+        }
+        const payment = rememberBoleto(charged, person);
+        if (payment.method !== 'mercadopago') {
+          void deliverPaymentReceipt({ member: person, payment, onSendMessage, kind: 'pileta' });
+        }
+        names.push(person.name);
+      }
+      if (!names.length) {
+        setError('Esas personas no tienen canon pendiente.');
+        return;
       }
     } catch (err) {
-      setError(err?.message || 'No se pudo habilitar.');
+      setError(err?.message || 'No se pudo cobrar el canon.');
     } finally {
       setBusy(false);
     }
   };
 
-  const handleAttend = async () => {
+  const handleEnable = async () => {
     if (!selected) return;
+    if (!eval_.medical?.ok) {
+      setError('Falta el apto médico para anotar el ingreso.');
+      return;
+    }
+    if ((Number(eval_.seasonAmountDue) || 0) > 0) {
+      setError('Primero hay que cobrar el canon de temporada.');
+      return;
+    }
     setBusy(true);
     setError('');
     try {
@@ -250,20 +352,15 @@ export default function PoolEntranceView({
         accesses: poolAccesses,
         today,
         actorName,
-        members: directory,
+        members: roster,
       });
-      const charged = await chargePoolCanon({ entry, member: selected, recordPoolCanon });
-      setPoolAccesses(withChargedPoolEntry(accesses, entry, charged));
-      for (const row of charged.accountEntries || []) onUpsertMemberAccountEntry?.(row);
-      if (typeof setMembers === 'function' && charged.accountEntries?.length) {
-        setMembers((prev) => applyPoolAccountPass(prev, charged.accountEntries));
-      }
+      setPoolAccesses(accesses);
       if (typeof setEntryLogs === 'function') {
-        const log = poolIngressToAccessLog(charged);
+        const log = poolIngressToAccessLog(entry);
         if (log) setEntryLogs((prev) => [log, ...(prev || [])]);
       }
     } catch (err) {
-      setError(err?.message || 'No se pudo anotar la asistencia.');
+      setError(err?.message || 'No se pudo anotar el ingreso.');
     } finally {
       setBusy(false);
     }
@@ -435,75 +532,105 @@ export default function PoolEntranceView({
             </div>
           </dl>
 
-          {eval_.canEnable ? (
+          {householdSnaps.length > 0 ? (
+            <section className="pool-household" aria-label="Grupo familiar">
+              <h4>Grupo familiar</h4>
+              <ul className="pool-household-list">
+                {householdSnaps.map(({ person, snap }) => {
+                  const id = String(person.memberId);
+                  const owes = snap.canPayCanon;
+                  return (
+                    <li key={id} className={id === String(selected.memberId) ? 'is-on' : ''}>
+                      <label>
+                        <input
+                          type="checkbox"
+                          checked={chargeIds.includes(id)}
+                          disabled={busy || !owes}
+                          onChange={() => {
+                            setChargeIds((curr) => (
+                              curr.includes(id) ? curr.filter((item) => item !== id) : [...curr, id]
+                            ));
+                          }}
+                          aria-label={`Cobrar canon de ${person.name}`}
+                        />
+                      </label>
+                      <button type="button" onClick={() => pick(person)}>
+                        <strong>{person.name}</strong>
+                        <span>Nº {person.memberId}</span>
+                      </button>
+                      <em>
+                        {owes
+                          ? formatCurrency(snap.seasonAmountDue)
+                          : (snap.seasonPaid ? 'Abonado' : (snap.seasonReason || 'Sin cargo'))}
+                      </em>
+                    </li>
+                  );
+                })}
+              </ul>
+            </section>
+          ) : null}
+
+          {eval_.payBlocked ? (
+            <p className="pool-pay-note">En mora. No puede pagar pileta hasta regularizar la cuota social.</p>
+          ) : paying.length > 0 ? (
             <div className="pool-entrance-paybox">
-              {(Number(eval_.seasonAmountDue) || 0) > 0 ? (
-                <>
-                  <PaymentMethodTiles
-                    value={payMethod}
-                    onChange={setPayMethod}
+              <PaymentMethodTiles
+                value={payMethod}
+                onChange={setPayMethod}
+                disabled={busy}
+                ariaLabel="Método de pago del canon de temporada"
+              />
+              {payMethod === 'efectivo' ? (
+                <p className="pool-pay-note">
+                  Confirme el cobro en efectivo. Se registrará en <strong>Caja General</strong>.
+                </p>
+              ) : null}
+              {poolMethodUsesBank(payMethod) ? (
+                <div className="form-group" style={{ marginBottom: '0.85rem' }}>
+                  <label className="form-label" htmlFor="pool-entrance-bank">Alias</label>
+                  <select
+                    id="pool-entrance-bank"
+                    className="form-input"
+                    value={payBankId}
+                    onChange={(e) => setPayBankId(e.target.value)}
                     disabled={busy}
-                    ariaLabel="Método de pago del canon de temporada"
-                  />
-                  {payMethod === 'efectivo' ? (
-                    <p className="pool-pay-note">
-                      Confirme el cobro en efectivo. Se registrará en <strong>Caja General</strong>.
-                    </p>
-                  ) : null}
-                  {poolMethodUsesBank(payMethod) ? (
-                    <div className="form-group" style={{ marginBottom: '0.85rem' }}>
-                      <label className="form-label" htmlFor="pool-entrance-bank">Alias</label>
-                      <select
-                        id="pool-entrance-bank"
-                        className="form-input"
-                        value={payBankId}
-                        onChange={(e) => setPayBankId(e.target.value)}
-                        disabled={busy}
-                      >
-                        {CLUB_BANK_ACCOUNTS.map((bank) => (
-                          <option key={bank.id} value={bank.id}>
-                            {bank.alias || bank.name}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  ) : null}
-                  {payMethod === 'mercadopago' ? (
-                    <MercadoPagoCheckout
-                      kind="pool"
-                      mode="qr"
-                      amount={Number(eval_.seasonAmountDue) || 0}
-                      memberNumber={selected.memberId}
-                      concept={`Canon pileta temporada · ${selected.name}`}
-                      disabled={busy || !eval_.canEnable}
-                      onApproved={async () => {
-                        try {
-                          const rows = await listPoolAccesses();
-                          setPoolAccesses(rows);
-                        } catch (err) {
-                          setError(err?.message || 'El pago entró. Recargá la puerta para verlo.');
-                        }
-                      }}
-                    />
-                  ) : (
-                    <button
-                      type="button"
-                      className="btn btn-primary pool-entrance-pay"
-                      disabled={busy || !eval_.canEnable || (poolMethodUsesCash(payMethod) && cashClosed)}
-                      onClick={handleEnable}
-                    >
-                      Cobrar temporada e ingresar · {formatCurrency(eval_.seasonAmountDue)}
-                    </button>
-                  )}
-                </>
+                  >
+                    {CLUB_BANK_ACCOUNTS.map((bank) => (
+                      <option key={bank.id} value={bank.id}>
+                        {bank.alias || bank.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : null}
+              {payMethod === 'mercadopago' ? (
+                <MercadoPagoCheckout
+                  kind="pool"
+                  mode="qr"
+                  amount={paying.reduce((sum, row) => sum + (Number(row.snap.seasonAmountDue) || 0), 0)}
+                  memberNumber={selected.memberId}
+                  concept={`Canon pileta temporada · ${selected.name}`}
+                  disabled={busy || !eval_.canPayCanon}
+                  onApproved={async () => {
+                    try {
+                      const rows = await listPoolAccesses();
+                      setPoolAccesses(rows);
+                    } catch (err) {
+                      setError(err?.message || 'El pago entró. Recargá la puerta para verlo.');
+                    }
+                  }}
+                />
               ) : (
                 <button
                   type="button"
                   className="btn btn-primary pool-entrance-pay"
-                  disabled={busy || !eval_.canEnable}
-                  onClick={handleEnable}
+                  disabled={busy || paying.length === 0 || (poolMethodUsesCash(payMethod) && cashClosed)}
+                  onClick={() => { void handleCharge(paying.map((row) => row.person)); }}
                 >
-                  Habilitar ingreso
+                  {eval_.medical?.ok && paying.length === 1 ? 'Cobrar temporada e ingresar' : 'Cobrar temporada'}
+                  {paying.length > 1 ? ` · ${paying.length}` : ''}
+                  {' · '}
+                  {formatCurrency(paying.reduce((sum, row) => sum + (Number(row.snap.seasonAmountDue) || 0), 0))}
                 </button>
               )}
             </div>
@@ -511,16 +638,34 @@ export default function PoolEntranceView({
 
           {eval_.alreadyIn ? (
             <p className="pool-entrance-attended">Anotado en ingresos de hoy</p>
-          ) : (
+          ) : (Number(eval_.seasonAmountDue) || 0) <= 0 ? (
             <button
               type="button"
               className="btn pool-entrance-attend"
-              disabled={busy || eval_.duesBlocked}
-              onClick={handleAttend}
+              disabled={busy || !eval_.canEnable}
+              onClick={handleEnable}
             >
-              Asistió
+              Habilitar ingreso
             </button>
-          )}
+          ) : null}
+
+          {[
+            ...boletos.filter((row) => String(row.member.memberId) === String(selected.memberId)),
+            ...memberPoolHistory(poolAccesses, selected.memberId)
+              .filter((row) => row.status !== 'revoked' && (Number(row.payment?.amount) || 0) > 0)
+              .slice(0, 1)
+              .map((row) => ({ member: selected, payment: poolBoletoPayment(row, selected, today) })),
+          ].filter((row, index, list) => list.findIndex((item) => item.payment.id === row.payment.id) === index).map((row) => (
+            <button
+              key={row.payment.id}
+              type="button"
+              className="btn btn-secondary pool-boleto-btn"
+              disabled={pdfBusyId === String(row.payment.id)}
+              onClick={() => { void handleDownloadBoleto(row.member, row.payment); }}
+            >
+              <Download size={14} /> Descargar boleto
+            </button>
+          ))}
 
           <button
             type="button"

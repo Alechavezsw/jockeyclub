@@ -218,9 +218,25 @@ export function listDayAccesses(accesses = [], date = todayISO()) {
   return (accesses || []).filter((a) => a.date === date && a.status !== 'revoked');
 }
 
+/**
+ * Canon cobrado sin apto no es un ingreso.
+ * Si la fila vieja no trae la marca, un canon de temporada sin fecha de apto tampoco lo es.
+ */
+export function inferPoolEntered(row = {}) {
+  const flag = row?.entered ?? row?.meta?.entered;
+  if (flag === false || flag === 'false') return false;
+  if (flag === true || flag === 'true') return true;
+  if (row?.kind === 'guest') return true;
+  const concept = String(row?.payment?.concept || row?.paymentConcept || '');
+  const amount = Number(row?.payment?.amount ?? row?.paymentAmount) || 0;
+  const medical = row?.medicalExpiresAt || row?.medical_expires_at || null;
+  if (amount > 0 && /temporada/i.test(concept) && !medical) return false;
+  return true;
+}
+
 /** Canon cobrado sin apto: no cuenta como ingreso del día. */
 export function poolVisitCounts(row) {
-  return row?.entered !== false;
+  return inferPoolEntered(row);
 }
 
 export function memberDayAccess(accesses, memberId, date = todayISO()) {
@@ -407,7 +423,7 @@ export function enableMemberPoolAccess({
   return { entry, accesses: [entry, ...(accesses || [])] };
 }
 
-/** Marca asistencia en puerta: cuenta en ingresos del día, sin exigir apto ni cobro. */
+/** Marca asistencia en puerta: hace falta apto vigente y el canon de temporada ya cobrado. */
 export function recordPoolAttendance({
   member,
   accesses = [],
@@ -416,12 +432,18 @@ export function recordPoolAttendance({
   members = [],
 } = {}) {
   if (!member?.memberId) throw new Error('Seleccioná un socio.');
-  const duesGate = seasonDuesGate(member, { today, members });
-  if (duesGate.blocked) throw new Error(duesGate.reason);
-  if (memberDayAccess(accesses, member.memberId, today)) {
+  const eval_ = evaluatePoolAccess(member, { accesses, today, members });
+  if (eval_.payBlocked || eval_.duesBlocked) {
+    throw new Error(eval_.duesGate?.reason || 'En mora · regularizá la cuota para ingresar.');
+  }
+  if (!eval_.medical?.ok) throw new Error(eval_.medical?.label || 'Falta revisación médica.');
+  if ((Number(eval_.seasonAmountDue) || 0) > 0) {
+    throw new Error('No abonó el canon de temporada de pileta.');
+  }
+  if (eval_.alreadyIn || memberDayAccess(accesses, member.memberId, today)) {
     throw new Error('El socio ya está anotado hoy.');
   }
-  const medical = getMedicalStatus(member, { today });
+  const medical = eval_.medical;
   const entry = {
     id: `pool-a-${Date.now().toString(36)}`,
     date: today,
@@ -438,6 +460,7 @@ export function recordPoolAttendance({
       concept: 'Asistencia pileta',
     },
     medicalExpiresAt: medical.expiresAt || null,
+    entered: true,
     enabledAt: new Date().toISOString(),
     enabledBy: actorName || null,
     status: 'active',

@@ -11,6 +11,7 @@ import {
   enableMemberPoolAccess,
   evaluatePoolAccess,
   getMedicalStatus,
+  inferPoolEntered,
   isPoolDayCashOpen,
   mergePoolSettings,
   poolAccessReportRows,
@@ -305,9 +306,33 @@ describe('medios del canon', () => {
     })).toThrow(/medio/i);
   });
 
+  it('un canon sin apto, releído sin la marca, no es un ingreso', () => {
+    expect(inferPoolEntered({
+      kind: 'member',
+      payment: { amount: 90000, concept: 'Canon pileta temporada' },
+      medicalExpiresAt: null,
+    })).toBe(false);
+    expect(inferPoolEntered({
+      entered: false,
+      kind: 'member',
+      payment: { amount: 90000, concept: 'Canon pileta temporada' },
+      medicalExpiresAt: '2027-12-01',
+    })).toBe(false);
+    expect(inferPoolEntered({
+      kind: 'member',
+      payment: { amount: 90000, concept: 'Canon pileta temporada' },
+      medicalExpiresAt: '2027-12-01',
+    })).toBe(true);
+  });
+
   it('la asistencia no cobra y no arma cuenta', async () => {
     const member = readyMember();
-    const { entry } = recordPoolAttendance({ member, today: TODAY });
+    const paid = enableMemberPoolAccess({ member, method: 'efectivo', today: '2026-12-01' });
+    const { entry } = recordPoolAttendance({
+      member,
+      accesses: paid.accesses,
+      today: TODAY,
+    });
     expect(entry.payment.method).toBe('asistencia');
     expect(entry.payment.amount).toBe(0);
     const charged = await chargePoolCanon({ entry, member, recordPoolCanon: recordOk() });

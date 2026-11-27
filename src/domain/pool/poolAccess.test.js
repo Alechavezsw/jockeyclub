@@ -143,20 +143,32 @@ describe('poolAccess', () => {
     expect(history.map((r) => r.id)).toEqual(['c', 'a']);
   });
 
-  it('anota asistencia sin apto y la suma a ingresos del día', () => {
+  it('la asistencia pide apto y canon, y después cuenta el ingreso', () => {
+    expect(() => recordPoolAttendance({ member, accesses: [], today: '2026-12-12' }))
+      .toThrow(/revisaci/i);
+    const withMed = attachPoolMedical(member, {
+      talonario: '11',
+      uploadedAt: '2026-12-01T12:00:00.000Z',
+    });
+    expect(() => recordPoolAttendance({ member: withMed, accesses: [], today: '2026-12-12' }))
+      .toThrow(/canon/i);
+    const paid = enableMemberPoolAccess({
+      member: withMed,
+      today: '2026-12-01',
+      requireMedical: false,
+    });
     const { entry, accesses } = recordPoolAttendance({
-      member,
-      accesses: [],
-      today: '2026-09-12',
+      member: withMed,
+      accesses: paid.accesses,
+      today: '2026-12-12',
     });
     expect(entry.source).toBe('attendance');
+    expect(entry.entered).toBe(true);
     expect(entry.payment.amount).toBe(0);
-    const snap = evaluatePoolAccess(member, { accesses, today: '2026-09-12' });
+    const snap = evaluatePoolAccess(withMed, { accesses, today: '2026-12-12' });
     expect(snap.alreadyIn).toBe(true);
-    expect(snap.paidToday).toBe(false);
-    expect(poolDayStats(accesses, '2026-09-12').members).toBe(1);
-    expect(poolDayStats(accesses, '2026-09-12').collected).toBe(0);
-    expect(() => recordPoolAttendance({ member, accesses, today: '2026-09-12' }))
+    expect(poolDayStats(accesses, '2026-12-12').members).toBe(1);
+    expect(() => recordPoolAttendance({ member: withMed, accesses, today: '2026-12-12' }))
       .toThrow(/ya está anotado/i);
   });
 

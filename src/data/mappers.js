@@ -790,8 +790,19 @@ export function poolAccessFromRow(row) {
       paidAt: row.enabled_at || null,
       ref: null,
       concept: row.payment_concept || '',
+      scope: meta.paymentScope || (/temporada/i.test(String(row.payment_concept || '')) ? 'season' : null),
     },
     medicalExpiresAt: row.medical_expires_at || null,
+    entered: meta.entered === false || meta.entered === 'false'
+      ? false
+      : (meta.entered === true || meta.entered === 'true'
+        ? true
+        : (row.kind !== 'guest'
+          && (Number(row.payment_amount) || 0) > 0
+          && /temporada/i.test(String(row.payment_concept || ''))
+          && !row.medical_expires_at
+          ? false
+          : undefined)),
     enabledAt: row.enabled_at || null,
     enabledBy: row.enabled_by || null,
     status: row.status || 'active',

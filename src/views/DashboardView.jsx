@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import { useSedeWeather } from '../hooks/useSedeWeather';
 import VirtualCard from '../components/VirtualCard';
 import MemberFacilitiesBooking from '../components/MemberFacilitiesBooking';
-import GuestPassPanel from '../components/GuestPassPanel';
 import ModalDialog from '../components/ModalDialog';
 import { SilksBand } from '../components/brand/JockeyBrand';
 import { FACILITIES } from '../domain/reservations/facilities';
@@ -92,8 +91,6 @@ export default function DashboardView({
   setSurveys,
   waitlist = [],
   setWaitlist,
-  guestPasses = [],
-  setGuestPasses,
   facilityCatalog = null,
   user = null,
   sendMessage,
@@ -1010,16 +1007,6 @@ export default function DashboardView({
             user={user}
             sendMessage={sendMessage}
             compact
-          />
-        </div>
-      )}
-
-      {setGuestPasses && !activityGuest && (
-        <div className="glass-card" style={{ padding: '1.1rem 1.2rem', marginBottom: '1.75rem' }}>
-          <GuestPassPanel
-            member={member}
-            guestPasses={guestPasses}
-            setGuestPasses={setGuestPasses}
           />
         </div>
       )}
