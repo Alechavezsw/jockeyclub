@@ -4,6 +4,7 @@ import {
   choicesForCollection,
   collectionPeriodChoices,
   collectionTennisPeriodChoices,
+  duesPeriodMonthStarted,
   collectionTennisPreview,
   duesAmountForMember,
   duesChargeBreakdown,
@@ -1466,7 +1467,10 @@ export function payUpcomingDues(member, { method = 'transferencia', today = new 
   const date = todayISODateAR(today);
   const time = nowTimeAR(today);
   const paidAt = today.toISOString();
-  const monthPhrase = duesMonthsPhrase((preview.periods || []).map((row) => row.dueOn));
+  const dueOns = (preview.periods || []).map((row) => row.dueOn).filter(Boolean);
+  const monthPhrase = duesMonthsPhrase(dueOns);
+  const futureOnly = dueOns.length > 0 && dueOns.every((dueOn) => !duesPeriodMonthStarted(dueOn, today));
+  const prefix = futureOnly ? 'Cuota social anticipada' : 'Cuota social';
   const payment = {
     id: `pay-${member.memberId}-${Date.now()}`,
     date,
@@ -1474,11 +1478,11 @@ export function payUpcomingDues(member, { method = 'transferencia', today = new 
     paidAt,
     createdAt: paidAt,
     concept: duesChargeConcept(monthPhrase, {
-      prefix: 'Cuota social anticipada',
-      empty: `Cuota social anticipada · ${duesMethodLabel(method)}`,
+      prefix,
+      empty: `${prefix} · ${duesMethodLabel(method)}`,
     }),
     amount: preview.cash,
-    adelanto: true,
+    ...(futureOnly ? { adelanto: true } : {}),
     quota: preview.quota,
     surcharge: skipSurcharge ? 0 : preview.surcharge,
     waivedSurcharge: 0,
@@ -1691,6 +1695,7 @@ export function recordDuesCollection(member, {
 
   const choices = collectionPeriodChoices(account, today, { chargeScope });
   const hasOverdue = choices.some((row) => row.kind === 'overdue');
+  const monthAlreadyOpen = choices.some((row) => duesPeriodMonthStarted(row.dueOn, today));
   const due = Number(account.outstandingBalance) || 0;
   const operationalDue = socialDuesStoredBalance(account);
   // periodDueOns explícitos: validar acá (y otra vez en payMemberDues). Sin sustitución.
@@ -1713,12 +1718,18 @@ export function recordDuesCollection(member, {
   const collectAmount = concession.discount > 0
     ? concession.gross
     : (mixed ? mixed.total : amount);
-  const paid = (operationalDue > 0.01 || due > 0 || hasOverdue)
+  const openDueOns = choices
+    .filter((row) => duesPeriodMonthStarted(row.dueOn, today))
+    .map((row) => row.dueOn);
+  const zeroBalanceOpenMonth = monthAlreadyOpen && !(operationalDue > 0.01) && !(due > 0);
+  const paid = (operationalDue > 0.01 || due > 0 || hasOverdue || monthAlreadyOpen)
     ? payMemberDues(account, {
       method: resolvedMethod,
       amount: collectAmount,
       today,
-      periodDueOns,
+      periodDueOns: (Array.isArray(periodDueOns) && periodDueOns.length)
+        ? periodDueOns
+        : (zeroBalanceOpenMonth ? openDueOns : periodDueOns),
       skipSurcharge,
       chargeScope,
     })

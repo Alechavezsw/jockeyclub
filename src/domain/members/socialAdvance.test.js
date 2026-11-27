@@ -32,6 +32,34 @@ function familiar(extra = {}) {
 }
 
 describe('adelanto de cuota social', () => {
+  it('el mes en curso, aunque la ficha esté en cero, no es anticipo', () => {
+    const member = {
+      memberId: '111591',
+      name: 'Manuel',
+      status: 'active',
+      tier: 'socio_individual',
+      outstandingBalance: 0,
+      nextDueDate: '2026-11-10',
+      lastPaymentDate: '2026-10-11',
+      paymentHistory: [],
+    };
+    const owed = collectionPeriodChoices(member, TODAY);
+    expect(owed.map((row) => row.dueOn)).toEqual(['2026-11-10']);
+    expect(owed[0].kind).toBe('overdue');
+    expect(owed[0].capital).toBe(40000);
+    expect(owed[0].surcharge).toBe(4000);
+    const paid = payMemberDues(member, {
+      method: 'efectivo',
+      amount: 44000,
+      today: TODAY,
+      periodDueOns: ['2026-11-10'],
+    });
+    expect(paid.payment.concept).toBe('Cuota social · Noviembre de 2026');
+    expect(paid.payment.adelanto).toBeUndefined();
+    expect(paid.payment.quota).toBe(40000);
+    expect(paid.payment.surcharge).toBe(4000);
+  });
+
   it('ofrece los próximos meses y no los trata como deuda', () => {
     const member = familiar();
     const owed = collectionPeriodChoices(member, TODAY, { chargeScope: 'social' });

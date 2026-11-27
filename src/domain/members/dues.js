@@ -1626,7 +1626,7 @@ function appendPeriodChoiceCovering(rows, full, fichaRemaining) {
  * Regla general de cobro: la cuota de un mes se ofrece recién cuando ese mes ya empezó
  * (día 1). Ej.: en noviembre no se ofrece diciembre; los atrasados sí.
  */
-function duesPeriodMonthStarted(dueOn, paidOn) {
+export function duesPeriodMonthStarted(dueOn, paidOn) {
   const due = parseDate(dueOn);
   if (!due || !paidOn) return false;
   const dueYm = due.getFullYear() * 12 + due.getMonth();
@@ -2240,8 +2240,10 @@ export function collectionPeriodChoices(member, today = new Date(), { chargeScop
       && duesPeriodMonthStarted(currentDue, paidOn)
       && !dueOnAlreadyCovered(currentDue, paidSet)
     ) {
-      const upcoming = periodChoiceFromDue(member, currentDue, paidOn, 'upcoming', scopeOpts);
-      return rewriteJoinFeeRows(member, upcoming ? [upcoming] : []);
+      const dueDate = parseDate(currentDue);
+      const kind = dueDate && dueDate < paidOn ? 'overdue' : 'upcoming';
+      const current = periodChoiceFromDue(member, currentDue, paidOn, kind, scopeOpts);
+      return rewriteJoinFeeRows(member, current ? [current] : []);
     }
     return [];
   }
@@ -2313,8 +2315,10 @@ export function collectionPeriodChoices(member, today = new Date(), { chargeScop
   const dueOn = pinDuesDueDate(member.nextDueDate, member) || nextDuesDueDate(today, member);
   if (!duesPeriodMonthStarted(dueOn, paidOn)) return [];
   if (dueOnAlreadyCovered(dueOn, paidSet)) return [];
-  const upcoming = periodChoiceFromDue(member, dueOn, paidOn, 'upcoming', scopeOpts);
-  return rewriteJoinFeeRows(member, upcoming ? [upcoming] : []);
+  const dueDate = parseDate(dueOn);
+  const kind = dueDate && dueDate < paidOn ? 'overdue' : 'upcoming';
+  const current = periodChoiceFromDue(member, dueOn, paidOn, kind, scopeOpts);
+  return rewriteJoinFeeRows(member, current ? [current] : []);
 }
 
 /** Meses de cuota social que se pueden adelantar. No son deuda ni llevan el 10 %. */
