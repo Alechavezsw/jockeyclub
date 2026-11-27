@@ -2264,9 +2264,9 @@ export default function ColoniaTab({
                   {[
                     ['cuota', 'Mes a mes'],
                     ['temporada', 'Temporada'],
-                    ['promo_2', '2 hermanos'],
-                    ['promo_3', '3 hermanos'],
-                    ['hermano_4', '4º hermano'],
+                    ['promo_2', '2 hermanos · temporada'],
+                    ['promo_3', '3 hermanos · temporada'],
+                    ['hermano_4', '4º hermano · temporada'],
                   ].map(([key, label]) => {
                     const offer = coloniaEnrollPayChoices({
                       planKey: key,
@@ -2894,7 +2894,7 @@ export default function ColoniaTab({
           <h3>Hermanos y promociones</h3>
           <p className="muted">
             El grupo de hermanos de Colonia es distinto del grupo familiar del padrón.
-            Periodicidad actual: {season?.promotion_periodicity || 'sin definir (promos bloqueadas)'}.
+            Las promos de hermanos son de temporada completa.
           </p>
           <div className="colonia-form">
             <label><span>Buscar hermano</span>

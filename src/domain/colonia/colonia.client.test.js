@@ -182,7 +182,7 @@ describe('app del socio — Colonia', () => {
     expect(wizard({ step: 4, guardian: { ...guardian, emergencyContact: '' } }).errors.some((e) => e.code === 'emergency')).toBe(true);
     expect(wizard({ step: 5, guardian: { ...guardian, authorizedPickup: '' } }).errors.some((e) => e.code === 'pickup')).toBe(true);
     expect(wizard({ step: 6, student: { ...student, shirtSize: '' } }).errors.some((e) => e.code === 'shirt')).toBe(true);
-    expect(wizard({ step: 8, planKey: 'promo_2' }).errors.some((e) => e.code === 'plan' || e.code === 'promo_periodicity_missing')).toBe(true);
+    expect(wizard({ step: 8, planKey: 'promo_2' }).errors.some((e) => e.code === 'plan')).toBe(false);
     expect(wizard({ step: 9, todayIso: '2026-12-15' }).errors.some((e) => e.code === 'window')).toBe(true);
     expect(wizard({ existingKeys: ['dni:50111222'] }).errors.some((e) => e.code === 'duplicate')).toBe(true);
     expect(wizard().ok).toBe(true);

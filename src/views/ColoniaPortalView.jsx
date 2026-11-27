@@ -625,7 +625,7 @@ export default function ColoniaPortalView({
                   <option key={p} value={p}>{p}</option>
                 ))}
               </select>
-              <p className="muted">Promociones de hermanos sin periodicidad definida no se ofrecen online.</p>
+              <p className="muted">Las promociones de hermanos son de temporada completa.</p>
             </div>
           ) : null}
 

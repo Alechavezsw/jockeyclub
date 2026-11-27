@@ -100,8 +100,8 @@ export const COLONIA_SEASON_2026_2027 = Object.freeze({
   ageMin: 3,
   ageMax: 15,
   contacts: ['2644584263', '2644170053', '2646273314'],
-  /** null = promociones ambiguas bloqueadas hasta configurar. */
-  promotionPeriodicity: null,
+  /** Las promos de hermanos son de temporada completa, no mes a mes. */
+  promotionPeriodicity: 'season',
 });
 
 export function coloniaMethodMeta(method) {
