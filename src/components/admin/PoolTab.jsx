@@ -11,6 +11,9 @@ import {
   attachPoolMedical,
   enableMemberPoolAccess,
   enableGuestPoolAccess,
+  sellGuestBooklet,
+  poolGuestQuote,
+  openGuestBooklets,
   revokePoolAccess,
   listDayAccesses,
   poolDayStats,
@@ -136,6 +139,7 @@ export default function PoolTab({
   const [error, setError] = useState('');
   const [payMethod, setPayMethod] = useState('efectivo');
   const [guestMethod, setGuestMethod] = useState('efectivo');
+  const [guestWithPool, setGuestWithPool] = useState(true);
   const [payBankId, setPayBankId] = useState(CLUB_BANK_ACCOUNTS[0]?.id || 'macro');
   const [guestBankId, setGuestBankId] = useState(CLUB_BANK_ACCOUNTS[0]?.id || 'macro');
   const [medicalTalonario, setMedicalTalonario] = useState('');
@@ -200,6 +204,11 @@ export default function PoolTab({
   const hostGuests = selected
     ? guestDayAccessesForHost(poolAccesses, selected.memberId, today)
     : [];
+  const guestQuote = poolGuestQuote(settings, { withPool: guestWithPool });
+  const bookQuote = poolGuestQuote(settings, { withPool: guestWithPool, book: true });
+  const openBook = selected
+    ? openGuestBooklets(poolAccesses, selected.memberId, guestWithPool)[0]
+    : null;
   const selectedHistory = useMemo(
     () => (selected ? memberPoolHistory(poolAccesses, selected.memberId).slice(0, 12) : []),
     [poolAccesses, selected],
@@ -490,9 +499,9 @@ export default function PoolTab({
     }
   };
 
-  const handleEnableGuest = async () => {
+  const handleEnableGuest = async (useBook = false) => {
     if (!selected) return;
-    if (guestMethod === 'mercadopago') {
+    if (!useBook && guestMethod === 'mercadopago') {
       setError('Usá el QR de Mercado Pago para este medio.');
       return;
     }
@@ -504,10 +513,18 @@ export default function PoolTab({
         guestName,
         accesses: poolAccesses,
         method: guestMethod,
+        withPool: guestWithPool,
+        useBook,
         today,
         settings,
         actorName,
       });
+      if (useBook || Number(entry.payment?.amount) <= 0) {
+        setPoolAccesses(accesses);
+        setGuestName('');
+        showFlash(`Pase de chequera · ${entry.guestName}`);
+        return;
+      }
       const charged = await chargePoolCanon({
         entry,
         member: selected,
@@ -539,7 +556,7 @@ export default function PoolTab({
             method,
             methodLabel: poolMethodLabel(method),
             receiptNumber: charged.cashMovementId || charged.journalEntryId || charged.id,
-            concept: `Canon pileta invitado · ${charged.guestName || 'invitado'}`,
+            concept: charged.payment?.concept || `Canon pileta invitado · ${charged.guestName || 'invitado'}`,
           },
           onSendMessage,
           kind: 'pileta',
@@ -548,6 +565,63 @@ export default function PoolTab({
       showFlash(`Invitado habilitado · ${charged.guestName}`);
     } catch (err) {
       setError(err?.message || 'No se pudo habilitar al invitado.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleSellBook = async () => {
+    if (!selected) return;
+    if (guestMethod === 'mercadopago') {
+      setError('Usá el QR de Mercado Pago para este medio.');
+      return;
+    }
+    setBusy(true);
+    setError('');
+    try {
+      const { entry, accesses } = sellGuestBooklet({
+        host: selected,
+        accesses: poolAccesses,
+        withPool: guestWithPool,
+        method: guestMethod,
+        today,
+        settings,
+        actorName,
+      });
+      const charged = await chargePoolCanon({
+        entry,
+        member: selected,
+        recordPoolCanon,
+        bankId: poolMethodUsesBank(guestMethod) ? guestBankId : null,
+      });
+      const circle = verifyPoolCanonCircle({ entry, charged, method: guestMethod });
+      if (!circle.ok) {
+        throw new Error(`Canon incompleto: ${circle.issues.join(' · ')}`);
+      }
+      setPoolAccesses(withChargedPoolEntry(accesses, entry, charged));
+      for (const row of charged.accountEntries || []) onUpsertMemberAccountEntry?.(row);
+      if (typeof setMembers === 'function' && charged.accountEntries?.length) {
+        setMembers((prev) => applyPoolAccountPass(prev, charged.accountEntries));
+      }
+      const amount = Number(charged?.payment?.amount) || 0;
+      if (amount > 0) {
+        void deliverPaymentReceipt({
+          member: selected,
+          payment: {
+            amount,
+            date: charged.date || today,
+            method: charged.payment?.method || guestMethod,
+            methodLabel: poolMethodLabel(charged.payment?.method || guestMethod),
+            receiptNumber: charged.cashMovementId || charged.journalEntryId || charged.id,
+            concept: charged.payment?.concept || bookQuote.label,
+          },
+          onSendMessage,
+          kind: 'pileta',
+        });
+      }
+      showFlash(`${bookQuote.label} · ${formatCurrency(amount)}`);
+    } catch (err) {
+      setError(err?.message || 'No se pudo vender la chequera.');
     } finally {
       setBusy(false);
     }
@@ -925,10 +999,28 @@ export default function PoolTab({
                 </div>
               ) : (
                 <div className="pool-guests">
-                  <h4><UserPlus size={15} /> Invitados del socio</h4>
+                  <h4><UserPlus size={15} /> Invitados en temporada</h4>
                   <p className="ops-muted">
-                    Hasta {settings.maxGuestsPerMember} por día · {formatCurrency(settings.guestDayFee)} c/u
+                    Hasta {settings.maxGuestsPerMember} por día. Con pileta {formatCurrency(settings.guestWithPoolFee)} · chequera de {settings.guestBookSize} {formatCurrency(settings.guestBookWithPoolFee)}. Sin pileta {formatCurrency(settings.guestWithoutPoolFee)} · chequera de {settings.guestBookSize} {formatCurrency(settings.guestBookWithoutPoolFee)}.
                   </p>
+                  <div className="pool-guest-modes" style={{ display: 'flex', gap: '0.4rem', margin: '0.55rem 0' }}>
+                    <button
+                      type="button"
+                      className={`btn btn-sm ${guestWithPool ? 'btn-primary' : 'btn-secondary'}`}
+                      disabled={busy}
+                      onClick={() => setGuestWithPool(true)}
+                    >
+                      Con pileta
+                    </button>
+                    <button
+                      type="button"
+                      className={`btn btn-sm ${guestWithPool ? 'btn-secondary' : 'btn-primary'}`}
+                      disabled={busy}
+                      onClick={() => setGuestWithPool(false)}
+                    >
+                      Sin pileta
+                    </button>
+                  </div>
                   {hostGuests.length > 0 ? (
                     <ul className="pool-guest-list">
                       {hostGuests.map((g) => (
@@ -983,10 +1075,10 @@ export default function PoolTab({
                     <MercadoPagoCheckout
                       kind="pool"
                       mode="qr"
-                      amount={settings.guestDayFee}
+                      amount={guestQuote.amount}
                       memberNumber={selected.memberId}
                       guestName={guestName}
-                      concept={`Canon pileta invitado · ${guestName || 'invitado'}`}
+                      concept={`${guestQuote.label} · ${guestName || 'invitado'}`}
                       disabled={busy || !guestName.trim() || hostGuests.length >= settings.maxGuestsPerMember}
                       onApproved={async () => {
                         const rows = await listPoolAccesses();
@@ -996,15 +1088,37 @@ export default function PoolTab({
                       }}
                     />
                   ) : (
-                    <button
-                      type="button"
-                      className="btn btn-primary"
-                      disabled={busy || (poolMethodUsesCash(guestMethod) && !dayCashOpen) || !guestName.trim() || hostGuests.length >= settings.maxGuestsPerMember}
-                      onClick={handleEnableGuest}
-                      style={{ width: '100%', marginTop: '0.65rem' }}
-                    >
-                      <UserPlus size={16} /> Sumar invitado · {formatCurrency(settings.guestDayFee)}
-                    </button>
+                    <>
+                      <button
+                        type="button"
+                        className="btn btn-primary"
+                        disabled={busy || (poolMethodUsesCash(guestMethod) && !dayCashOpen) || !guestName.trim() || hostGuests.length >= settings.maxGuestsPerMember}
+                        onClick={() => handleEnableGuest(false)}
+                        style={{ width: '100%', marginTop: '0.65rem' }}
+                      >
+                        <UserPlus size={16} /> Sumar invitado · {formatCurrency(guestQuote.amount)}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        disabled={busy || (poolMethodUsesCash(guestMethod) && !dayCashOpen)}
+                        onClick={handleSellBook}
+                        style={{ width: '100%', marginTop: '0.4rem' }}
+                      >
+                        Chequera de {bookQuote.passes} · {formatCurrency(bookQuote.amount)}
+                      </button>
+                      {openBook ? (
+                        <button
+                          type="button"
+                          className="btn btn-secondary"
+                          disabled={busy || !guestName.trim() || hostGuests.length >= settings.maxGuestsPerMember}
+                          onClick={() => handleEnableGuest(true)}
+                          style={{ width: '100%', marginTop: '0.4rem' }}
+                        >
+                          Usar chequera · quedan {openBook.payment?.passesOpen}
+                        </button>
+                      ) : null}
+                    </>
                   )}
                 </div>
               )}

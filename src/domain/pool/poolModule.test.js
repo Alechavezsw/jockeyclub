@@ -8,6 +8,7 @@ import {
   attachPoolMedical,
   DEFAULT_POOL_SETTINGS,
   enableGuestPoolAccess,
+  sellGuestBooklet,
   enableMemberPoolAccess,
   evaluatePoolAccess,
   getMedicalStatus,
@@ -70,11 +71,17 @@ function recordOk(saved = {}) {
 }
 
 describe('temporada y apto', () => {
-  it('el canon de temporada es $ 90.000 y el invitado del día $ 8.000', () => {
+  it('el canon de temporada es $ 90.000 y el invitado sale con o sin pileta', () => {
     const settings = mergePoolSettings({});
     expect(settings.memberSeasonFee).toBe(90000);
     expect(settings.memberDayFee).toBe(90000);
-    expect(settings.guestDayFee).toBe(8000);
+    expect(settings.guestDayFee).toBe(40000);
+    expect(settings.guestWithPoolFee).toBe(40000);
+    expect(settings.guestWithoutPoolFee).toBe(20000);
+    expect(settings.guestBookSize).toBe(10);
+    expect(settings.guestBookWithPoolFee).toBe(350000);
+    expect(settings.guestBookWithoutPoolFee).toBe(170000);
+    expect(mergePoolSettings({ guestDayFee: 8000 }).guestWithPoolFee).toBe(40000);
     expect(settings.maxGuestsPerMember).toBe(3);
     expect(settings.maxPayingPerHousehold).toBe(4);
     expect(settings.freeUnderAgeYears).toBe(4);
@@ -435,7 +442,7 @@ describe('puerta, mora e invitados', () => {
         today: TODAY,
       });
       expect(guest.entry.kind).toBe('guest');
-      expect(guest.entry.payment.amount).toBe(8000);
+      expect(guest.entry.payment.amount).toBe(40000);
       expect(guest.entry.payment.concept).toMatch(/invitado/i);
       accesses = guest.accesses;
     }
@@ -451,6 +458,54 @@ describe('puerta, mora e invitados', () => {
       accesses,
       today: TODAY,
     })).toThrow(/nombre/i);
+  });
+
+  it('la chequera de 10 cobra el paquete y cada pase no vuelve a cobrar', () => {
+    const host = readyMember();
+    const opened = enableMemberPoolAccess({ member: host, method: 'efectivo', today: TODAY });
+    const without = enableGuestPoolAccess({
+      host,
+      guestName: 'Sin pileta',
+      accesses: opened.accesses,
+      withPool: false,
+      today: TODAY,
+    });
+    expect(without.entry.payment.amount).toBe(20000);
+    expect(without.entry.payment.concept).toMatch(/sin pileta/i);
+
+    const sold = sellGuestBooklet({
+      host,
+      accesses: opened.accesses,
+      withPool: true,
+      method: 'efectivo',
+      today: TODAY,
+    });
+    expect(sold.entry.payment.amount).toBe(350000);
+    expect(sold.entry.payment.passesOpen).toBe(10);
+    expect(poolDayStats(sold.accesses, TODAY).guests).toBe(0);
+    expect(poolDayStats(sold.accesses, TODAY).collected).toBe(90000 + 350000);
+
+    const plain = sellGuestBooklet({
+      host,
+      accesses: [],
+      withPool: false,
+      today: TODAY,
+    });
+    expect(plain.entry.payment.amount).toBe(170000);
+
+    const used = enableGuestPoolAccess({
+      host,
+      guestName: 'Con chequera',
+      accesses: sold.accesses,
+      useBook: true,
+      withPool: true,
+      today: TODAY,
+    });
+    expect(used.entry.payment.amount).toBe(0);
+    expect(used.entry.payment.method).toBe('chequera');
+    const book = used.accesses.find((row) => row.payment?.scope === 'chequera');
+    expect(book.payment.passesOpen).toBe(9);
+    expect(poolDayStats(used.accesses, TODAY).guests).toBe(1);
   });
 
   it('no se habilita dos veces el mismo día y un revocado no suma canon', () => {
@@ -484,16 +539,16 @@ describe('mostrador', () => {
     const day = poolDayStats(guest.accesses, TODAY);
     expect(day.members).toBe(1);
     expect(day.guests).toBe(1);
-    expect(day.collected).toBe(98000);
+    expect(day.collected).toBe(130000);
     const season = poolSeasonStats(guest.accesses, TODAY);
     expect(season.live).toBe(true);
-    expect(season.dayCollected).toBe(98000);
-    expect(season.seasonCollected).toBe(98000);
+    expect(season.dayCollected).toBe(130000);
+    expect(season.seasonCollected).toBe(130000);
     const report = poolAccessReportRows(guest.accesses, { scope: 'day', today: TODAY });
     expect(report.map((row) => row.kind).sort()).toEqual(['Invitado', 'Socio']);
     expect(report.find((row) => row.kind === 'Invitado').method).toBe('Débito');
     expect(poolCanonByDay(guest.accesses, { month: '2026-12' })).toEqual([
-      expect.objectContaining({ date: TODAY, amount: 98000, source: 'pool' }),
+      expect.objectContaining({ date: TODAY, amount: 130000, source: 'pool' }),
     ]);
   });
 

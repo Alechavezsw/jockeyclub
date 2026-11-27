@@ -15,7 +15,13 @@ export const DEFAULT_POOL_SETTINGS = {
   memberSeasonFee: 90000,
   /** Alias legacy: mismo importe de temporada (no es cobro diario). */
   memberDayFee: 90000,
-  guestDayFee: 8000,
+  /** Invitado con pileta. `guestDayFee` queda como alias. */
+  guestWithPoolFee: 40000,
+  guestWithoutPoolFee: 20000,
+  guestDayFee: 40000,
+  guestBookSize: 10,
+  guestBookWithPoolFee: 350000,
+  guestBookWithoutPoolFee: 170000,
   maxPayingPerHousehold: 4,
   freeUnderAgeYears: 4,
   medicalValidityDays: 365,
@@ -92,8 +98,55 @@ export function mergePoolSettings(raw = {}) {
     0,
     Number(src.freeUnderAgeYears ?? DEFAULT_POOL_SETTINGS.freeUnderAgeYears) || 0,
   );
-  next.guestDayFee = Math.max(0, Number(next.guestDayFee) || 0);
+  const storedWith = src.guestWithPoolFee != null ? Number(src.guestWithPoolFee) : null;
+  const storedDay = src.guestDayFee != null ? Number(src.guestDayFee) : null;
+  let withPoolFee = DEFAULT_POOL_SETTINGS.guestWithPoolFee;
+  if (storedWith != null && Number.isFinite(storedWith) && storedWith !== 8000) {
+    withPoolFee = Math.max(0, storedWith);
+  } else if (storedDay != null && Number.isFinite(storedDay) && storedDay !== 8000) {
+    withPoolFee = Math.max(0, storedDay);
+  }
+  next.guestWithPoolFee = withPoolFee;
+  next.guestDayFee = withPoolFee;
+  next.guestWithoutPoolFee = moneyOr(src.guestWithoutPoolFee, DEFAULT_POOL_SETTINGS.guestWithoutPoolFee);
+  next.guestBookSize = Math.max(1, Number(src.guestBookSize) || DEFAULT_POOL_SETTINGS.guestBookSize);
+  next.guestBookWithPoolFee = moneyOr(src.guestBookWithPoolFee, DEFAULT_POOL_SETTINGS.guestBookWithPoolFee);
+  next.guestBookWithoutPoolFee = moneyOr(src.guestBookWithoutPoolFee, DEFAULT_POOL_SETTINGS.guestBookWithoutPoolFee);
   return next;
+}
+
+function moneyOr(value, fallback) {
+  if (value == null || value === '') return fallback;
+  const n = Number(value);
+  return Number.isFinite(n) && n >= 0 ? n : fallback;
+}
+
+/** Día o chequera de 10, con pileta o sin pileta. */
+export function poolGuestQuote(settings = DEFAULT_POOL_SETTINGS, { withPool = true, book = false } = {}) {
+  const cfg = mergePoolSettings(settings);
+  const passes = book ? cfg.guestBookSize : 1;
+  const amount = book
+    ? (withPool ? cfg.guestBookWithPoolFee : cfg.guestBookWithoutPoolFee)
+    : (withPool ? cfg.guestWithPoolFee : cfg.guestWithoutPoolFee);
+  const place = withPool ? 'con pileta' : 'sin pileta';
+  const label = book
+    ? `Chequera ${passes} invitados ${place}`
+    : `Invitado ${place}`;
+  return { withPool: Boolean(withPool), book: Boolean(book), passes, amount, label };
+}
+
+export function isGuestBooklet(row) {
+  return String(row?.payment?.scope || '') === 'chequera';
+}
+
+export function openGuestBooklets(accesses = [], hostMemberId, withPool = true) {
+  return (accesses || []).filter((row) => (
+    isGuestBooklet(row)
+    && row.status !== 'revoked'
+    && String(row.hostMemberId || row.memberId) === String(hostMemberId)
+    && Boolean(row.payment?.withPool) === Boolean(withPool)
+    && (Number(row.payment?.passesOpen) || 0) > 0
+  ));
 }
 
 /** Documento médico de pileta (apto / revisación). */
@@ -226,6 +279,7 @@ export function inferPoolEntered(row = {}) {
   const flag = row?.entered ?? row?.meta?.entered;
   if (flag === false || flag === 'false') return false;
   if (flag === true || flag === 'true') return true;
+  if (isGuestBooklet(row)) return false;
   if (row?.kind === 'guest') return true;
   const concept = String(row?.payment?.concept || row?.paymentConcept || '');
   const amount = Number(row?.payment?.amount ?? row?.paymentAmount) || 0;
@@ -250,7 +304,10 @@ export function memberDayAccess(accesses, memberId, date = todayISO()) {
 
 export function guestDayAccessesForHost(accesses, hostMemberId, date = todayISO()) {
   return listDayAccesses(accesses, date).filter(
-    (a) => a.kind === 'guest' && a.hostMemberId === hostMemberId && a.status === 'active'
+    (a) => a.kind === 'guest'
+      && !isGuestBooklet(a)
+      && a.hostMemberId === hostMemberId
+      && a.status === 'active'
   );
 }
 
@@ -475,6 +532,8 @@ export function enableGuestPoolAccess({
   accesses = [],
   method = 'efectivo',
   amount,
+  withPool = true,
+  useBook = false,
   actorName = '',
   today = todayISO(),
   settings = DEFAULT_POOL_SETTINGS,
@@ -494,7 +553,26 @@ export function enableGuestPoolAccess({
     throw new Error(`Máximo ${cfg.maxGuestsPerMember} invitados por socio y día.`);
   }
 
-  const fee = amount != null ? Number(amount) : cfg.guestDayFee;
+  const quote = poolGuestQuote(cfg, { withPool });
+  let fee = amount != null ? Number(amount) : quote.amount;
+  let book = null;
+  let nextAccesses = accesses || [];
+  if (useBook) {
+    book = openGuestBooklets(nextAccesses, host.memberId, withPool)[0] || null;
+    if (!book) throw new Error('No hay chequera con pases para este invitado.');
+    fee = 0;
+    nextAccesses = nextAccesses.map((row) => (
+      row.id === book.id
+        ? {
+          ...row,
+          payment: {
+            ...row.payment,
+            passesOpen: Math.max(0, (Number(row.payment?.passesOpen) || 0) - 1),
+          },
+        }
+        : row
+    ));
+  }
   const entry = {
     id: `pool-g-${Date.now().toString(36)}`,
     date: today,
@@ -505,12 +583,58 @@ export function enableGuestPoolAccess({
     hostMemberId: host.memberId,
     payment: {
       amount: fee,
+      method: useBook ? 'chequera' : method,
+      paidAt: new Date().toISOString(),
+      ref: paymentRef || null,
+      concept: useBook ? `${quote.label} · chequera` : quote.label,
+      scope: 'guest',
+      withPool: Boolean(withPool),
+      bookId: book?.id || null,
+    },
+    medicalExpiresAt: null,
+    entered: true,
+    enabledAt: new Date().toISOString(),
+    enabledBy: actorName || null,
+    status: 'active',
+  };
+  return { entry, accesses: [entry, ...nextAccesses] };
+}
+
+/** Venta de chequera de 10. No es un ingreso del día: los pases se usan después. */
+export function sellGuestBooklet({
+  host,
+  accesses = [],
+  withPool = true,
+  method = 'efectivo',
+  actorName = '',
+  today = todayISO(),
+  settings = DEFAULT_POOL_SETTINGS,
+  paymentRef = '',
+}) {
+  if (!host?.memberId) throw new Error('Socio anfitrión requerido.');
+  if (!isOperationalMember(host)) throw new Error('El anfitrión debe estar activo.');
+  const quote = poolGuestQuote(settings, { withPool, book: true });
+  const entry = {
+    id: `pool-book-${Date.now().toString(36)}`,
+    date: today,
+    kind: 'guest',
+    memberId: host.memberId,
+    memberName: host.name,
+    guestName: quote.label,
+    hostMemberId: host.memberId,
+    payment: {
+      amount: quote.amount,
       method,
       paidAt: new Date().toISOString(),
       ref: paymentRef || null,
-      concept: 'Canon pileta invitado',
+      concept: quote.label,
+      scope: 'chequera',
+      withPool: Boolean(withPool),
+      passes: quote.passes,
+      passesOpen: quote.passes,
     },
     medicalExpiresAt: null,
+    entered: false,
     enabledAt: new Date().toISOString(),
     enabledBy: actorName || null,
     status: 'active',
@@ -680,8 +804,9 @@ export function poolSeasonStats(accesses = [], today = todayISO()) {
   const day = poolDayStats(accesses, today);
   const season = listSeasonAccesses(accesses, today);
   const active = season.filter((row) => row.status === 'active');
-  const members = active.filter((row) => row.kind === 'member');
-  const guests = active.filter((row) => row.kind === 'guest');
+  const visits = active.filter((row) => !isGuestBooklet(row));
+  const members = visits.filter((row) => row.kind === 'member');
+  const guests = visits.filter((row) => row.kind === 'guest');
   const uniqueMembers = new Set(
     members.map((row) => String(row.memberId || '')).filter(Boolean),
   ).size;
@@ -698,7 +823,7 @@ export function poolSeasonStats(accesses = [], today = todayISO()) {
     dayCollected: day.collected,
     seasonMembers: uniqueMembers,
     seasonGuests: guests.length,
-    seasonEntries: active.length,
+    seasonEntries: visits.length,
     seasonCollected: collected,
     revoked: season.filter((row) => row.status === 'revoked').length,
   };
@@ -725,7 +850,7 @@ export function poolAccessReportRows(accesses = [], { scope = 'day', today = tod
         ? (row.guestName || 'Invitado')
         : (row.memberName || row.memberId || '—'),
       memberId: row.memberId || row.hostMemberId || '',
-      kind: row.kind === 'guest' ? 'Invitado' : 'Socio',
+      kind: isGuestBooklet(row) ? 'Chequera' : (row.kind === 'guest' ? 'Invitado' : 'Socio'),
       host: row.kind === 'guest'
         ? (row.memberName || row.hostMemberId || '—')
         : '—',

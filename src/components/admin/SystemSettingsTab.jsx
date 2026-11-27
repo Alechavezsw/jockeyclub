@@ -72,6 +72,11 @@ export default function SystemSettingsTab({
   const [poolDraft, setPoolDraft] = useState({
     memberSeasonFee: pool.memberSeasonFee,
     guestDayFee: pool.guestDayFee,
+    guestWithPoolFee: pool.guestWithPoolFee,
+    guestWithoutPoolFee: pool.guestWithoutPoolFee,
+    guestBookWithPoolFee: pool.guestBookWithPoolFee,
+    guestBookWithoutPoolFee: pool.guestBookWithoutPoolFee,
+    guestBookSize: pool.guestBookSize,
     maxPayingPerHousehold: pool.maxPayingPerHousehold,
     freeUnderAgeYears: pool.freeUnderAgeYears,
     medicalValidityDays: pool.medicalValidityDays,
@@ -99,6 +104,11 @@ export default function SystemSettingsTab({
     setPoolDraft({
       memberSeasonFee: next.memberSeasonFee,
       guestDayFee: next.guestDayFee,
+      guestWithPoolFee: next.guestWithPoolFee,
+      guestWithoutPoolFee: next.guestWithoutPoolFee,
+      guestBookWithPoolFee: next.guestBookWithPoolFee,
+      guestBookWithoutPoolFee: next.guestBookWithoutPoolFee,
+      guestBookSize: next.guestBookSize,
       maxPayingPerHousehold: next.maxPayingPerHousehold,
       freeUnderAgeYears: next.freeUnderAgeYears,
       medicalValidityDays: next.medicalValidityDays,
@@ -181,7 +191,12 @@ export default function SystemSettingsTab({
       ...pool,
       memberSeasonFee,
       memberDayFee: memberSeasonFee,
-      guestDayFee: Math.max(0, Number(poolDraft.guestDayFee) || 0),
+      guestDayFee: Math.max(0, Number(poolDraft.guestWithPoolFee ?? poolDraft.guestDayFee) || 0),
+      guestWithPoolFee: Math.max(0, Number(poolDraft.guestWithPoolFee) || 0),
+      guestWithoutPoolFee: Math.max(0, Number(poolDraft.guestWithoutPoolFee) || 0),
+      guestBookWithPoolFee: Math.max(0, Number(poolDraft.guestBookWithPoolFee) || 0),
+      guestBookWithoutPoolFee: Math.max(0, Number(poolDraft.guestBookWithoutPoolFee) || 0),
+      guestBookSize: Math.max(1, Number(poolDraft.guestBookSize) || 10),
       maxPayingPerHousehold: Math.max(0, Number(poolDraft.maxPayingPerHousehold) || 0),
       freeUnderAgeYears: Math.max(0, Number(poolDraft.freeUnderAgeYears) || 0),
       medicalValidityDays: Math.max(1, Number(poolDraft.medicalValidityDays) || 365),
@@ -429,8 +444,17 @@ export default function SystemSettingsTab({
             <Field label="Menores de (años) no pagan">
               <input className="form-input" type="number" min={0} value={poolDraft.freeUnderAgeYears} onChange={(e) => setPoolDraft((p) => ({ ...p, freeUnderAgeYears: e.target.value }))} />
             </Field>
-            <Field label="Canon invitado (día)">
-              <input className="form-input" type="number" min={0} value={poolDraft.guestDayFee} onChange={(e) => setPoolDraft((p) => ({ ...p, guestDayFee: e.target.value }))} />
+            <Field label="Invitado con pileta">
+              <input className="form-input" type="number" min={0} value={poolDraft.guestWithPoolFee} onChange={(e) => setPoolDraft((p) => ({ ...p, guestWithPoolFee: e.target.value, guestDayFee: e.target.value }))} />
+            </Field>
+            <Field label="Chequera 10 con pileta">
+              <input className="form-input" type="number" min={0} value={poolDraft.guestBookWithPoolFee} onChange={(e) => setPoolDraft((p) => ({ ...p, guestBookWithPoolFee: e.target.value }))} />
+            </Field>
+            <Field label="Invitado sin pileta">
+              <input className="form-input" type="number" min={0} value={poolDraft.guestWithoutPoolFee} onChange={(e) => setPoolDraft((p) => ({ ...p, guestWithoutPoolFee: e.target.value }))} />
+            </Field>
+            <Field label="Chequera 10 sin pileta">
+              <input className="form-input" type="number" min={0} value={poolDraft.guestBookWithoutPoolFee} onChange={(e) => setPoolDraft((p) => ({ ...p, guestBookWithoutPoolFee: e.target.value }))} />
             </Field>
             <Field label="Apto médico (días)">
               <input className="form-input" type="number" min={1} value={poolDraft.medicalValidityDays} onChange={(e) => setPoolDraft((p) => ({ ...p, medicalValidityDays: e.target.value }))} />

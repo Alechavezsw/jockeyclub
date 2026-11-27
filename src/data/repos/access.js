@@ -122,6 +122,10 @@ export async function insertPoolAccess(entry, memberDbId = null) {
       clientId: clientId || undefined,
       entered: entry.entered === false ? false : (entry.entered === true ? true : undefined),
       paymentScope: entry.payment?.scope || null,
+      withPool: entry.payment?.withPool === true ? true : (entry.payment?.withPool === false ? false : undefined),
+      passes: entry.payment?.passes != null ? Number(entry.payment.passes) : undefined,
+      passesOpen: entry.payment?.passesOpen != null ? Number(entry.payment.passesOpen) : undefined,
+      bookId: entry.payment?.bookId || undefined,
     },
   };
   const saved = await unwrap(
@@ -129,6 +133,21 @@ export async function insertPoolAccess(entry, memberDbId = null) {
     'No se pudo guardar el ingreso de pileta'
   );
   return M.poolAccessFromRow(saved);
+}
+
+/** Descuenta un pase de una chequera ya guardada. */
+export async function updatePoolGuestBook(id, passesOpen) {
+  if (!isUuid(id)) return null;
+  const current = await unwrap(
+    sb().from('pool_accesses').select('meta').eq('id', id).maybeSingle(),
+    'No se encontró la chequera',
+  );
+  const meta = { ...(current?.meta || {}), passesOpen: Math.max(0, Number(passesOpen) || 0) };
+  await unwrap(
+    sb().from('pool_accesses').update({ meta }).eq('id', id),
+    'No se pudo actualizar la chequera',
+  );
+  return meta.passesOpen;
 }
 
 /** Canon de pileta: asiento (caja o banco) y, si es efectivo/tarjeta, movimiento de la caja abierta. */

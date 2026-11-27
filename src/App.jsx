@@ -1591,11 +1591,35 @@ function ClubPortal() {
                     });
                     return { ...saved, status: 'revoked' };
                   }
+                  const savedOpen = Number(saved.payment?.passesOpen);
+                  const localOpen = Number(item.payment?.passesOpen);
+                  if (
+                    item.payment?.scope === 'chequera'
+                    && Number.isFinite(localOpen)
+                    && Number.isFinite(savedOpen)
+                    && localOpen < savedOpen
+                  ) {
+                    repos.updatePoolGuestBook(saved.id, localOpen).catch((err) => {
+                      setDbError(err?.message || 'No se pudo actualizar la chequera');
+                    });
+                    return { ...saved, payment: { ...saved.payment, passesOpen: localOpen } };
+                  }
                   return saved;
                 }));
               }).then(() => undefined, (err) => {
                 setPoolAccesses((cur) => cur.filter((item) => String(item.id) !== String(row.id)));
                 setDbError(err?.message || 'No se pudo guardar el ingreso de pileta');
+                throw err;
+              }));
+          } else if (
+            before
+            && alreadySaved
+            && Number(before.payment?.passesOpen) !== Number(row.payment?.passesOpen)
+            && row.payment?.scope === 'chequera'
+          ) {
+            persistOnce(`pool-book:${row.id}:${row.payment.passesOpen}`, () =>
+              repos.updatePoolGuestBook(row.id, row.payment.passesOpen).then(() => undefined, (err) => {
+                setDbError(err?.message || 'No se pudo actualizar la chequera');
                 throw err;
               }));
           } else if (before && before.status !== 'revoked' && row.status === 'revoked' && alreadySaved) {

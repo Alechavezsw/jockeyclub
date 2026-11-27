@@ -791,6 +791,10 @@ export function poolAccessFromRow(row) {
       ref: null,
       concept: row.payment_concept || '',
       scope: meta.paymentScope || (/temporada/i.test(String(row.payment_concept || '')) ? 'season' : null),
+      withPool: meta.withPool === true || meta.withPool === 'true' ? true : (meta.withPool === false || meta.withPool === 'false' ? false : undefined),
+      passes: meta.passes != null ? Number(meta.passes) : undefined,
+      passesOpen: meta.passesOpen != null ? Number(meta.passesOpen) : undefined,
+      bookId: meta.bookId || null,
     },
     medicalExpiresAt: row.medical_expires_at || null,
     entered: meta.entered === false || meta.entered === 'false'
