@@ -24,6 +24,7 @@ import { activeDuesPeriodAdjustments, applyDuesPeriodAdjustments } from './duesP
 import { applyFrozenDuesPeriods } from './frozenDuesAgreement';
 import {
   duesMonthLabel,
+  firstSocialQuotaLabel,
   isJoinFeeDueOn,
   JOIN_FEE_DUE_ON,
   JOIN_FEE_LABEL,
@@ -1544,7 +1545,7 @@ export function duesPeriodChargeLines(member, row, { skipSurcharge = false, char
   const surcharge = skipSurcharge ? 0 : money(row?.surcharge);
   if (!(capital > 0.009) && !(surcharge > 0.009)) return [];
   if (isJoinFeeDueOn(dueOn)) {
-    return [{ key: 'alta', label: 'Cuota de alta', amount: capital }];
+    return [{ key: 'alta', label: JOIN_FEE_LABEL, amount: capital }];
   }
   const scope = normalizeDuesChargeScope(row?.chargeScope || chargeScope);
   if (scope === 'addon') {
@@ -1772,34 +1773,57 @@ export function isMemberJoinFeeMonth(member, dueOn) {
   return Boolean(key && due === key);
 }
 
-/** El mes de ingreso es la cuota de alta: la tarifa de la categoría, sin recargo y sin nombre de mes. */
+function joinedAfterOrdinaryDue(member, dueOn) {
+  const join = String(member?.joinDate || member?.meta?.joinDate || '').slice(0, 10);
+  const due = String(dueOn || '').slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(join) && /^\d{4}-\d{2}-\d{2}$/.test(due) && join > due;
+}
+
+/**
+ * El mes de ingreso es la primera cuota social, con su fecha real.
+ * Si el socio entró después del vencimiento de ese mes, el 10 % no corre hacia atrás.
+ * Una fila vieja 1899 no se suma encima del mes ya estructurado.
+ */
 function rewriteJoinFeeRows(member, rows) {
   if (!member || isDuesExemptMember(member) || isFamilyDependent(member)) return rows || [];
   const joinDue = joinMonthDueOn(member);
   if (!joinDue) return rows || [];
+  const list = rows || [];
+  const hasRealJoinMonth = list.some((row) => {
+    const due = String(row?.dueOn || '').slice(0, 10);
+    return !isJoinFeeDueOn(due) && due.slice(0, 7) === joinDue.slice(0, 7);
+  });
+  const after = joinedAfterOrdinaryDue(member, joinDue);
   let seen = false;
   const next = [];
-  for (const row of rows || []) {
+  for (const row of list) {
     const due = String(row?.dueOn || '').slice(0, 10);
-    const isAlta = isJoinFeeDueOn(due) || due.slice(0, 7) === joinDue.slice(0, 7);
-    if (!isAlta) {
+    const sentinel = isJoinFeeDueOn(due);
+    const joinMonth = !sentinel && due.slice(0, 7) === joinDue.slice(0, 7);
+    if (!sentinel && !joinMonth) {
       next.push(row);
       continue;
     }
+    if (sentinel && hasRealJoinMonth) continue;
     if (seen) continue;
     seen = true;
     const capital = money(row.capital);
+    const freezeLate = after || sentinel;
+    const lateBase = freezeLate ? 0 : money(row.lateBase);
+    const surcharge = freezeLate ? 0 : money(row.surcharge);
+    const labelDue = sentinel ? joinDue : due;
     next.push({
       ...row,
-      id: JOIN_FEE_DUE_ON,
-      dueOn: JOIN_FEE_DUE_ON,
-      monthKey: 'alta',
-      label: JOIN_FEE_LABEL,
+      id: due,
+      dueOn: due,
+      monthKey: sentinel ? 'alta' : labelDue.slice(0, 7),
+      label: firstSocialQuotaLabel(labelDue),
       capital,
-      lateBase: 0,
-      surcharge: 0,
-      payable: capital,
-      kind: 'alta',
+      lateBase,
+      surcharge,
+      payable: money(capital + surcharge),
+      kind: row.kind || 'alta',
+      chargeScope: row.chargeScope || 'cuota_social',
     });
   }
   return next;
@@ -2783,32 +2807,82 @@ export function diffAutomaticDues(before = [], after = []) {
   });
 }
 
-/** Cuota de alta: la tarifa de la categoría, una sola vez. Individual $ 40.000, familiar $ 70.000. */
-export function joinFeeAmountForMember(member) {
+/**
+ * Primera cuota social: la tarifa de la categoría en el mes de ingreso.
+ * Individual $ 40.000, familiar $ 70.000. AMET usa su tarifa. El integrante no genera otra.
+ */
+export function joinFeeAmountForMember(member, on = new Date()) {
   if (!member || isDuesExemptMember(member) || isFamilyDependent(member)) return 0;
-  return money(duesAmountForTier(member.tier));
+  return money(duesAmountForMember(member, on, { chargeScope: 'social' }));
 }
 
 /**
- * Cuota de alta: la tarifa de la categoría, una sola vez, sin recargo y sin nombre de mes.
- * Reemplaza la cuota social del mes de ingreso. El mes siguiente ya es cuota social.
- * Exentos: solo el abono de tenis, si lo tienen.
+ * La primera cuota es la del mes calendario de alta. No es un cargo aparte.
+ * Si ingresa después del vencimiento de ese mes, lateBase queda en 0: no hay 10 % retroactivo.
+ * El vencimiento ordinario siguiente es el mes que viene. El tenis, si hay, va aparte.
  */
 export function duesOnJoin(member, joinDate = new Date()) {
   const join = asDueAnchor(joinDate);
-  const tennis = money(duesTennisAbonoAmountForAccount(member, join));
-  const alta = joinFeeAmountForMember(member);
-  const outstandingBalance = money(alta + tennis);
-  const day = duesDueDayForMember(member);
+  const stamped = { ...member, joinDate: toISODate(join) };
+  const dueOn = joinMonthDueOn(stamped);
+  const alta = joinFeeAmountForMember(stamped, join);
+  const tennis = money(duesTennisAbonoAmountForAccount(stamped, join));
+  const after = joinedAfterOrdinaryDue(stamped, dueOn);
+  const lateBase = after ? 0 : lateBaseForMember(stamped, join, { chargeScope: 'social' });
+  const day = duesDueDayForMember(stamped);
   const nextDueDate = toISODate(duesDateOnDueDay(join.getFullYear(), join.getMonth() + 1, day));
-  const duesOpenPeriods = alta > 0
-    ? [{ dueOn: JOIN_FEE_DUE_ON, capital: alta, lateBase: 0, kind: 'alta' }]
-    : undefined;
+  const label = firstSocialQuotaLabel(dueOn);
+  const firstSocial = alta > 0
+    ? {
+      dueOn,
+      capital: alta,
+      lateBase,
+      chargeScope: 'cuota_social',
+      kind: 'alta',
+      label,
+      periodKey: dueOn.slice(0, 7),
+      joinedAfterDue: after,
+    }
+    : null;
   return {
-    outstandingBalance,
+    outstandingBalance: money(alta + tennis),
+    socialCapital: alta,
+    tennisCapital: tennis,
     nextDueDate,
-    ...(duesOpenPeriods ? { duesOpenPeriods } : {}),
+    firstSocial,
+    ...(firstSocial ? {
+      duesOpenPeriods: [{
+        dueOn,
+        capital: alta,
+        lateBase,
+        kind: 'alta',
+        chargeScope: 'cuota_social',
+        label,
+      }],
+    } : {}),
   };
+}
+
+/** No volver a generar la primera cuota si ya está estructurada o si el alta fue conciliada. */
+export function shouldChargeFirstSocialQuota(member) {
+  if (!member || member.chargeFirstDues === false) return false;
+  if (isDuesExemptMember(member) || isFamilyDependent(member)) return false;
+  if (member.meta?.altaMonthlyQuotaReconciliation || member.altaMonthlyQuotaReconciliation) return false;
+  const joinDue = joinMonthDueOn(member);
+  const periods = [
+    ...(Array.isArray(member.duesOpenPeriods) ? member.duesOpenPeriods : []),
+    ...(Array.isArray(member.meta?.duesOpenPeriods) ? member.meta.duesOpenPeriods : []),
+  ];
+  if (joinDue && periods.some((row) => {
+    const due = String(row?.dueOn || row?.due_on || '').slice(0, 10);
+    return due.slice(0, 7) === joinDue.slice(0, 7) && (Number(row?.capital) || 0) > 0.01;
+  })) return false;
+  return joinFeeAmountForMember(member) > 0;
+}
+
+export function firstSocialQuotaSource(memberId) {
+  const id = String(memberId || '').trim();
+  return id ? `alta:${id}` : '';
 }
 
 /** Tras cobrar, deja al día y programa el próximo vencimiento (10 o 18 si es AMET). */

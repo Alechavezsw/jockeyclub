@@ -1196,15 +1196,6 @@ export async function upsertMember(member) {
       sb().from('members').insert(row).select().single(),
       'No se pudo crear socio'
     );
-    const firstDues = Number(member.outstandingBalance) || 0;
-    if (firstDues > 0) {
-      await postMemberDuesDelta({
-        memberId: saved.id,
-        amount: firstDues,
-        kind: 'alta',
-        source: `alta:${saved.id}`,
-      });
-    }
   }
 
   if (Array.isArray(member.adherents)) {
@@ -1225,6 +1216,14 @@ export async function upsertMember(member) {
         ),
         'No se pudieron guardar adherentes'
       );
+    }
+  }
+  if (!targetId && member.chargeFirstDues === true) {
+    try {
+      await registerFirstSocialQuota(saved.id, { joinDate: member.joinDate || null });
+    } catch (err) {
+      await sb().from('members').delete().eq('id', saved.id);
+      throw err;
     }
   }
   const lastEdit = row.meta?.lastProfileEdit;
@@ -1672,6 +1671,22 @@ export async function quitarRecargoCuota({ paymentId, reason }) {
   const value = Number(balance);
   if (!Number.isFinite(value)) throw new Error('La base no devolvió el saldo.');
   return value;
+}
+
+/**
+ * Primera cuota social del mes de alta. El importe lo resuelve la base.
+ * Idempotente: un reintento no abre otra obligación.
+ */
+export async function registerFirstSocialQuota(memberId, { joinDate = null } = {}) {
+  const data = await unwrap(
+    sb().rpc('registrar_primera_cuota_alta', {
+      p_member_id: memberId,
+      p_join_date: joinDate || null,
+      p_charge: true,
+    }),
+    'No se pudo registrar la primera cuota social',
+  );
+  return data && typeof data === 'object' ? data : {};
 }
 
 /** Suma o resta el saldo del socio. Un ajuste pide motivo: lo exige la base. */

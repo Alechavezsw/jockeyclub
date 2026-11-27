@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Search, Filter, Plus, Check, CheckCircle2, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Trash2, Users, UserMinus, UserPlus, X, CreditCard, Camera, FileDown, FileSpreadsheet, Pencil, KeyRound, MoreVertical } from 'lucide-react';
-import { collectionPeriodChoices, duesOnJoin, isDuesExemptMember, joinFeeAmountForMember, pinDuesDueDate, quotaHeadline, toWhatsAppPhone } from '../../domain/members/dues';
+import { collectionPeriodChoices, duesOnJoin, isDuesExemptMember, pinDuesDueDate, quotaHeadline, toWhatsAppPhone } from '../../domain/members/dues';
 import { duesMonthsPhrase } from '../../domain/members/duesImputations';
 import { persistDuesCollection, recordDuesCollection } from '../../domain/members/memberPayments';
 import { deliverPaymentReceipt } from '../../domain/payments/deliverPaymentReceipt';
@@ -396,16 +396,17 @@ export default function MembersTab({
   const [adhTier, setAdhTier] = useState(defaultTierId);
   const [adhDisciplines, setAdhDisciplines] = useState([]);
 
-  const duesPreview = useMemo(
+  const joinQuote = useMemo(
     () => duesOnJoin({
       tier: form.tier,
       status: form.status,
       familyGroup: form.familyGroup,
-    }, form.joinDate || todayISODateAR()).outstandingBalance,
+    }, form.joinDate || todayISODateAR()),
     [form.tier, form.status, form.familyGroup, form.joinDate],
   );
-  const joinFee = joinFeeAmountForMember({ tier: form.tier, status: form.status });
-  const duesAddOns = Math.max(0, duesPreview - joinFee);
+  const duesPreview = joinQuote.outstandingBalance;
+  const joinFee = joinQuote.socialCapital || 0;
+  const duesAddOns = joinQuote.tennisCapital || 0;
 
   const updateForm = (field, value) => {
     setForm((prev) => ({ ...prev, [field]: value }));
@@ -987,6 +988,7 @@ export default function MembersTab({
       emergencyClinic: form.emergencyClinic.trim(),
       notes: form.notes.trim(),
       outstandingBalance: firstDues,
+      chargeFirstDues: Boolean(form.chargeFirstDues && firstDues > 0),
       ...(firstDues > 0 && Array.isArray(dues.duesOpenPeriods) ? { duesOpenPeriods: dues.duesOpenPeriods } : {}),
       yearsActive: 1,
       adherents,
@@ -2142,7 +2144,7 @@ export default function MembersTab({
                   checked={form.chargeFirstDues}
                   onChange={(e) => updateForm('chargeFirstDues', e.target.checked)}
                 />
-                Generar cuota de alta
+                Generar la primera cuota social
                 <strong style={{ color: 'var(--text-gold)' }}>({formatCurrency(duesPreview)})</strong>
               </label>
               {form.chargeFirstDues && (
@@ -2156,17 +2158,32 @@ export default function MembersTab({
                   color: 'var(--text-secondary)',
                 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginBottom: 4 }}>
-                    <span>Cuota de alta</span>
+                    <span>Categoría</span>
+                    <span style={{ color: 'var(--text-primary)' }}>{getTierDisplayName(form.tier)}</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginBottom: 4 }}>
+                    <span>Ingreso</span>
+                    <span style={{ color: 'var(--text-primary)' }}>{form.joinDate || todayISODateAR()}</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginBottom: 4 }}>
+                    <span>{joinQuote.firstSocial?.label || 'Primera cuota social'}</span>
                     <span style={{ color: 'var(--text-primary)' }}>{formatCurrency(joinFee)}</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginBottom: 4 }}>
+                    <span>Recargo</span>
+                    <span style={{ color: 'var(--text-primary)' }}>
+                      {joinQuote.firstSocial?.joinedAfterDue ? 'Sin recargo retroactivo' : 'Según el vencimiento de ese mes'}
+                    </span>
                   </div>
                   {duesAddOns > 0 ? (
                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginBottom: 4 }}>
-                      <span>Abonos</span>
+                      <span>Abono tenis</span>
                       <span style={{ color: 'var(--text-primary)' }}>{formatCurrency(duesAddOns)}</span>
                     </div>
                   ) : null}
                   <p style={{ margin: '0.35rem 0 0', fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                    Es un solo cargo al ingresar. No es la cuota de un mes y no lleva recargo. El mes siguiente se liquida como cuota social.
+                    Es la cuota social de {joinQuote.firstSocial?.label?.replace(/^Primera cuota social — /, '') || 'ese mes'}.
+                    {' '}La siguiente es {joinQuote.nextDueDate}. No se vuelve a liquidar el mes de ingreso.
                   </p>
                 </div>
               )}
@@ -2183,8 +2200,8 @@ export default function MembersTab({
                 </h5>
                 <p>
                   Adherentes del titular (cónyuge, hijos, etc.). No es obligatorio para dar el alta; también se pueden sumar después.
-                  {form.chargeFirstDues ? (
-                    <> La cuota de alta es una sola, de <strong>{formatCurrency(duesPreview)}</strong>, sin recargo.</>
+                  {form.chargeFirstDues && joinFee > 0 ? (
+                    <> La primera cuota social es una sola, del titular, de <strong>{formatCurrency(joinFee)}</strong>.</>
                   ) : null}
                 </p>
               </div>

@@ -58,7 +58,7 @@ describe('appMonthlyDebts', () => {
     const today = new Date('2026-11-19T15:00:00');
     const row = appMonthlyDebtForMember(member, { today });
     expect(row.months).toHaveLength(1);
-    expect(row.months[0].periodLabel).toBe('Cuota de alta');
+    expect(row.months[0].periodLabel).toBe('Primera cuota social');
     expect(row.months[0].capital).toBe(40000);
     expect(row.months[0].interest).toBe(0);
     expect(row.unallocated).toBe(0);
@@ -80,32 +80,32 @@ describe('appMonthlyDebts', () => {
     const today = new Date('2026-11-19T15:00:00');
     const row = appMonthlyDebtForMember(member, { today });
     expect(row.months).toHaveLength(1);
-    expect(row.months[0].periodLabel).toBe('Cuota de alta');
+    expect(row.months[0].periodLabel).toBe('Primera cuota social');
     expect(row.months[0].capital).toBe(70000);
     expect(row.months[0].interest).toBe(0);
     expect(row.unallocated).toBe(0);
     expect(row.totalDebt).toBe(70000);
     const standing = memberDuesStandingSummary(member, { today });
-    expect(duesStandingDisplayHint(standing, (n) => `$${n}`)).toBe('Cuota de alta');
+    expect(duesStandingDisplayHint(standing, (n) => `$${n}`)).toBe('Primera cuota social');
     expect(duesStandingDisplayAmount(standing, (n) => `$${n}`)).toBe('$70000');
   });
 
-  it('el mes de ingreso es cuota de alta a $ 70.000 y no lleva recargo', () => {
+  it('quien ingresó antes del 10 paga octubre con el recargo ordinario', () => {
     const row = appMonthlyDebtForMember(
       familiar({ joinDate: '2026-10-04' }),
       { today: TODAY },
     );
     expect(row.months).toHaveLength(1);
-    expect(row.months[0].periodLabel).toBe('Cuota de alta');
+    expect(row.months[0].periodLabel).toBe('Octubre de 2026');
     expect(row.months[0].capital).toBe(70000);
-    expect(row.months[0].interest).toBe(0);
-    expect(row.totalDebt).toBe(70000);
+    expect(row.months[0].interest).toBe(7000);
+    expect(row.totalDebt).toBe(77000);
     const standing = memberDuesStandingSummary(
       familiar({ joinDate: '2026-10-04' }),
       { today: TODAY },
     );
-    expect(duesStandingDisplayHint(standing, (n) => `$${n}`)).toBe('Cuota de alta');
-    expect(standing.totalDebt).toBe(70000);
+    expect(duesStandingDisplayHint(standing, (n) => `$${n}`)).toBe('Octubre de 2026 · capital $70000 + recargo $7000');
+    expect(standing.totalDebt).toBe(77000);
   });
 
   it('un caso con duesCapitalOnly deja la cuenta en 70.000', () => {

@@ -1032,7 +1032,7 @@ describe('tarifa desde octubre 2026', () => {
       { tier: 'socio_individual' },
       { dueOn: '1899-12-10', capital: 40000, surcharge: 4000 },
     );
-    expect(alta).toEqual([{ key: 'alta', label: 'Cuota de alta', amount: 40000 }]);
+    expect(alta).toEqual([{ key: 'alta', label: 'Primera cuota social', amount: 40000 }]);
   });
 
   it('desde octubre la cuota en mora después del 10 lleva 10 %', () => {
@@ -1267,7 +1267,14 @@ describe('duesOnJoin', () => {
     expect(alta.outstandingBalance).toBe(40000);
     expect(alta.nextDueDate).toBe('2026-11-10');
     expect(alta.duesOpenPeriods).toEqual([
-      { dueOn: '1899-12-10', capital: 40000, lateBase: 0, kind: 'alta' },
+      {
+        dueOn: '2026-10-10',
+        capital: 40000,
+        lateBase: 0,
+        kind: 'alta',
+        chargeScope: 'cuota_social',
+        label: 'Primera cuota social — Octubre de 2026',
+      },
     ]);
     const choices = collectionPeriodChoices({
       ...alta,
@@ -1277,7 +1284,8 @@ describe('duesOnJoin', () => {
       joinDate: '2026-10-15',
     }, new Date('2026-11-19T12:00:00'));
     expect(choices).toHaveLength(1);
-    expect(choices[0].label).toBe('Cuota de alta');
+    expect(choices[0].label).toBe('Primera cuota social — Octubre de 2026');
+    expect(choices[0].dueOn).toBe('2026-10-10');
     expect(choices[0].capital).toBe(40000);
     expect(choices[0].surcharge).toBe(0);
     expect(choices[0].payable).toBe(40000);
@@ -1293,7 +1301,7 @@ describe('duesOnJoin', () => {
     expect(alta.duesOpenPeriods[0].capital).toBe(70000);
   });
 
-  it('alta antes del 10 también es cuota de alta y no el mes de ingreso', () => {
+  it('alta antes del 10 es la cuota de ese mes y vence ese día 10', () => {
     const alta = duesOnJoin({
       memberId: '1',
       status: 'active',
@@ -1301,6 +1309,9 @@ describe('duesOnJoin', () => {
       cuotaCategories: ['SOCIO INDIVIDUAL'],
     }, '2026-10-05');
     expect(alta.outstandingBalance).toBe(40000);
+    expect(alta.firstSocial.dueOn).toBe('2026-10-10');
+    expect(alta.firstSocial.lateBase).toBe(40000);
+    expect(alta.firstSocial.joinedAfterDue).toBe(false);
     expect(alta.nextDueDate).toBe('2026-11-10');
   });
 
