@@ -67,6 +67,18 @@ export function isHouseholdIntegranteTierId(id) {
   return key.startsWith('grupo_familiar') || key.startsWith('interes_por_transaccion');
 }
 
+/**
+ * Categoría del integrante según el titular.
+ * El alta no usa la primera del catálogo: esa es grupo familiar fundador.
+ */
+export function householdIntegranteTierFor(titularTier) {
+  const key = String(titularTier || '').trim().toLowerCase();
+  if (key.includes('fundador')) return 'grupo_familiar_fundador';
+  if (key.includes('vitalicio')) return 'grupo_familiar_vitalicio';
+  if (key.includes('amet')) return 'grupo_familiar_amet';
+  return 'grupo_familiar_familiar';
+}
+
 const SEP_FAMILIAR = 60000;
 const SEP_INDIVIDUAL = 36000;
 const OCT_FAMILIAR = 70000;

@@ -11,6 +11,7 @@ import {
   parseCuotaCategories,
   splitTierDisplayName,
   deriveMemberTier,
+  householdIntegranteTierFor,
   resolveStoredMemberTier,
   mergeOfficialTiers,
   SIN_CATEGORIA_TIER,
@@ -25,6 +26,13 @@ describe('tiers catalog', () => {
     expect(ids).not.toContain('gold');
     expect(ids).not.toContain('platinum');
     expect(ids).not.toContain('royal');
+  });
+
+  it('el integrante sigue la categoría del titular, no fundador', () => {
+    expect(householdIntegranteTierFor('socio_familiar_amet')).toBe('grupo_familiar_amet');
+    expect(householdIntegranteTierFor('socio_familiar')).toBe('grupo_familiar_familiar');
+    expect(householdIntegranteTierFor('socio_vitalicio')).toBe('grupo_familiar_vitalicio');
+    expect(householdIntegranteTierFor('fundador')).toBe('grupo_familiar_fundador');
   });
 
   it('slugify de nombres del padrón', () => {

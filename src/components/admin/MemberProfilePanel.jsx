@@ -60,6 +60,7 @@ import {
 import {
   getActiveTiers,
   getTierDisplayName,
+  householdIntegranteTierFor,
   isHouseholdIntegranteTierId,
   tierBadgeStyle,
 } from '../../domain/members/tiers';
@@ -589,12 +590,10 @@ export default function MemberProfilePanel({
     () => tiers.filter((t) => !isHouseholdIntegranteTierId(t.id)),
     [tiers],
   );
-  const defaultFamilyTier = useMemo(() => {
-    const fromGroup = familyRows.find((row) => row.relationship !== 'Titular')?.tier;
-    if (fromGroup) return fromGroup;
-    const fam = tiers.find((t) => /grupo.?familiar/i.test(`${t.id} ${t.name}`));
-    return fam?.id || member?.tier || tiers[0]?.id || '';
-  }, [familyRows, tiers, member?.tier]);
+  const defaultFamilyTier = useMemo(
+    () => householdIntegranteTierFor(familyGroup.titular?.tier || member?.tier),
+    [familyGroup.titular?.tier, member?.tier],
+  );
 
   const commitFamilyMemberBaja = async (person, payload) => {
     const prepared = prepareFamilyMemberForBaja(person);
