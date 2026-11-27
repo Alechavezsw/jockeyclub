@@ -1362,6 +1362,31 @@ export async function linkMemberPortalAccess(member, profileId, creds, actorName
 }
 
 /**
+ * El pedido de acceso trae el correo con el que el socio quiere entrar.
+ * Si no es el de la ficha, lo guarda ahí antes de crear el acceso.
+ * No pisa un correo que ya es de otro socio.
+ */
+export async function setMemberPortalEmail(memberId, email) {
+  const login = String(email || '').trim().toLowerCase();
+  if (!isUuid(memberId) || !login.includes('@')) {
+    throw new Error('Falta el correo para el acceso.');
+  }
+  const owners = await unwrap(
+    sb().from('members').select('id, member_number').ilike('email', login),
+    'No se pudo verificar el correo',
+  );
+  const other = (owners || []).find((row) => row.id !== memberId);
+  if (other) {
+    throw new Error(`Conflicto de identidad: el correo pertenece a otra ficha (${other.member_number || '—'}).`);
+  }
+  const saved = await unwrap(
+    sb().from('members').update({ email: login }).eq('id', memberId).select('id, email').single(),
+    'No se pudo guardar el correo en la ficha',
+  );
+  return saved?.email || login;
+}
+
+/**
  * Provisiona acceso portal para un socio (Auth + profile) y lo vincula.
  */
 export async function provisionMemberPortalAccess(member, creds, { actorName = '' } = {}) {

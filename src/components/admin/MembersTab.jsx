@@ -25,7 +25,8 @@ import {
 } from '../../domain/accounting/appMonthlyDebts';
 import { libreDeudaClub } from '../../domain/accounting/libreDeuda';
 import { allocateNextMemberNumber, attachHouseholdToMembers, assignDistinctStatColors, buildPadronHouseholdStats, detachMemberFromFamilyGroup, familyGroupMatchesQuery, isFamilyDependent, isLiveMember, isTitularMember, listFamilyGroups, memberMatchesDirectoryQuery, mergeMemberRecord, mergeMembersById, prepareFamilyMemberForBaja, rankMemberSearchHit, resolveFamilyForDisplay, suggestedTierAfterFamilyDetach } from '../../domain/members/households';
-import { portalAccessEmailCandidates, portalLoginFromEmail } from '../../domain/auth/credentials';
+import { isClubPlaceholderEmail, portalAccessEmailCandidates, portalLoginFromEmail } from '../../domain/auth/credentials';
+import { portalIdentityConflict } from '../../domain/auth/identityConflict';
 import {
   accessInviteMailError,
   buildAccessInvite,
@@ -1439,6 +1440,23 @@ export default function MembersTab({
     let member = matched;
     if (!member) {
       throw new Error('No hay ficha para vincular. Revisá DNI o Nº de socio.');
+    }
+    const dniConflict = portalIdentityConflict({
+      memberNumber: member.memberId,
+      memberDocument: member.documentNumber,
+      accountDocument: item.documentNumber,
+    });
+    if (dniConflict) throw new Error(dniConflict);
+    const requested = String(item.email || '').trim().toLowerCase();
+    const stored = String(member.email || '').trim().toLowerCase();
+    if (requested && requested !== stored && !isClubPlaceholderEmail(requested)) {
+      if (isSupabaseConfigured && member.id) {
+        const email = await repos.setMemberPortalEmail(member.id, requested);
+        member = { ...member, email };
+      } else {
+        member = { ...member, email: requested };
+      }
+      putMemberInList(member);
     }
 
     const candidates = portalAccessEmailCandidates(item.email, member.email);
