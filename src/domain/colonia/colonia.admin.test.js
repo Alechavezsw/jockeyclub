@@ -754,7 +754,8 @@ describe('administración Colonia — inscripción y cobro', () => {
       when: new Date(2026, 10, 25),
     });
     expect(promo.promo).toBe(true);
-    expect(promo.promoLabel).toBe('Sí · 4º hermano');
+    expect(promo.promoLabel).toBe('Sí · 4º hermano · temporada');
+    expect(promo.month).toBe('Temporada 2026/2027');
     expect(promo.socioNumber).toBe('10146');
     expect(promo.lines.map((line) => line.concept)).toEqual(['Promoción']);
     expect(promo.total).toBe(410000);

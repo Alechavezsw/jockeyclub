@@ -26,9 +26,9 @@ const MONTHS = [
 const PLAN_LABELS = {
   cuota: 'Mes a mes',
   temporada: 'Temporada',
-  promo_2: '2 hermanos',
-  promo_3: '3 hermanos',
-  hermano_4: '4º hermano',
+  promo_2: '2 hermanos · temporada',
+  promo_3: '3 hermanos · temporada',
+  hermano_4: '4º hermano · temporada',
 };
 
 export function coloniaPlanLabel(planKey) {
@@ -40,7 +40,7 @@ export function coloniaPlanIsPromo(planKey) {
 }
 
 export function coloniaReceiptMonthLabel(planKey, when = new Date()) {
-  if (planKey === 'temporada') return 'Temporada 2026/2027';
+  if (planKey === 'temporada' || coloniaPlanIsPromo(planKey)) return 'Temporada 2026/2027';
   const date = when instanceof Date ? when : new Date(when);
   const month = MONTHS[date.getMonth()] || '';
   const titled = month ? month.charAt(0).toUpperCase() + month.slice(1) : '—';
