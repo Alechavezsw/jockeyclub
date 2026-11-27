@@ -3,6 +3,7 @@ import {
   duesChargeSlicesForMember,
   duesDueDayForMember,
   isMemberBillingActive,
+  memberCoveredDueOns,
   memberJoinMonthKey,
 } from '../members/dues';
 import { attachHouseholdToMembers, isTitularMember } from '../members/households';
@@ -435,15 +436,27 @@ export function buildFeePeriodCharges(members = [], period, today = new Date(), 
     const dueOn = `${period.year}-${pad2(period.month)}-${pad2(duesDueDayForMember(member))}`;
     const joinKey = memberJoinMonthKey(member);
     const skipSocial = Boolean(joinKey && periodKey === joinKey);
+    const coveredSocial = memberCoveredDueOns(member, { chargeScope: 'social' });
+    const prepaidMeta = new Set(
+      [
+        ...(Array.isArray(member.prepaidSocialDueOns) ? member.prepaidSocialDueOns : []),
+        ...(Array.isArray(member.meta?.prepaidSocialDueOns) ? member.meta.prepaidSocialDueOns : []),
+      ].map((value) => String(value || '').slice(0, 10)),
+    );
+    const socialAlreadyPaid = coveredSocial.has(dueOn) || prepaidMeta.has(dueOn);
     return duesChargeSlicesForMember(member, periodDate, { rules })
       .filter((slice) => !skipSocial || isAddOnDuesTierId(slice.tierId))
-      .map((slice) => ({
-      memberId: member.memberId,
-      addAmount: slice.amount,
-      tierId: slice.tierId,
-      category: slice.category,
-      dueOn,
-    }));
+      .map((slice) => {
+        const prepaid = socialAlreadyPaid && !isAddOnDuesTierId(slice.tierId);
+        return {
+          memberId: member.memberId,
+          addAmount: prepaid ? 0 : slice.amount,
+          ...(prepaid ? { prepaid: true, billedAmount: slice.amount } : {}),
+          tierId: slice.tierId,
+          category: slice.category,
+          dueOn,
+        };
+      });
   });
 }
 

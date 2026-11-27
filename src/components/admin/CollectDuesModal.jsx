@@ -7,6 +7,7 @@ import {
   journalAccountForPayment,
 } from '../../domain/members/clubBanks';
 import {
+  advanceSocialPeriodChoices,
   collectionPeriodChoices,
   collectionTennisPreview,
   collectionTennisPeriodChoices,
@@ -458,22 +459,30 @@ export default function CollectDuesModal({
       }), 'tenis', separable ? 'Abono tenis' : '');
     }
     if (duesExempt) return [];
+    const advance = tag(advanceSocialPeriodChoices(account), 'social', 'Adelanto');
     if (separable) {
       return [
         ...tag(collectionPeriodChoices(account, new Date(), { chargeScope: 'social' }), 'social', 'Cuota social'),
+        ...advance,
         ...tag(collectionTennisPeriodChoices(account, new Date(), {
           monthlyAmount: tennisMonthlyAmount,
         }), 'tenis', 'Abono tenis'),
       ];
     }
     if (socialOnly) {
-      return tag(
-        collectionPeriodChoices(account, new Date(), { chargeScope: 'social' }),
-        'social',
-        separable ? 'Cuota social' : '',
-      );
+      return [
+        ...tag(
+          collectionPeriodChoices(account, new Date(), { chargeScope: 'social' }),
+          'social',
+          separable ? 'Cuota social' : '',
+        ),
+        ...advance,
+      ];
     }
-    return tag(collectionPeriodChoices(account), 'all', '');
+    return [
+      ...tag(collectionPeriodChoices(account), 'all', ''),
+      ...advance,
+    ];
   }, [
     tennisOnly,
     socialOnly,
@@ -499,6 +508,10 @@ export default function CollectDuesModal({
     account?.meta?.feeLedgerAdminPartialReconcile,
   ]);
   const choiceKey = periodChoices.map((row) => row.selectKey || row.dueOn).join('|');
+  const owedChoiceKey = periodChoices
+    .filter((row) => row.kind !== 'advance')
+    .map((row) => row.selectKey || row.dueOn)
+    .join('|');
   const [selectedDueOns, setSelectedDueOns] = useState([]);
   const [method, setMethod] = useState(() => {
     const seed = String(initialMethod || '').toLowerCase();
@@ -528,8 +541,8 @@ export default function CollectDuesModal({
         return;
       }
     }
-    setSelectedDueOns(choiceKey.split('|'));
-  }, [choiceKey, seedPeriodKey]);
+    setSelectedDueOns(owedChoiceKey ? owedChoiceKey.split('|') : []);
+  }, [choiceKey, owedChoiceKey, seedPeriodKey]);
 
   useEffect(() => {
     const seed = String(initialMethod || '').toLowerCase();
@@ -541,7 +554,7 @@ export default function CollectDuesModal({
   const isOnAccount = isOnAccountDuesMethod(method);
   const skipSurcharge = tennisOnly || duesMethodSkipsSurcharge(method);
   const selectedRows = useMemo(() => {
-    if (!selectedDueOns.length) return periodChoices;
+    if (!selectedDueOns.length) return periodChoices.filter((row) => row.kind !== 'advance');
     return periodChoices.filter((row) => selectedDueOns.includes(row.selectKey || String(row.dueOn).slice(0, 10)));
   }, [periodChoices, selectedDueOns]);
   const selectedSocialDueOns = useMemo(
@@ -1010,7 +1023,7 @@ export default function CollectDuesModal({
     }
     // A cuenta: imputa toda la deuda abierta, del mes más viejo al más nuevo.
     const socialDueOns = isOnAccount
-      ? periodChoices.filter((row) => row.rowScope !== 'tenis').map((row) => String(row.dueOn).slice(0, 10))
+      ? periodChoices.filter((row) => row.rowScope !== 'tenis' && row.kind !== 'advance').map((row) => String(row.dueOn).slice(0, 10))
       : selectedSocialDueOns;
     const tennisDueOns = isOnAccount
       ? periodChoices.filter((row) => row.rowScope === 'tenis').map((row) => String(row.dueOn).slice(0, 10))
@@ -1367,8 +1380,56 @@ export default function CollectDuesModal({
                 ? 'No hay abono de tenis pendiente en los meses abiertos.'
                 : (nextDueLabel
                   ? `No debe cuota ahora. Próximo vencimiento ${nextDueLabel}.`
-                  : 'No debe cuota ahora.')}
+                  : 'No debe cuota ahora. Si querés, adelantá los meses de abajo: entran pagos y la liquidación de ese mes no los vuelve a cobrar.')}
             </p>
+          </div>
+        ) : null}
+
+        {!tennisOnly && !duesExempt && !isOnAccount && periodChoices.some((row) => row.kind === 'advance') ? (
+          <div style={{ marginBottom: '1rem' }}>
+            <p style={{ margin: '0 0 0.35rem', fontSize: '0.78rem', letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-gold)' }}>
+              Adelantar cuota
+            </p>
+            <p style={{ margin: '0 0 0.55rem', fontSize: '0.82rem', color: 'var(--text-muted)' }}>
+              Uno o varios meses que todavía no vencieron. Capital entero, sin el 10 %. En la liquidación de ese mes queda paga.
+            </p>
+            <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gap: '0.4rem' }}>
+              {periodChoices.filter((row) => row.kind === 'advance').map((row) => {
+                const key = row.selectKey || String(row.dueOn).slice(0, 10);
+                const checked = selectedDueOns.includes(key);
+                return (
+                  <li key={key}>
+                    <label
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.65rem',
+                        padding: '0.55rem 0.7rem',
+                        borderRadius: 8,
+                        border: checked ? '1px solid var(--primary-gold)' : '1px solid var(--border-glass)',
+                        background: checked ? 'rgba(var(--primary-gold-rgb),0.1)' : 'transparent',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => togglePeriod(key)}
+                      />
+                      <span style={{ flex: 1 }}>
+                        <strong style={{ display: 'block', color: 'var(--text-primary)' }}>
+                          {row.displayLabel || row.label}
+                        </strong>
+                        <small style={{ color: 'var(--text-muted)' }}>Sin recargo</small>
+                      </span>
+                      <b className="tabular-nums" style={{ color: 'var(--text-gold)' }}>
+                        {formatCurrency(row.capital)}
+                      </b>
+                    </label>
+                  </li>
+                );
+              })}
+            </ul>
           </div>
         ) : null}
 
@@ -1378,7 +1439,7 @@ export default function CollectDuesModal({
               Meses del recibo
             </p>
             <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gap: '0.4rem' }}>
-              {periodChoices.map((row) => {
+              {periodChoices.filter((row) => row.kind !== 'advance').map((row) => {
                 const key = row.selectKey || String(row.dueOn).slice(0, 10);
                 const checked = selectedDueOns.includes(key);
                 const rowSkipSurcharge = skipSurcharge || row.rowScope === 'tenis';
@@ -1440,7 +1501,7 @@ export default function CollectDuesModal({
               Deuda abierta (se imputa en orden)
             </p>
             <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gap: '0.35rem' }}>
-              {periodChoices.map((row) => (
+              {periodChoices.filter((row) => row.kind !== 'advance').map((row) => (
                 <li
                   key={row.dueOn}
                   style={{
@@ -2163,7 +2224,7 @@ export default function CollectDuesModal({
               discount={discountOver ? 0 : discountValue}
               discountDetail={discountDetail}
               memberNumber={account.memberId}
-              concept={`${tennisOnly ? 'Abono tenis' : 'Cuota social'} · ${duesMonthsPhrase(selectedDueOns.length ? selectedDueOns : periodChoices.map((row) => String(row.dueOn).slice(0, 10))) || account.name || 'socio'}`}
+              concept={`${tennisOnly ? 'Abono tenis' : 'Cuota social'} · ${duesMonthsPhrase(selectedDueOns.length ? selectedDueOns : periodChoices.filter((row) => row.kind !== 'advance').map((row) => String(row.dueOn).slice(0, 10))) || account.name || 'socio'}`}
               member={account}
               disabled={collectionBlocked || duesExempt || cash <= 0 || (!selectedDueOns.length && !periodChoices.length) || discountOver || (discountValue > 0.009 && discountDetail.trim().length < 3)}
               onApproved={() => {
@@ -2175,7 +2236,7 @@ export default function CollectDuesModal({
                   discountDetail,
                   periodDueOns: selectedDueOns.length
                     ? selectedDueOns
-                    : periodChoices.map((row) => String(row.dueOn).slice(0, 10)),
+                    : periodChoices.filter((row) => row.kind !== 'advance').map((row) => String(row.dueOn).slice(0, 10)),
                 });
               }}
             />

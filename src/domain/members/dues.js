@@ -2317,6 +2317,49 @@ export function collectionPeriodChoices(member, today = new Date(), { chargeScop
   return rewriteJoinFeeRows(member, upcoming ? [upcoming] : []);
 }
 
+/** Meses de cuota social que se pueden adelantar. No son deuda ni llevan el 10 %. */
+export const ADVANCE_SOCIAL_MONTHS = 6;
+
+export function advanceSocialPeriodChoices(member, today = new Date(), {
+  months = ADVANCE_SOCIAL_MONTHS,
+} = {}) {
+  if (!member || isDuesExemptMember(member) || isFamilyDependent(member)) return [];
+  const paidOn = startOfDay(today);
+  const paidSet = memberCoveredDueOns(member, { chargeScope: 'social' });
+  const day = duesDueDayForMember(member);
+  const rows = [];
+  for (let step = 1; step <= months; step += 1) {
+    const cursor = new Date(paidOn.getFullYear(), paidOn.getMonth() + step, 1);
+    const dueOn = toISODate(duesDateOnDueDay(cursor.getFullYear(), cursor.getMonth(), day));
+    if (dueOnAlreadyCovered(dueOn, paidSet)) continue;
+    if (duesPeriodMonthStarted(dueOn, paidOn)) continue;
+    const choice = periodChoiceFromDue(member, dueOn, paidOn, 'advance', { chargeScope: 'social' });
+    if (!choice || !(Number(choice.capital) > 0)) continue;
+    const capital = money(choice.capital);
+    rows.push({
+      ...choice,
+      capital,
+      lateBase: 0,
+      surcharge: 0,
+      payable: capital,
+      kind: 'advance',
+      chargeScope: 'social',
+    });
+  }
+  return rows;
+}
+
+/** Meses exigibles más los adelantos. El adelanto no entra si nadie lo eligió. */
+export function choicesForCollection(member, today = new Date(), options = {}) {
+  const owed = collectionPeriodChoices(member, today, options);
+  if (normalizeDuesChargeScope(options.chargeScope) === 'addon') return owed;
+  const seen = new Set(owed.map((row) => String(row.dueOn).slice(0, 10)));
+  return [
+    ...owed,
+    ...advanceSocialPeriodChoices(member, today).filter((row) => !seen.has(String(row.dueOn).slice(0, 10))),
+  ];
+}
+
 /**
  * Cuota, recargo y total a cobrar.
  * El 10 % es el de cada mes vencido, por separado: no es un 10 % de todo el saldo
@@ -2693,5 +2736,34 @@ export function afterCollectDues(member, today = new Date()) {
     unallocatedBalance: member.unallocatedBalance != null ? 0 : member.unallocatedBalance,
     overdueSince: null,
     nextDueDate: toISODate(next),
+  };
+}
+
+/** Deja asentado el adelanto y corre el próximo vencimiento hasta el primer mes no pago. */
+export function applySocialAdvanceStamp(member, dueOns = []) {
+  if (!member) return member;
+  const fresh = (dueOns || [])
+    .map((value) => String(value || '').slice(0, 10))
+    .filter((value) => /^\d{4}-\d{2}-\d{2}$/.test(value));
+  if (!fresh.length) return member;
+  const prev = [
+    ...(Array.isArray(member.prepaidSocialDueOns) ? member.prepaidSocialDueOns : []),
+    ...(Array.isArray(member.meta?.prepaidSocialDueOns) ? member.meta.prepaidSocialDueOns : []),
+  ].map((value) => String(value || '').slice(0, 10));
+  const merged = [...new Set([...prev, ...fresh])].filter((value) => /^\d{4}-\d{2}-\d{2}$/.test(value)).sort();
+  const covered = new Set(merged);
+  let iso = String(member.nextDueDate || '').slice(0, 10);
+  const day = duesDueDayForMember(member);
+  let guard = 0;
+  while (/^\d{4}-\d{2}-\d{2}$/.test(iso) && covered.has(iso) && guard < 24) {
+    const parsed = parseDate(iso);
+    iso = toISODate(duesDateOnDueDay(parsed.getFullYear(), parsed.getMonth() + 1, day));
+    guard += 1;
+  }
+  return {
+    ...member,
+    nextDueDate: iso || member.nextDueDate,
+    prepaidSocialDueOns: merged,
+    meta: { ...(member.meta || {}), prepaidSocialDueOns: merged },
   };
 }

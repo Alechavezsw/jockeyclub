@@ -14,7 +14,7 @@ import {
 import { downloadPaymentReceiptPdf } from '../domain/members/exportPaymentReceiptPdf';
 import { useMemberDuesStanding } from '../hooks/useMemberDuesStanding';
 import { CLUB_BANK_ACCOUNTS } from '../domain/members/clubBanks';
-import { collectionPeriodChoices, duesAmountForMember, duesDueDayForMember, isDuesExemptMember, quotaHeadline } from '../domain/members/dues';
+import { advanceSocialPeriodChoices, collectionPeriodChoices, duesAmountForMember, duesDueDayForMember, isDuesExemptMember, quotaHeadline } from '../domain/members/dues';
 import { duesChargeConcept, duesMonthLabel, duesMonthsPhrase } from '../domain/members/duesImputations';
 import { accountPaymentPlan, duesPaymentSchedule } from '../domain/members/memberPayments';
 import { money } from '../domain/money';
@@ -105,9 +105,28 @@ export default function PaymentHistoryView({ member, user, setCurrentView, sendM
     return { amount: cash, error: '' };
   }, [accountInput, payable]);
   const payAmount = accountCharge.amount;
+  const advanceChoices = duesExempt ? [] : advanceSocialPeriodChoices(standingForCharge);
+  const [advanceDueOns, setAdvanceDueOns] = useState([]);
+  const selectedAdvance = advanceChoices.filter((row) => advanceDueOns.includes(String(row.dueOn).slice(0, 10)));
+  const advanceCapital = money(selectedAdvance.reduce((sum, row) => sum + (Number(row.capital) || 0), 0));
+  const checkoutAmount = money(payAmount + advanceCapital);
   const accountPlan = !duesExempt && payAmount > 0
     ? accountPaymentPlan(standingForCharge, payAmount)
     : null;
+  const checkoutMonths = [
+    ...(accountPlan?.partial
+      ? (accountPlan.touched || []).map((row) => row.dueOn)
+      : collectionPeriodChoices(standingForCharge).map((row) => row.dueOn)),
+    ...selectedAdvance.map((row) => row.dueOn),
+  ];
+  const checkoutSchedule = [
+    ...(payable > 0 ? duesPaymentSchedule(standingForCharge) : []),
+    ...selectedAdvance.map((row) => ({
+      dueOn: String(row.dueOn).slice(0, 10),
+      capital: money(row.capital),
+      lateBase: 0,
+    })),
+  ];
   const subscribeAmount = duesExempt ? 0 : mpSubscribeAmount(monthly);
   const todayIso = todayISODateAR();
   const chargeDue = summary.chargeDue
@@ -138,7 +157,7 @@ export default function PaymentHistoryView({ member, user, setCurrentView, sendM
     ].filter(Boolean).join(' · ')
     : null;
 
-  const noticeKey = `${method}:${profile?.memberId || ''}:${payAmount}:${receiptFile?.name || ''}`;
+  const noticeKey = `${method}:${profile?.memberId || ''}:${checkoutAmount}:${selectedAdvance.map((row) => row.dueOn).join(',')}:${receiptFile?.name || ''}`;
 
   useEffect(() => {
     const flag = new URLSearchParams(window.location.search).get('mp');
@@ -191,9 +210,9 @@ export default function PaymentHistoryView({ member, user, setCurrentView, sendM
       setError(accountCharge.error);
       return;
     }
-    const charge = Number(payAmount) || 0;
+    const charge = Number(checkoutAmount) || 0;
     if (charge <= 0) {
-      setError('No se pudo calcular el importe de la cuota.');
+      setError('Elegí la cuota abierta o los meses a adelantar.');
       return;
     }
     if (!sendMessage) {
@@ -212,12 +231,14 @@ export default function PaymentHistoryView({ member, user, setCurrentView, sendM
       const attachment = method === 'transferencia'
         ? await uploadDuesReceipt(receiptFile, user?.id)
         : null;
-      const periodDueOns = (summary.debtMonths || [])
-        .map((row) => String(row?.dueOn || '').slice(0, 10))
-        .filter(Boolean);
-      const choiceDueOns = collectionPeriodChoices(standingForCharge, new Date())
-        .map((row) => String(row?.dueOn || '').slice(0, 10))
-        .filter(Boolean);
+      const periodDueOns = [
+        ...(summary.debtMonths || []).map((row) => String(row?.dueOn || '').slice(0, 10)),
+        ...selectedAdvance.map((row) => String(row.dueOn).slice(0, 10)),
+      ].filter(Boolean);
+      const choiceDueOns = [
+        ...collectionPeriodChoices(standingForCharge, new Date()).map((row) => String(row?.dueOn || '').slice(0, 10)),
+        ...selectedAdvance.map((row) => String(row.dueOn).slice(0, 10)),
+      ].filter(Boolean);
       const notice = duesPaymentNotice({
         memberName: profile?.name,
         memberId: profile?.memberId,
@@ -389,7 +410,7 @@ export default function PaymentHistoryView({ member, user, setCurrentView, sendM
               : alDia
                 ? (payable > 0
                   ? `Podés abonar ${formatCurrency(payable)} de la cuota ya abierta.`
-                  : `No hay cuota abierta para pagar. Próximo vencimiento de cuenta ${formatDate(summary.nextAccountDue || summary.nextDue)}.`)
+                  : `No hay cuota abierta para pagar. Próximo vencimiento de cuenta ${formatDate(summary.nextAccountDue || summary.nextDue)}. Podés adelantar uno o varios meses.`)
                 : `${lateLabel ? `${lateLabel}. ` : ''}Saldo a abonar: ${formatCurrency(payable)}${surcharge > 0 ? ` (cuota ${formatCurrency(quotaDue)} + recargo ${formatCurrency(surcharge)})` : ''}. ${dueDayLabel.charAt(0).toUpperCase()}${dueDayLabel.slice(1)}.`}
         </p>
         {!duesExempt ? (
@@ -422,29 +443,61 @@ export default function PaymentHistoryView({ member, user, setCurrentView, sendM
             ) : null}
           </label>
         ) : null}
+        {advanceChoices.length ? (
+          <div style={{ margin: '0 0 0.9rem' }}>
+            <p style={{ margin: '0 0 0.35rem', fontWeight: 700 }}>Adelantar meses</p>
+            <p style={{ margin: '0 0 0.55rem', fontSize: '0.85rem' }}>
+              Capital entero, sin recargo. Cuando se liquide ese mes, ya queda pago.
+            </p>
+            <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gap: '0.35rem' }}>
+              {advanceChoices.map((row) => {
+                const due = String(row.dueOn).slice(0, 10);
+                const checked = advanceDueOns.includes(due);
+                return (
+                  <li key={due}>
+                    <label style={{ display: 'flex', justifyContent: 'space-between', gap: '0.75rem', alignItems: 'center' }}>
+                      <span>
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => {
+                            setAdvanceDueOns((curr) => (
+                              curr.includes(due) ? curr.filter((item) => item !== due) : [...curr, due]
+                            ));
+                            setError('');
+                            setMessage('');
+                            setNotifiedKey('');
+                          }}
+                        />{' '}
+                        {row.label}
+                      </span>
+                      <b>{formatCurrency(row.capital)}</b>
+                    </label>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        ) : null}
         <div className="pay-hist-mp-grid">
-          {payable > 0 ? (
+          {checkoutAmount > 0 ? (
           <article className="pay-hist-mp-card">
             <h3>Pagar ahora</h3>
             <p>
-              {accountPlan?.partial
+              {accountPlan?.partial && !(advanceCapital > 0)
                 ? `Pagás ${formatCurrency(payAmount)} a cuenta.`
-                : `Regularizás ${formatCurrency(payable)} en un solo cobro.`}
+                : `Pagás ${formatCurrency(checkoutAmount)}${advanceCapital > 0 ? `, con ${formatCurrency(advanceCapital)} adelantados` : ''}.`}
             </p>
             <MercadoPagoCheckout
               kind="dues"
-              amount={payAmount}
-              schedule={duesPaymentSchedule(standingForCharge)}
+              amount={checkoutAmount}
+              schedule={checkoutSchedule}
               memberNumber={profile?.memberId}
-              concept={accountPlan?.partial
-                ? duesChargeConcept(duesMonthsPhrase(accountPlan.touched.map((row) => row.dueOn)), {
-                  prefix: 'Cuota social · Pago a cuenta',
-                  empty: `Cuota social · Pago a cuenta · ${profile?.name || 'socio'}`,
-                })
-                : duesChargeConcept(duesMonthsPhrase(collectionPeriodChoices(standingForCharge).map((row) => row.dueOn)), {
-                  empty: `Cuota social · ${profile?.name || 'socio'}`,
-                })}
-              disabled={standingPending || payAmount <= 0 || Boolean(accountCharge.error)}
+              concept={duesChargeConcept(duesMonthsPhrase(checkoutMonths), {
+                prefix: accountPlan?.partial ? 'Cuota social · Pago a cuenta' : 'Cuota social',
+                empty: `Cuota social · ${profile?.name || 'socio'}`,
+              })}
+              disabled={standingPending || checkoutAmount <= 0 || Boolean(accountCharge.error)}
               onApproved={() => setMessage('Pago acreditado. Ya figura en tu cuenta.')}
             />
           </article>
@@ -503,7 +556,7 @@ export default function PaymentHistoryView({ member, user, setCurrentView, sendM
               <button
                 type="button"
                 className="btn btn-secondary"
-                disabled={standingPending || paying || payAmount <= 0 || Boolean(accountCharge.error) || notifiedKey === noticeKey}
+                disabled={standingPending || paying || checkoutAmount <= 0 || Boolean(accountCharge.error) || notifiedKey === noticeKey}
                 onClick={() => {
                   setMethod('transferencia');
                   void handleNotify();
