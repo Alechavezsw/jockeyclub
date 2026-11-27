@@ -222,7 +222,8 @@ describe('colonia production readiness', () => {
       planKey: 'promo_2',
       season: COLONIA_SEASON_2026_2027,
       siblingCount: 2,
-    }).ok).toBe(false);
+      memberKinds: ['socio', 'socio'],
+    }).ok).toBe(true);
   });
 
   it('permisos frontend por rol', () => {

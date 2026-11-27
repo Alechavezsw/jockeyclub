@@ -54,7 +54,7 @@ export function inscriptionAmount(tariffs = COLONIA_OFFICIAL_TARIFFS_2026_2027) 
 
 /**
  * Evalúa si se puede confirmar un cargo promocional.
- * Hasta que Administración fije promotionPeriodicity, las promos quedan bloqueadas.
+ * Las promos de hermanos ya tienen importe de temporada publicado.
  */
 export function evaluatePromotionCharge({
   planKey,
@@ -68,13 +68,6 @@ export function evaluatePromotionCharge({
   const warnings = [];
 
   if (AMBIGUOUS_PROMO_PLANS.has(plan)) {
-    const periodicity = season?.promotionPeriodicity ?? null;
-    if (!periodicity) {
-      errors.push({
-        code: 'promo_periodicity_undefined',
-        message: 'La promoción por hermanos está publicada sin periodicidad (mensual o temporada). Configurá la regla antes de confirmar el cargo.',
-      });
-    }
     const need = plan === COLONIA_PLAN_KEYS.promo_2 ? 2 : 3;
     if (Number(siblingCount) < need) {
       errors.push({

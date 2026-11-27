@@ -401,15 +401,15 @@ describe('administración Colonia — inscripción y cobro', () => {
     expect(ok.ok).toBe(true);
   });
 
-  it('la promo de hermanos sigue cerrada hasta definir la periodicidad', () => {
+  it('la promo de hermanos publicada se cobra sin leyenda de periodicidad', () => {
     const promo = evaluatePromotionCharge({
       planKey: 'promo_2',
       season: { promotionPeriodicity: null },
       siblingCount: 2,
       memberKinds: ['socio', 'socio'],
     });
-    expect(promo.ok).toBe(false);
-    expect(promo.errors.some((error) => error.code === 'promo_periodicity_undefined')).toBe(true);
+    expect(promo.ok).toBe(true);
+    expect(promo.errors.some((error) => error.code === 'promo_periodicity_undefined')).toBe(false);
   });
 
   it('los medios de caja confirman y Mercado Pago sigue bloqueado', () => {
