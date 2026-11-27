@@ -43,13 +43,14 @@ describe('colonia domain', () => {
     expect(planAmountFor(COLONIA_OFFICIAL_TARIFFS_2026_2027, 'socio', 'cuota')).toBe(150000);
     expect(planAmountFor(COLONIA_OFFICIAL_TARIFFS_2026_2027, 'no_socio', 'temporada')).toBe(490000);
 
-    const blocked = evaluatePromotionCharge({
+    const published = evaluatePromotionCharge({
       planKey: 'promo_2',
       season: COLONIA_SEASON_2026_2027,
       siblingCount: 2,
+      memberKinds: ['no_socio', 'no_socio'],
     });
-    expect(blocked.ok).toBe(false);
-    expect(blocked.errors.some((e) => e.code === 'promo_periodicity_undefined')).toBe(true);
+    expect(published.ok).toBe(true);
+    expect(published.errors.some((e) => e.code === 'promo_periodicity_undefined')).toBe(false);
 
     const okMonthly = evaluatePromotionCharge({
       planKey: 'promo_2',
