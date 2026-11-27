@@ -201,7 +201,7 @@ export function collectMemberMeta(member = {}) {
   const keys = [
     'source', 'importedAt', 'autorizacion', 'anioNacimiento', 'vencimientoAutorizacion',
     'bloodType', 'healthInsurance', 'emergencyClinic', 'prismaId', 'prismaTipoDebito',
-    'prismaSuspectBloodType', 'familyPrincipalNumber', 'familyGroupName', 'cuotaCategories',
+    'prismaSuspectBloodType', 'familyPrincipalNumber', 'familyGroupName', 'relationship', 'cuotaCategories',
     'cuotaMissing', 'pendingBaja', 'bajaFecha', 'bajaPresentada', 'bajaMonto', 'bajaKind', 'bajaMotivo', 'bajaDetail',
     'bajaActorId', 'bajaActorName', 'bajaActorEmail', 'bajaRegistradaAt', 'socioActivoRaw',
     'reactivateMotivo', 'reactivateKind', 'reactivateDetail', 'reactivateFecha', 'reactivateAt',
