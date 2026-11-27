@@ -1590,6 +1590,7 @@ export default function AdminView({
           rendererIsPorter={user?.role === 'gate_operator' || (user?.roles || []).some((role) => role?.roleKey === 'gate_operator')}
           receiverId={user?.id || ''}
           receiverName={user?.fullName || ''}
+          poolSettings={poolSettings}
         />
       )}
 

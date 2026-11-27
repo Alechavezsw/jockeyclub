@@ -24247,6 +24247,8 @@ a.ops-outline-btn {
 .gate-income-head p { margin: 0.3rem 0 0; font-size: 0.82rem; color: var(--text-secondary); }
 .gate-income-title { margin: 0; font-size: 1.35rem; display: flex; align-items: center; gap: 0.45rem; }
 .gate-income-kinds { display: flex; gap: 0.4rem; }
+.gate-income-kinds.is-books { flex-wrap: wrap; }
+.gate-income-kinds.is-books .gate-income-kind { flex: 1 1 16rem; text-align: center; }
 .gate-income-kind {
   flex: 1;
   border: 1px solid var(--border-color, rgba(255, 255, 255, 0.12));
@@ -29138,6 +29140,54 @@ details[open] > summary .due-fold-arrow {
 }
 .due-unpaid[open] .due-unpaid-summary {
   border-bottom: 1px solid var(--border-glass);
+}
+.due-advance {
+  margin-bottom: 1rem;
+  border: 1px solid var(--border-glass);
+  border-radius: 10px;
+  background: transparent;
+}
+.due-advance-summary {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.7rem 0.8rem;
+  cursor: pointer;
+  list-style: none;
+  color: var(--text-gold);
+}
+.due-advance-summary::-webkit-details-marker,
+.due-advance-summary::marker {
+  content: '';
+  display: none;
+}
+.due-advance-summary .due-fold-arrow {
+  width: 1.65rem;
+  height: 1.65rem;
+}
+.due-advance-summary span {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+.due-advance-summary strong {
+  font-size: 0.78rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-weight: 700;
+}
+.due-advance-summary small {
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.due-advance[open] .due-advance-summary {
+  border-bottom: 1px solid var(--border-glass);
+}
+.due-advance-body {
+  padding: 0.7rem 0.8rem 0.85rem;
 }
 .due-unpaid-body {
   padding: 0.75rem 1.05rem 0.95rem;

@@ -104,7 +104,7 @@ export function buildColoniaEnrollmentReceipt({
   if (interest > 0) {
     lines.push({
       concept: 'Interés',
-      detail: '15 % por pago de la cuota después del 10',
+      detail: '15 % desde diciembre, cuota después del 10',
       alumno: names.join(', ') || '—',
       mes: month,
       amount: interest,

@@ -3,6 +3,7 @@
 import { money } from '../money';
 import { buildPostedEntry } from './journal';
 import { todayAR } from '../../lib/arDate';
+import { poolGuestQuote } from '../pool/poolAccess';
 
 
 export const OTHER_INCOME_PAYERS = {
@@ -42,6 +43,32 @@ export const PORTERIA_INCOME_PRESETS = [
     paymentMethod: 'efectivo',
   },
 ];
+
+/** Talonarios de invitados que portería puede rendir, al precio de temporada. */
+export function porteriaGuestBookChoices(settings) {
+  return [
+    { id: 'guest-book-without', withPool: false },
+    { id: 'guest-book-with', withPool: true },
+  ].map(({ id, withPool }) => {
+    const quote = poolGuestQuote(settings, { withPool, book: true });
+    const place = withPool ? 'con pileta' : 'sin pileta';
+    return {
+      id,
+      withPool,
+      passes: quote.passes,
+      amount: quote.amount,
+      label: `Talonario ${quote.passes} invitados ${place}`,
+    };
+  });
+}
+
+export function porteriaGuestBookTotal(choice, quantity = 1) {
+  const qty = Math.max(1, Math.floor(Number(quantity) || 1));
+  if (!choice) return { quantity: qty, amount: 0, detail: '' };
+  const amount = money(choice.amount * qty);
+  const detail = qty > 1 ? `${qty} × ${choice.label}` : choice.label;
+  return { quantity: qty, amount, detail };
+}
 
 export function isPorteriaIncomeItem(item) {
   if (!item || String(item.status || 'posted').toLowerCase() === 'void') return false;

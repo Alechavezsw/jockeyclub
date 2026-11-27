@@ -15,6 +15,7 @@ import {
   isPoolGuestMember,
   nextDuesDueDate,
   assertRequestedDuesPeriodsCollectable,
+  assertAdvanceMonthsInOrder,
   paymentIsTennisAbonoOnly,
   socialDuesStoredBalance,
 } from './dues';
@@ -1343,6 +1344,7 @@ export function collectionPreview(member, today = new Date(), {
   const selected = explicitPeriods
     ? periodDueOns.map((value) => String(value || '').slice(0, 10)).filter(Boolean)
     : choices.filter((row) => row.kind !== 'advance').map((row) => row.dueOn);
+  if (explicitPeriods) assertAdvanceMonthsInOrder(choices, selected);
   const selectedChoices = choices.filter((row) => selected.includes(String(row.dueOn).slice(0, 10)));
   const stored = Number(member?.outstandingBalance) || 0;
   const operationalOwed = socialDuesStoredBalance(member);

@@ -633,7 +633,7 @@ export default function ColoniaPortalView({
             <div>
               <p>{planKey === 'hermano_4' ? 'Sin inscripción' : `Inscripción: ${money(quote.inscription)}`}</p>
               <p>Plan ({planKey}): {money(quote.plan)}</p>
-              {quote.interest > 0 ? <p>Interés 15 % (cuota después del 10): {money(quote.interest)}</p> : null}
+              {quote.interest > 0 ? <p>Interés 15 % (desde diciembre, cuota después del 10): {money(quote.interest)}</p> : null}
               <p><strong>Total orientativo: {money(quote.total)}</strong></p>
               <p className="muted">
                 {portalKind === 'no_socio'

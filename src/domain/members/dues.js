@@ -1212,7 +1212,49 @@ export function assertRequestedDuesPeriodsCollectable(member, periodDueOns, choi
       throw new Error('Ese período no es cobrable en este momento. No se sustituye por otro mes.');
     }
   }
+  assertAdvanceMonthsInOrder(choices, monthly);
   return selected;
+}
+
+/** El adelanto no saltea meses: enero solo si diciembre también entra. */
+export function assertAdvanceMonthsInOrder(choices, periodDueOns) {
+  const advances = (choices || [])
+    .filter((row) => row?.kind === 'advance')
+    .map((row) => String(row.dueOn || '').slice(0, 10))
+    .filter((due) => /^\d{4}-\d{2}-\d{2}$/.test(due))
+    .sort();
+  const picked = new Set(
+    (periodDueOns || []).map((value) => String(value || '').slice(0, 10)),
+  );
+  let skipped = false;
+  for (const due of advances) {
+    if (picked.has(due)) {
+      if (skipped) {
+        throw new Error('El adelanto sigue el orden. No se puede saltear un mes.');
+      }
+    } else if (advances.some((item) => picked.has(item))) {
+      skipped = true;
+    }
+  }
+}
+
+/**
+ * Marca o desmarca un mes de adelanto sin dejar un hueco.
+ * Devuelve null si la clave no es un adelanto.
+ */
+export function toggleAdvanceMonthSelection(rows, key, selectedKeys) {
+  const list = (rows || []).filter((row) => row?.kind === 'advance');
+  const keyOf = (row) => row.selectKey || String(row.dueOn || '').slice(0, 10);
+  const index = list.findIndex((row) => keyOf(row) === key);
+  if (index < 0) return null;
+  const selected = new Set(selectedKeys || []);
+  if (selected.has(key)) {
+    for (let i = index; i < list.length; i += 1) selected.delete(keyOf(list[i]));
+    return [...selected];
+  }
+  if (index > 0 && !selected.has(keyOf(list[index - 1]))) return [...selected];
+  selected.add(key);
+  return [...selected];
 }
 
 /**
