@@ -82,6 +82,18 @@ describe('validateMemberBooking', () => {
     expect(result.turn.endTime).toBe('19:00');
   });
 
+  it('un no socio de pileta no reserva instalaciones', () => {
+    const result = validateMemberBooking({
+      facility: anhelo,
+      member: { memberId: '900', tier: 'pileta_no_socio', cuotaCategories: ['PILETA (No socio)'] },
+      date: '2026-10-11',
+      time: '11:00',
+      now,
+    });
+    expect(result.ok).toBe(false);
+    expect(result.error).toMatch(/pileta/i);
+  });
+
   it('no ofrece el turno de las 14', () => {
     const result = validateMemberBooking({
       facility: anhelo,

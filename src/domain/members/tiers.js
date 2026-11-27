@@ -148,6 +148,7 @@ const TIER_SEED = [
   { name: 'LIGA (No socio)', label: '—', color: '#64748b', sortOrder: 80 },
   { name: 'KARATE (No socio)', label: '—', color: '#f59e0b', sortOrder: 81 },
   { name: 'COLONIA (No socio)', label: '—', color: '#14b8a6', sortOrder: 82 },
+  { name: 'PILETA (No socio)', label: '—', color: '#0ea5e9', sortOrder: 83 },
   { name: 'Sin categoría', label: '—', color: '#94a3b8', sortOrder: 99 },
 ];
 

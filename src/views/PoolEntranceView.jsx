@@ -313,8 +313,9 @@ export default function PoolEntranceView({
               Sede Rivadavia · Puerta
               {dayStats.members
                 ? ` · ${dayStats.members} ${dayStats.members === 1 ? 'asistió' : 'asistieron'} hoy`
-                : ' · Buscá y sale todo'}
+                : ' · Canon de temporada y apto'}
             </div>
+            <div className="pool-lanes" aria-hidden="true"><i /><i /><i /><i /></div>
           </div>
         </div>
         <button type="button" className="btn btn-secondary btn-sm" onClick={() => navigate('/panel/dashboard')}>

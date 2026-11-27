@@ -1,7 +1,7 @@
 /** Reglas de reserva tal como están configuradas en Lila para cada espacio. */
 
 import { findTier } from '../members/tiers.js';
-import { isCommissionMember } from '../members/dues.js';
+import { isActivityOnlyMember, isColoniaGuestMember, isCommissionMember } from '../members/dues.js';
 import { memberMayOperateAccount } from '../members/households.js';
 import { todayISODateAR } from '../../lib/arDate.js';
 import { facilityDayTaken, hasReservationConflict } from './conflicts.js';
@@ -180,6 +180,14 @@ export function validateMemberBooking({
   asAdmin = false,
 } = {}) {
   if (!facility) return { ok: false, error: 'Elegí un espacio.' };
+  if (!asAdmin && isActivityOnlyMember(member)) {
+    return {
+      ok: false,
+      error: isColoniaGuestMember(member)
+        ? 'El acceso de colonia no incluye reservas de instalaciones.'
+        : 'El acceso de pileta no incluye reservas de instalaciones.',
+    };
+  }
   if (!asAdmin && member && !memberMayOperateAccount(member)) {
     return { ok: false, error: 'Las reservas las hace el titular de la cuenta.' };
   }

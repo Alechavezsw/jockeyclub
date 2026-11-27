@@ -7,6 +7,7 @@ import {
   coloniaBadgeForHouseholdMember,
   coloniaEnrollmentBalance,
   coloniaPortalHeroCopy,
+  coloniaPortalMemberKind,
   coloniaSourceLabel,
   coloniaStatusLabel,
   matchHouseholdToEnrollment,
@@ -212,6 +213,20 @@ describe('app del socio — Colonia', () => {
     expect(payload.guardian.emergency_contact).toContain('Abuela');
     expect(payload).not.toHaveProperty('outstanding_balance');
     expect(payload).not.toHaveProperty('chargeScope');
+  });
+
+  it('el no socio de pileta inscribe Colonia como no socio', () => {
+    const guest = { tier: 'pileta_no_socio', cuotaCategories: ['PILETA (No socio)'] };
+    expect(coloniaPortalMemberKind(guest)).toBe('no_socio');
+    expect(coloniaPortalMemberKind({ tier: 'socio_familiar', cuotaCategories: ['SOCIO FAMILIAR'] })).toBe('socio');
+    const payload = buildPortalEnrollmentPayload({
+      seasonId: 'season-1',
+      student: { ...student, memberKind: coloniaPortalMemberKind(guest), memberNumber: '' },
+      guardian,
+      planKey: 'cuota',
+    });
+    expect(payload.student.member_kind).toBe('no_socio');
+    expect(payload.student.member_number).toBeNull();
   });
 
   it('un no socio también puede armar la ficha desde la app', () => {

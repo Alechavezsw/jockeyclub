@@ -68,6 +68,8 @@ describe('tiers catalog', () => {
     expect(merged.find((t) => t.id === 'socio_individual')?.monthlyDues).toBe(55000);
     expect(merged.find((t) => t.id === 'grupo_familiar_familiar')?.monthlyDues).toBe(0);
     expect(merged.some((t) => t.id === 'liga_no_socio')).toBe(true);
+    expect(merged.some((t) => t.id === 'pileta_no_socio')).toBe(true);
+    expect(slugifyTierId('PILETA (No socio)')).toBe('pileta_no_socio');
     expect(merged.some((t) => t.id === 'sin_categoria')).toBe(true);
   });
 

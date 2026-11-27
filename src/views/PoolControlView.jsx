@@ -34,7 +34,8 @@ export default function PoolControlView({
           <img className="club-mark" src="/logo-jockey-club.png?v=clavos-blancos" alt="Jockey Club" />
           <div>
             <div className="serif-font pool-gate-title">Pileta</div>
-            <div className="pool-gate-sub">Sede Rivadavia · Canon, apto médico y socios</div>
+            <div className="pool-gate-sub">Sede Rivadavia · Canon de temporada, apto y puerta</div>
+            <div className="pool-lanes" aria-hidden="true"><i /><i /><i /><i /></div>
           </div>
         </div>
         <button

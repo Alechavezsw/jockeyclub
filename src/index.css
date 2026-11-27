@@ -21822,8 +21822,28 @@ a.ops-outline-btn {
   background: color-mix(in srgb, var(--bg-tertiary) 75%, transparent);
 }
 
-.pool-kpi-grid article:nth-child(3n) { border-left-color: #1a7a8c; }
-.pool-kpi-grid article:nth-child(3n + 2) { border-left-color: #0369a1; }
+.pool-lanes {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
+  width: min(11rem, 48vw);
+  height: 6px;
+  margin-top: 0.4rem;
+}
+
+.pool-lanes i {
+  display: block;
+  border-radius: 99px;
+  background: #7dd3fc;
+}
+
+.pool-lanes i:nth-child(2) { background: #0284c7; }
+.pool-lanes i:nth-child(3) { background: #0e7490; }
+.pool-lanes i:nth-child(4) { background: #bae6fd; }
+
+@media (prefers-reduced-motion: reduce) {
+  .pool-lanes i { transition: none; }
+}
 
 .pool-kpi-grid span {
   font-size: 0.68rem;
@@ -22468,6 +22488,76 @@ a.ops-outline-btn {
   margin-top: 0;
   padding-top: 0;
   border-top: 0;
+  max-height: min(78dvh, 760px);
+  overflow: auto;
+}
+
+.pool-household {
+  margin: 0.85rem 0 0.2rem;
+}
+
+.pool-household h4 {
+  margin: 0;
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #0284c7;
+}
+
+.pool-household-list {
+  list-style: none;
+  margin: 0.4rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.pool-household-list li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 0.55rem;
+  align-items: center;
+  padding: 0.4rem 0.55rem;
+  border-radius: 10px;
+  border: 1px solid var(--border-glass);
+}
+
+.pool-household-list li.is-on {
+  border-color: #0284c7;
+}
+
+.pool-household-list button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.05rem;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.pool-household-list button span,
+.pool-household-list em {
+  font-style: normal;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.pool-boletos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.75rem;
+}
+
+.pool-boleto-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
 }
 
 .pool-selected-actions {

@@ -45,6 +45,7 @@ export default function ClubRoutes({
   isZondaActive,
   journalEntries,
   memberSeesCurrentAccount,
+  poolGuest = false,
   members,
   membersCount,
   membersLoading,
@@ -365,7 +366,7 @@ export default function ClubRoutes({
         <Routes>
           <Route path="/" element={homeElement} />
           <Route path="/asistencia" element={attendanceView} />
-          <Route path="/reservas" element={userRole === 'member' ? reservationsView : <Navigate to={pathForView('dashboard')} replace />} />
+          <Route path="/reservas" element={userRole === 'member' && !poolGuest ? reservationsView : <Navigate to={pathForView('dashboard')} replace />} />
           <Route path="/revista" element={newsView} />
           <Route path="/cuenta" element={userRole === 'member' ? paymentHistoryView : <Navigate to={pathForView('dashboard')} replace />} />
           <Route path="/cuenta/colonia" element={userRole === 'member' ? coloniaPortalView : <Navigate to={pathForView('dashboard')} replace />} />

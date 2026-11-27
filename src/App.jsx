@@ -23,7 +23,7 @@ import {
   loadDismissedNotificationIds,
   saveDismissedNotificationIds,
 } from './domain/notifications/buildNotifications';
-import { setRuntimeDueDay } from './domain/members/dues';
+import { isActivityOnlyMember, setRuntimeDueDay } from './domain/members/dues';
 import { commitDuesCollection, isPersistedPaymentId, localDuesPayment } from './domain/members/memberPayments';
 import {
   DEFAULT_CLUB_SETTINGS,
@@ -2275,6 +2275,7 @@ function ClubPortal() {
           duesOverdue={duesOverdue}
           duesDueSoon={duesDueSoon}
           membersCanViewCurrentAccounts={memberSeesCurrentAccount}
+          poolGuest={userRole === 'member' && isActivityOnlyMember(sessionMember)}
           onOpenNotification={handleNotificationOpen}
           onDismissNotification={(id) => {
             const n = notifications.find((x) => String(x.id) === String(id));
@@ -2354,6 +2355,7 @@ function ClubPortal() {
           isZondaActive={isZondaActive}
           journalEntries={journalEntries}
           memberSeesCurrentAccount={memberSeesCurrentAccount}
+          poolGuest={userRole === 'member' && isActivityOnlyMember(sessionMember)}
           members={members}
           membersCount={membersCount}
           membersLoading={membersLoading}

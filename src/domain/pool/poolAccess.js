@@ -218,9 +218,17 @@ export function listDayAccesses(accesses = [], date = todayISO()) {
   return (accesses || []).filter((a) => a.date === date && a.status !== 'revoked');
 }
 
+/** Canon cobrado sin apto: no cuenta como ingreso del día. */
+export function poolVisitCounts(row) {
+  return row?.entered !== false;
+}
+
 export function memberDayAccess(accesses, memberId, date = todayISO()) {
   return listDayAccesses(accesses, date).find(
-    (a) => a.kind === 'member' && a.memberId === memberId && a.status === 'active'
+    (a) => a.kind === 'member'
+      && String(a.memberId) === String(memberId)
+      && a.status === 'active'
+      && poolVisitCounts(a)
   ) || null;
 }
 
@@ -276,8 +284,10 @@ export function evaluatePoolAccess(member, {
       && (Number(a.payment?.amount) > 0 || a.payment?.scope === 'season')
   );
 
+  const payBlockers = blockers.filter((line) => line !== medical.label);
   return {
     canEnable: blockers.length === 0 && !alreadyIn,
+    canPayCanon: payBlockers.length === 0 && !seasonPaid && (Number(personQuote.amount) || 0) > 0,
     blockers,
     medical,
     duesGate,
@@ -342,12 +352,15 @@ export function enableMemberPoolAccess({
   settings = DEFAULT_POOL_SETTINGS,
   paymentRef = '',
   members = [],
+  requireMedical = true,
 }) {
   const eval_ = evaluatePoolAccess(member, { accesses, today, settings, members });
   if (eval_.alreadyIn) throw new Error('El socio ya tiene acceso habilitado hoy.');
   if (eval_.payBlocked) throw new Error('En mora · regularizá la cuota para pagar pileta.');
   if (eval_.duesBlocked) throw new Error(eval_.duesGate?.reason || 'En mora · no ingresa hasta regularizar.');
-  if (!eval_.medical?.ok) throw new Error(eval_.medical?.label || 'Falta revisación médica.');
+  if (requireMedical && !eval_.medical?.ok) {
+    throw new Error(eval_.medical?.label || 'Falta revisación médica.');
+  }
   if (!isOperationalMember(member)) throw new Error('Solo socios activos pueden ingresar a pileta.');
 
   const cfg = mergePoolSettings(settings);
@@ -385,7 +398,8 @@ export function enableMemberPoolAccess({
         : (personQuote.reason || 'Acceso pileta temporada'),
       scope: isSeasonCharge ? 'season' : 'day',
     },
-    medicalExpiresAt: eval_.medical.expiresAt,
+    medicalExpiresAt: eval_.medical?.expiresAt || null,
+    entered: eval_.medical?.ok === true,
     enabledAt: new Date().toISOString(),
     enabledBy: actorName || null,
     status: 'active',
@@ -610,8 +624,9 @@ export function mergePoolSearchHits(local = [], remote = [], { limit = 30 } = {}
 
 export function poolDayStats(accesses = [], date = todayISO()) {
   const day = listDayAccesses(accesses, date).filter((a) => a.status === 'active');
-  const members = day.filter((a) => a.kind === 'member').length;
-  const guests = day.filter((a) => a.kind === 'guest').length;
+  const visits = day.filter(poolVisitCounts);
+  const members = visits.filter((a) => a.kind === 'member').length;
+  const guests = visits.filter((a) => a.kind === 'guest').length;
   const collected = day.reduce((s, a) => s + (Number(a.payment?.amount) || 0), 0);
   return { members, guests, total: members + guests, collected };
 }
@@ -667,13 +682,10 @@ export function poolSeasonStats(accesses = [], today = todayISO()) {
 }
 
 function poolMethodCell(method) {
-  const key = String(method || '');
-  if (key === 'mercadopago') return 'Mercado Pago';
+  const key = String(method || '').trim();
+  if (!key) return '—';
   if (key === 'asistencia') return 'Asistió';
-  if (key === 'transferencia') return 'Transferencia';
-  if (key === 'tarjeta') return 'Tarjeta';
-  if (key === 'efectivo') return 'Efectivo';
-  return key || '—';
+  return poolMethodLabel(key) || key;
 }
 
 /** Filas de tabla para Hoy o Temporada. */

@@ -11,6 +11,8 @@ import {
   duesPayableForMember,
   duesTennisAbonoAmountForAccount,
   isDuesExemptMember,
+  isColoniaGuestMember,
+  isPoolGuestMember,
   nextDuesDueDate,
   assertRequestedDuesPeriodsCollectable,
   paymentIsTennisAbonoOnly,
@@ -2617,6 +2619,25 @@ export function duesCollectionGate(member, {
       ceiling: payable,
       lines: choices,
       message: blocked ? 'El abono de tenis no puede cobrarse por encima de su saldo.' : '',
+    };
+  }
+  if (isPoolGuestMember(member) || isColoniaGuestMember(member)) {
+    const blocked = asked > 0.009;
+    return {
+      blocked,
+      tennis: false,
+      needsReview: false,
+      recordedBalance: recorded,
+      theoretical: 0,
+      difference: 0,
+      authorized: 0,
+      ceiling: 0,
+      lines: [],
+      message: blocked
+        ? (isColoniaGuestMember(member)
+          ? 'El no socio de colonia no abona cuota social.'
+          : 'El no socio de pileta no abona cuota social.')
+        : '',
     };
   }
   const choices = collectionPeriodChoices(member, when, { chargeScope: 'social' });

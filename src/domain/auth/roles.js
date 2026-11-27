@@ -555,15 +555,27 @@ export function canPostJournal(role) {
   return ['cashier', 'gate_operator', 'pool_operator', 'accountant', 'admin', 'superadmin'].includes(role);
 }
 
-export function navItemsForRole(role, { membersCanViewCurrentAccounts = true } = {}) {
+export function navItemsForRole(role, {
+  membersCanViewCurrentAccounts = true,
+  poolGuest = false,
+  activityGuest = false,
+} = {}) {
   if (role === 'member') {
-    const items = [
-      { id: 'dashboard', label: 'Inicio', shortLabel: 'Inicio' },
-      { id: 'reservations', label: 'Reservas', shortLabel: 'Reservas' },
-      { id: 'payments', label: 'Mi cuenta', shortLabel: 'Cuenta' },
-      { id: 'colonia', label: 'Colonia', shortLabel: 'Colonia' },
-      { id: 'news', label: 'Novedades', shortLabel: 'Novedades' },
-    ];
+    const limited = poolGuest || activityGuest;
+    const items = limited
+      ? [
+        { id: 'dashboard', label: 'Inicio', shortLabel: 'Inicio' },
+        { id: 'payments', label: 'Mi cuenta', shortLabel: 'Cuenta' },
+        { id: 'colonia', label: 'Colonia', shortLabel: 'Colonia' },
+        { id: 'news', label: 'Novedades', shortLabel: 'Novedades' },
+      ]
+      : [
+        { id: 'dashboard', label: 'Inicio', shortLabel: 'Inicio' },
+        { id: 'reservations', label: 'Reservas', shortLabel: 'Reservas' },
+        { id: 'payments', label: 'Mi cuenta', shortLabel: 'Cuenta' },
+        { id: 'colonia', label: 'Colonia', shortLabel: 'Colonia' },
+        { id: 'news', label: 'Novedades', shortLabel: 'Novedades' },
+      ];
     if (!membersCanViewCurrentAccounts) {
       return items.filter((item) => item.id !== 'payments');
     }

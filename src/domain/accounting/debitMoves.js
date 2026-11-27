@@ -3,7 +3,13 @@
  * Son los socios cuya cuota del mes en curso se descuenta por débito (Galicia / Prisma / MP).
  */
 
-import { canChargeSocialDues } from '../members/dues';
+import {
+  canChargeSocialDues,
+  duesAmountForMember,
+  duesTennisAbonoAmount,
+  isDuesExemptMember,
+  memberHasTennisAbono,
+} from '../members/dues';
 import { allocateNextMemberNumber, isLiveMember, isTitularMember } from '../members/households';
 import { isMpAdhered } from '../payments/mercadoPago';
 import { todayISODateAR } from '../../lib/arDate';
@@ -406,8 +412,14 @@ export function buildDebitListingDraft(member, {
   const cardExpiry = normalizeCardExpiry(
     member?.cardExpiry || member?.meta?.cardExpiry || '',
   );
-  const dues = Number(member?.outstandingBalance) > 0
-    ? Math.round(Number(member.outstandingBalance) * 100) / 100
+  const on = new Date(Number(year) || 2026, (Number(month) || 1) - 1, 10, 12, 0, 0);
+  // La planilla debita el mes: cuota social y, si corresponde, el abono de tenis.
+  // El saldo en cero (socio al día) no apaga ninguna de las dos.
+  const dues = isDuesExemptMember(member)
+    ? 0
+    : Math.round((Number(duesAmountForMember(member, on, { chargeScope: 'social' })) || 0) * 100) / 100;
+  const abono = memberHasTennisAbono(member)
+    ? Math.round((Number(duesTennisAbonoAmount(member, on)) || 0) * 100) / 100
     : 0;
   return {
     moveType: moveType === 'baja' ? 'baja' : 'alta',
@@ -426,8 +438,8 @@ export function buildDebitListingDraft(member, {
     receipt: defaultReceipt(year, month),
     dueDate: defaultDueDate(year, month),
     duesAmount: dues,
-    abonoAmount: 0,
-    totalAmount: dues,
+    abonoAmount: abono,
+    totalAmount: Math.round((dues + abono) * 100) / 100,
     statusCode: 'N',
     note: '',
     missing: {

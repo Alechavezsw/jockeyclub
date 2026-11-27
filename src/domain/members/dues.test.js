@@ -662,6 +662,16 @@ describe('dues classification', () => {
   it('comisión y presidente no figuran en mora de cuota', () => {
     expect(isDuesExemptMember({ tier: 'comision', cuotaCategories: ['COMISION'] })).toBe(true);
     expect(isDuesExemptMember({
+      tier: 'pileta_no_socio',
+      cuotaCategories: ['PILETA (No socio)'],
+    })).toBe(true);
+    expect(isDuesExemptMember({
+      tier: 'socio_familiar',
+      cuotaCategories: ['SOCIO FAMILIAR', 'PILETA (No socio)'],
+    })).toBe(false);
+    expect(dbMemberIsDuesExempt('pileta_no_socio', { cuotaCategories: ['PILETA (No socio)'] })).toBe(true);
+    expect(dbMemberIsDuesExempt('socio_familiar', { cuotaCategories: ['SOCIO FAMILIAR'] })).toBe(false);
+    expect(isDuesExemptMember({
       tier: 'comision',
       cuotaCategories: ['COMISION', 'SOCIO FAMILIAR'],
     })).toBe(false);

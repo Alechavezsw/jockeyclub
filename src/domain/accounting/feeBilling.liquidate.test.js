@@ -45,6 +45,7 @@ describe('feePackLinesFromMembers', () => {
       { memberId: '1', status: 'active', cuotaCategories: ['COLONIA (No socio)'] },
       { memberId: '2', status: 'active', cuotaCategories: ['LIGA (No socio)', 'SOCIO FAMILIAR'] },
       { memberId: '3', status: 'active', cuotaCategories: ['KARATE (No socio)'] },
+      { memberId: '4', status: 'active', cuotaCategories: ['PILETA (No socio)'] },
     ], new Date('2026-11-10T12:00:00-03:00'));
     expect(lines.map((row) => row.tierId)).toEqual(['socio_familiar']);
     expect(lines.some((row) => /colonia|liga|karate/i.test(row.tierId))).toBe(false);

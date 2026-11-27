@@ -33,6 +33,7 @@ export default function Navbar({
   onDismissNotification,
   onMarkAllNotificationsRead,
   membersCanViewCurrentAccounts = true,
+  poolGuest = false,
 }) {
   const { user, role, logout, roleLabel, canAccessAdmin: sessionCanAccessAdmin, roles, isDualDesk, desk, switchDesk } = useAuth();
   const location = useLocation();
@@ -45,7 +46,7 @@ export default function Navbar({
   const isOperative = Boolean(sessionCanAccessAdmin);
   const isTeacher = role === 'teacher' || (roles || []).some((r) => r.roleKey === 'teacher');
   const memberShell = role === 'member';
-  const visibleItems = navItemsForRole(role || 'member', { membersCanViewCurrentAccounts });
+  const visibleItems = navItemsForRole(role || 'member', { membersCanViewCurrentAccounts, poolGuest });
   const memberTabs = memberShell
     ? [
       ...visibleItems,

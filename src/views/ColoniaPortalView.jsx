@@ -17,6 +17,7 @@ import {
   buildPortalEnrollmentPayload,
   coloniaBadgeForHouseholdMember,
   coloniaPortalHeroCopy,
+  coloniaPortalMemberKind,
   coloniaStatusLabel,
   portalEnabledPlans,
   validatePortalEnrollmentWizard,
@@ -147,6 +148,7 @@ export default function ColoniaPortalView({
     }
     : COLONIA_SEASON_2026_2027;
 
+  const portalKind = coloniaPortalMemberKind(member);
   const hero = useMemo(
     () => coloniaPortalHeroCopy(seasonView, tariffs),
     [seasonView, tariffs],
@@ -216,11 +218,12 @@ export default function ColoniaPortalView({
       }));
       setStudent((s) => ({
         ...s,
-        memberKind: 'socio',
-        memberNumber: s.memberNumber || '',
+        memberKind: portalKind,
+        memberNumber: portalKind === 'no_socio' ? '' : (s.memberNumber || ''),
+        memberUuid: portalKind === 'no_socio' ? null : s.memberUuid,
       }));
     }
-  }, [member]);
+  }, [member, portalKind]);
 
   const wizardCheck = useMemo(
     () => validatePortalEnrollmentWizard({
@@ -390,7 +393,7 @@ export default function ColoniaPortalView({
         <>
           <header className="colonia-hero-band">
             <div className="colonia-hero-copy">
-              <p className="colonia-kicker">Tu Colonia</p>
+              <p className="colonia-kicker">{portalKind === 'no_socio' ? 'Colonia · no socio' : 'Tu Colonia'}</p>
               <h2 className="serif-font">{hero.title}</h2>
               <p>{hero.schedule} {hero.ages}</p>
               <p>{hero.enrollmentWindow}</p>
@@ -511,16 +514,18 @@ export default function ColoniaPortalView({
                   const id = e.target.value;
                   const kid = eligibleKids.find((k) => String(k.id) === id);
                   if (!kid) {
-                    setStudent({ ...EMPTY_STUDENT, memberKind: 'socio' });
+                    setStudent({ ...EMPTY_STUDENT, memberKind: portalKind });
                     return;
                   }
                   setStudent({
                     fullName: kid.name || kid.full_name || '',
                     documentNumber: kid.documentNumber || '',
                     birthDate: (kid.birthDate || kid.birth_date || '').slice(0, 10),
-                    memberKind: 'socio',
-                    memberNumber: String(kid.memberId || '').replace(/\D/g, ''),
-                    memberUuid: kid.id,
+                    memberKind: portalKind,
+                    memberNumber: portalKind === 'no_socio'
+                      ? ''
+                      : String(kid.memberId || '').replace(/\D/g, ''),
+                    memberUuid: portalKind === 'no_socio' ? null : kid.id,
                     shirtSize: '',
                   });
                 }}
@@ -548,8 +553,14 @@ export default function ColoniaPortalView({
               <input type="date" value={student.birthDate} onChange={(e) => setStudent({ ...student, birthDate: e.target.value })} />
               <label>Documento</label>
               <input value={student.documentNumber} onChange={(e) => setStudent({ ...student, documentNumber: e.target.value })} />
-              <label>Nº de socio (si aplica)</label>
-              <input value={student.memberNumber} onChange={(e) => setStudent({ ...student, memberNumber: e.target.value })} />
+              {portalKind === 'no_socio' ? (
+                <p className="muted">La inscripción sale con la tarifa de no socio.</p>
+              ) : (
+                <>
+                  <label>Nº de socio (si aplica)</label>
+                  <input value={student.memberNumber} onChange={(e) => setStudent({ ...student, memberNumber: e.target.value })} />
+                </>
+              )}
             </div>
           ) : null}
 
@@ -624,7 +635,11 @@ export default function ColoniaPortalView({
               <p>Plan ({planKey}): {money(quote.plan)}</p>
               {quote.interest > 0 ? <p>Interés 15 % (cuota después del 10): {money(quote.interest)}</p> : null}
               <p><strong>Total orientativo: {money(quote.total)}</strong></p>
-              <p className="muted">Los cargos definitivos los confirma Administración. No afecta tu cuota social.</p>
+              <p className="muted">
+                {portalKind === 'no_socio'
+                  ? 'Tarifa de no socio. Los cargos definitivos los confirma Administración.'
+                  : 'Los cargos definitivos los confirma Administración. No afecta tu cuota social.'}
+              </p>
             </div>
           ) : null}
 

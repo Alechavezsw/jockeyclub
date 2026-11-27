@@ -12,6 +12,7 @@ import {
 } from './coloniaTariffs';
 import { coloniaNextMonthLabel } from './coloniaLedger';
 import { enrollmentIdentityKey, isWithinEnrollmentWindow } from './coloniaEnrollment';
+import { isActivityOnlyMember } from '../members/dues';
 
 /** Estados UI ↔ CHECK de colonia_enrollments (tras migración 170000). */
 export const COLONIA_PORTAL_STATUS_LABELS = Object.freeze({
@@ -210,6 +211,11 @@ export function validatePortalEnrollmentWizard({
     errors.push({ code: 'duplicate', message: 'Este alumno ya tiene una inscripción en la temporada.' });
   }
   return { ok: errors.length === 0, errors, identityKey: key };
+}
+
+/** El no socio de pileta inscribe Colonia con la tarifa de no socio. */
+export function coloniaPortalMemberKind(member) {
+  return isActivityOnlyMember(member) ? 'no_socio' : 'socio';
 }
 
 /** Copy pública de la temporada (sin hardcodear montos: se pasan desde tarifas). */

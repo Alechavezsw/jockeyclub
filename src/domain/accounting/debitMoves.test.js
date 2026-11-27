@@ -91,6 +91,30 @@ describe('debitMoves', () => {
     })).toThrow(/no abonan cuota/i);
   });
 
+  it('un socio al día con abono de tenis debita la cuota y el abono', () => {
+    const draft = buildDebitListingDraft({
+      memberId: '10935',
+      name: 'Miguel Angel Gomez Flores',
+      tier: 'socio_familiar',
+      cuotaCategories: ['ABONO TENIS', 'SOCIO FAMILIAR'],
+      outstandingBalance: 0,
+      status: 'active',
+    }, { year: 2026, month: 11, cardKind: 'credito' });
+    expect(draft.duesAmount).toBe(70000);
+    expect(draft.abonoAmount).toBe(12000);
+    expect(draft.totalAmount).toBe(82000);
+  });
+
+  it('sin abono de tenis la planilla no inventa ese importe', () => {
+    const draft = buildDebitListingDraft({
+      ...base,
+      outstandingBalance: 0,
+    }, { year: 2026, month: 11 });
+    expect(draft.duesAmount).toBe(40000);
+    expect(draft.abonoAmount).toBe(0);
+    expect(draft.totalAmount).toBe(40000);
+  });
+
   it('asigna N° socio automático y exige tarjeta real (Luhn)', () => {
     expect(looksLikeCardNumber('4240955017912629')).toBe(true);
     const draft = buildDebitListingDraft({

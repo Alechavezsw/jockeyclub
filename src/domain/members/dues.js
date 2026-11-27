@@ -362,6 +362,31 @@ function isExemptDuesTierId(id) {
 }
 
 /**
+ * Ficha de pileta que no es socio del club.
+ * Si además tiene una categoría que liquida (familiar, individual), no entra acá.
+ */
+function activityTierIds(member) {
+  return billedTierIds(member).filter((id) => !isAddOnDuesTierId(id));
+}
+
+export function isPoolGuestMember(member) {
+  const ids = activityTierIds(member);
+  return ids.length > 0 && ids.every((id) => id === 'pileta_no_socio');
+}
+
+/** Ficha de Colonia que no es socio del club. Una categoría que liquida lo deja afuera. */
+export function isColoniaGuestMember(member) {
+  const ids = activityTierIds(member);
+  return ids.length > 0 && ids.every((id) => id === 'colonia_no_socio');
+}
+
+/** Pileta o Colonia sin cuota social. No incluye a quien también es familiar o individual. */
+export function isActivityOnlyMember(member) {
+  const ids = activityTierIds(member);
+  return ids.length > 0 && ids.every((id) => id === 'pileta_no_socio' || id === 'colonia_no_socio');
+}
+
+/**
  * Misma regla que `member_is_dues_exempt` en Postgres.
  * El trigger pone el saldo en 0 si el tier o cuotaCategories matchean,
  * aunque la ficha también tenga una categoría que sí liquida.
@@ -370,9 +395,13 @@ export function dbMemberIsDuesExempt(tier, meta) {
   const t = String(tier || '');
   const raw = meta && typeof meta === 'object' ? meta.cuotaCategories : null;
   const cats = raw == null ? '' : (typeof raw === 'string' ? raw : JSON.stringify(raw));
-  return /(vitalicio|fundador)/i.test(t)
+  if (/(vitalicio|fundador)/i.test(t)
     || /^comision$/i.test(t.trim())
-    || /(vitalicio|fundador|comision)/i.test(cats);
+    || /(vitalicio|fundador|comision)/i.test(cats)) {
+    return true;
+  }
+  const row = { tier: t, cuotaCategories: raw };
+  return isPoolGuestMember(row) || isColoniaGuestMember(row);
 }
 
 /** SOCIO (Vitalicio) y GRUPO FAMILIAR (Vitalicio): no liquidan cuota social. */
@@ -401,6 +430,7 @@ export function isCommissionMember(member) {
  */
 export function isDuesExemptMember(member) {
   if (isVitalicioMember(member)) return true;
+  if (isActivityOnlyMember(member)) return true;
   const ids = billedTierIds(member);
   const tier = String(member?.tier || '').trim().toLowerCase();
   const pool = ids.length ? ids : (tier ? [tier] : []);
@@ -422,6 +452,12 @@ function duesExemptHeadline(member) {
   const hint = tennis
     ? 'No abona cuota social · sí abono tenis'
     : 'No abona cuota social';
+  if (isColoniaGuestMember(member)) {
+    return { title: 'Colonia', hint: 'No socio de colonia · sin cuota social' };
+  }
+  if (isPoolGuestMember(member)) {
+    return { title: 'Pileta', hint: 'No socio de pileta · sin cuota social' };
+  }
   if (/comision/.test(blob)) {
     return { title: 'Comisión', hint };
   }

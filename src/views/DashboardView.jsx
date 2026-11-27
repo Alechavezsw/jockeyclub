@@ -10,7 +10,7 @@ import { FACILITIES } from '../domain/reservations/facilities';
 import { getFacilityLiveStatus } from '../domain/reservations/availability';
 import { useMemberDuesStanding } from '../hooks/useMemberDuesStanding';
 import { findTier } from '../domain/members/tiers';
-import { quotaHeadline } from '../domain/members/dues';
+import { isColoniaGuestMember, isPoolGuestMember, quotaHeadline } from '../domain/members/dues';
 import { duesMonthsPhrase } from '../domain/members/duesImputations';
 import {
   familyPrincipalOf,
@@ -239,6 +239,9 @@ export default function DashboardView({
     return new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', minimumFractionDigits: 0 }).format(amount);
   };
   const quota = quotaHeadline(profile);
+  const poolGuest = isPoolGuestMember(profile);
+  const coloniaGuest = isColoniaGuestMember(profile);
+  const activityGuest = poolGuest || coloniaGuest;
   const canOperateAccount = memberMayOperateAccount(profile);
   const sportCards = memberSportCards(profile);
   const duesPayable = Number(duesStanding?.nextAmount) > 0
@@ -248,7 +251,11 @@ export default function DashboardView({
   const duesMonthsLabel = duesMonthsPhrase(
     (duesStanding?.debtMonths || []).map((row) => row.dueOn),
   );
-  const duesValue = duesPending
+  const duesValue = coloniaGuest
+    ? 'Colonia'
+    : poolGuest
+    ? 'Pileta'
+    : duesPending
     ? 'Consultando…'
     : !duesBehind
       ? 'Al día'
@@ -257,7 +264,11 @@ export default function DashboardView({
         : !quota.billing && quota.kind !== 'debt'
           ? quota.title
           : formatCurrency(duesPayable);
-  const duesSub = duesPending
+  const duesSub = activityGuest
+    ? (quota.hint || (coloniaGuest
+      ? 'No socio de colonia · sin cuota social'
+      : 'No socio de pileta · sin cuota social'))
+    : duesPending
     ? 'Confirmando vencimientos'
     : !duesBehind
       ? (quota.hint || 'Sin deuda de cuota')
@@ -880,11 +891,15 @@ export default function DashboardView({
               {membershipLabel}{membershipYears > 0 ? ` · ${membershipYears} años` : ''}
             </div>
             <div className="db-hero-stats">
-              <div className="db-hero-stat">
-                <span className="db-hero-stat-val">{upcomingReservationsCount}</span>
-                <span className="db-hero-stat-lbl">Próximos turnos</span>
-              </div>
-              <div style={{ width: 1, background: 'rgba(255,255,255,0.08)' }} />
+              {activityGuest ? null : (
+                <>
+                  <div className="db-hero-stat">
+                    <span className="db-hero-stat-val">{upcomingReservationsCount}</span>
+                    <span className="db-hero-stat-lbl">Próximos turnos</span>
+                  </div>
+                  <div style={{ width: 1, background: 'rgba(255,255,255,0.08)' }} />
+                </>
+              )}
               <div className="db-hero-stat">
                 <span className="db-hero-stat-val" style={{ color: duesPending ? 'var(--text-muted)' : duesBehind ? 'var(--primary-gold)' : 'var(--emerald-accent)' }}>
                   {duesValue}
@@ -927,6 +942,7 @@ export default function DashboardView({
 
       {/* ===== QUICK ACTIONS ===== */}
       <div className="db-quick-bar">
+        {activityGuest ? null : (
         <button
           type="button"
           className="db-quick-btn is-reservas"
@@ -942,6 +958,7 @@ export default function DashboardView({
           </span>
           <ChevronRight size={16} className="db-quick-btn-go" aria-hidden="true" />
         </button>
+        )}
         <button type="button" className="db-quick-btn is-news" onClick={() => setCurrentView('news')}>
           <span className="db-quick-btn-icon" style={{ background: 'rgba(16,185,129,0.14)', color: 'var(--emerald-accent)' }}>
             <Bell size={22} />
@@ -980,7 +997,7 @@ export default function DashboardView({
       </div>
 
       {/* ===== DISPONIBILIDAD EN VIVO + CALENDARIO + RESERVA ===== */}
-      {addReservation && (
+      {addReservation && !activityGuest && (
         <div style={{ marginBottom: '1.75rem' }}>
           <MemberFacilitiesBooking
             member={member}
@@ -997,7 +1014,7 @@ export default function DashboardView({
         </div>
       )}
 
-      {setGuestPasses && (
+      {setGuestPasses && !activityGuest && (
         <div className="glass-card" style={{ padding: '1.1rem 1.2rem', marginBottom: '1.75rem' }}>
           <GuestPassPanel
             member={member}
@@ -1188,6 +1205,7 @@ export default function DashboardView({
               <span className="db-stat-sub">{duesSub}</span>
             </div>
 
+            {activityGuest ? null : (
             <div
               className={`db-stat-card is-clickable${upcomingWithBalance > 0 ? ' is-late' : ' is-ok'}`}
               role="button"
@@ -1208,6 +1226,7 @@ export default function DashboardView({
               <div className="db-stat-value">{upcomingReservationsCount}</div>
               <span className="db-stat-sub">{upcomingTurnsSub}</span>
             </div>
+            )}
 
             <div className="db-stat-card is-membership">
               <div className="db-stat-head">
@@ -1336,6 +1355,21 @@ export default function DashboardView({
           </div>
 
           {/* Reservas */}
+          {activityGuest ? (
+            <div className="db-card">
+              <div className="db-card-title">
+                <div className="db-card-title-icon" style={{ background: coloniaGuest ? 'rgba(20,184,166,0.14)' : 'rgba(14,165,233,0.12)', color: coloniaGuest ? '#14b8a6' : '#0ea5e9' }}>
+                  <Activity size={16} />
+                </div>
+                {coloniaGuest ? 'Colonia' : 'Pileta'}
+              </div>
+              <p style={{ margin: '0.35rem 0 0', fontSize: '0.88rem', lineHeight: 1.45, color: 'var(--text-secondary)' }}>
+                {coloniaGuest
+                  ? 'Esta app es la tuya: credencial, avisos y Colonia con tarifa de no socio. No incluye cuota social ni reservas de instalaciones.'
+                  : 'Esta app es la tuya: credencial, avisos, el canon de temporada y Colonia con tarifa de no socio. No incluye cuota social ni reservas de instalaciones.'}
+              </p>
+            </div>
+          ) : (
           <div className="db-card">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div className="db-card-title">
@@ -1388,6 +1422,7 @@ export default function DashboardView({
               </div>
             )}
           </div>
+          )}
 
           {/* Reclamos */}
           <div id="db-claims" className="db-card">
