@@ -44,7 +44,6 @@ import {
   COLONIA_OFFICIAL_TARIFFS_2026_2027,
   evaluatePromotionCharge,
   inscriptionAmount,
-  planAmountFor,
 } from '../../domain/colonia/coloniaTariffs';
 import {
   buildColoniaAccountRows,
@@ -500,7 +499,6 @@ export default function ColoniaTab({
     memberParsed.kind === 'number'
     || (memberParsed.kind === 'text' && memberParsed.text.length >= 2)
   );
-  const planPrice = planAmountFor(COLONIA_OFFICIAL_TARIFFS_2026_2027, student.memberKind, planKey);
   const inscriptionPrice = inscriptionAmount(COLONIA_OFFICIAL_TARIFFS_2026_2027);
   const pupilCount = rosterPreview.length;
   const enrollQuote = quoteColoniaEnrollmentDue({
@@ -582,9 +580,9 @@ export default function ColoniaTab({
     ? accountRows
     : (monthBooks.find((month) => month.key === accountMonthKey)?.lines || []);
   const accountVisible = monthRows;
-  const inscriptionDue = planKey === 'hermano_4' ? 0 : (Number(inscriptionPrice) || 0);
-  const enrollmentInscriptionTotal = inscriptionDue * pupilCount;
-  const enrollmentPlanTotal = Number(planPrice) || 0;
+  const inscriptionDue = Number(enrollQuote.inscriptionEach) || 0;
+  const enrollmentInscriptionTotal = Number(enrollQuote.inscription) || 0;
+  const enrollmentPlanTotal = Number(enrollQuote.planCapital) || 0;
   const enrollOffer = coloniaEnrollPayChoices({
     planKey,
     memberKind: student.memberKind,
@@ -593,7 +591,9 @@ export default function ColoniaTab({
     paidOn: todayIso(),
     season: season || COLONIA_SEASON_2026_2027,
   });
-  const enrollScope = enrollOffer.choices.some((row) => row.key === enrollPayScope) ? enrollPayScope : 'todo';
+  const enrollScope = enrollOffer.choices.some((row) => row.key === enrollPayScope)
+    ? enrollPayScope
+    : (enrollOffer.choices[0]?.key || 'todo');
   const enrollmentInterest = enrollScope === 'inscripcion' ? 0 : (Number(enrollQuote.interest) || 0);
   const enrollmentTotal = enrollmentInscriptionTotal + enrollmentPlanTotal + (Number(enrollQuote.interest) || 0);
   const enrollmentCollectAmount = coloniaAmountForPayScope(enrollScope, {
@@ -1347,11 +1347,12 @@ export default function ColoniaTab({
       emergency_contact: guardian.emergencyContact || null,
       authorized_pickup: guardian.authorizedPickup || null,
     });
-    const planAmount = planAmountFor(COLONIA_OFFICIAL_TARIFFS_2026_2027, student.memberKind, planKey);
+    const planEach = Number(enrollQuote.planEach) || 0;
     const planConcept = planKey === 'temporada'
       ? 'colonia_temporada'
       : (String(planKey).startsWith('promo') || planKey === 'hermano_4' ? 'colonia_promocion' : 'colonia_cuota');
-    const inscription = planKey === 'hermano_4' ? 0 : inscriptionAmount(COLONIA_OFFICIAL_TARIFFS_2026_2027);
+    const inscription = Number(enrollQuote.inscriptionEach) || 0;
+    const perPupil = enrollQuote.perPupil === true;
     const slices = [];
     for (let index = 0; index < rosterPreview.length; index += 1) {
       const pupil = rosterPreview[index];
@@ -1385,15 +1386,15 @@ export default function ColoniaTab({
         });
         amount += inscription;
       }
-      if (index === 0 && planAmount != null && planAmount > 0) {
+      if (planEach > 0 && (perPupil || index === 0)) {
         await repos.coloniaPostCharge({
           enrollmentId: savedEnrollment.id,
           concept: planConcept,
           planKey,
-          amount: planAmount,
+          amount: planEach,
           note: `Plan ${planKey}`,
         });
-        amount += planAmount;
+        amount += planEach;
       }
       const interest = index === 0 ? (enrollQuote.interest || 0) : 0;
       slices.push({
@@ -1464,7 +1465,7 @@ export default function ColoniaTab({
       const slices = await createPendingEnrollment();
       const paySlices = slices.map((slice, index) => {
         const inscriptionPart = inscriptionDue > 0 ? inscriptionDue : 0;
-        const planPart = index === 0 ? enrollmentPlanTotal : 0;
+        const planPart = (enrollQuote.perPupil || index === 0) ? (Number(enrollQuote.planEach) || 0) : 0;
         const interest = index === 0 && enrollScope !== 'inscripcion' ? (enrollQuote.interest || 0) : 0;
         const amount = coloniaAmountForPayScope(enrollScope, {
           inscriptionAmount: inscriptionPart,
@@ -1566,7 +1567,7 @@ export default function ColoniaTab({
       planKey,
       memberKind: student.memberKind,
       inscriptionAmount: holdScope === 'plan' ? 0 : inscriptionDue,
-      planAmount: holdScope === 'inscripcion' ? 0 : planPrice,
+      planAmount: holdScope === 'inscripcion' ? 0 : (Number(enrollQuote.planEach) || 0),
       interestAmount: holdScope === 'inscripcion' ? 0 : enrollQuote.interest,
       socioName: student.memberKind === 'no_socio'
         ? guardian.fullName
@@ -2266,7 +2267,7 @@ export default function ColoniaTab({
                     ['temporada', 'Temporada'],
                     ['promo_2', '2 hermanos · temporada'],
                     ['promo_3', '3 hermanos · temporada'],
-                    ['hermano_4', '4º hermano · temporada'],
+                    ['hermano_4', '4º hermano · solo inscripción'],
                   ].map(([key, label]) => {
                     const offer = coloniaEnrollPayChoices({
                       planKey: key,
@@ -2276,11 +2277,16 @@ export default function ColoniaTab({
                       paidOn: todayIso(),
                       season: season || COLONIA_SEASON_2026_2027,
                     });
-                    const note = !(offer.planCapital > 0)
-                      ? 'Sin canon'
-                      : offer.inscription > 0
-                        ? `${money(offer.planCapital)} + inscripción ${money(offer.inscription)}`
-                        : `${money(offer.planCapital)} · sin inscripción`;
+                    const planNote = offer.perPupil && pupilCount > 1
+                      ? `${money(offer.planEach)} cada uno`
+                      : money(offer.planCapital);
+                    const note = offer.planCapital > 0 && offer.inscription > 0
+                      ? `${planNote} + inscripción ${money(offer.inscription)}`
+                      : offer.planCapital > 0
+                        ? `${planNote} · sin inscripción`
+                        : offer.inscription > 0
+                          ? `Solo inscripción ${money(offer.inscription)}`
+                          : 'Sin canon';
                     return (
                       <button
                         key={key}
@@ -2447,8 +2453,8 @@ export default function ColoniaTab({
                       : enrollScope === 'plan'
                         ? `${planKey === 'cuota' ? 'Cuota' : planKey === 'temporada' ? 'Temporada' : 'Plan'} ${money(enrollmentPlanTotal)}${enrollmentInterest > 0 ? ` + interés 15 % ${money(enrollmentInterest)}` : ''}`
                         : planKey === 'hermano_4'
-                          ? `Plan ${money(planPrice)} · sin inscripción`
-                          : `Inscripción ${money(inscriptionPrice)}${pupilCount > 1 ? ` × ${pupilCount}` : ''}${Number(planPrice) > 0 ? ` + ${planKey === 'cuota' ? 'cuota' : 'plan'} ${money(planPrice)}` : ''}${enrollmentInterest > 0 ? ` + interés 15 % ${money(enrollmentInterest)}` : ''}`}
+                          ? `Solo inscripción ${money(enrollmentInscriptionTotal)}`
+                          : `Inscripción ${money(inscriptionPrice)}${pupilCount > 1 ? ` × ${pupilCount}` : ''}${enrollmentPlanTotal > 0 ? ` + ${planKey === 'cuota' ? 'cuota' : enrollQuote.perPupil && pupilCount > 1 ? `${money(enrollQuote.planEach)} cada uno` : 'plan'} ${enrollQuote.perPupil && pupilCount > 1 ? '' : money(enrollmentPlanTotal)}` : ''}${enrollmentInterest > 0 ? ` + interés 15 % ${money(enrollmentInterest)}` : ''}`}
                   </span>
                   <strong>{money(enrollmentCollectAmount)}</strong>
                 </div>

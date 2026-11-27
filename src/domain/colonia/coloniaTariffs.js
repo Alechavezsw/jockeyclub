@@ -7,7 +7,8 @@ import { COLONIA_PLAN_KEYS, COLONIA_SEASON_2026_2027 } from './coloniaConstants'
 /** Tarifas oficiales publicadas 2026/2027 (seed). */
 const COLONIA_INSCRIPTION_2026_2027 = 50000;
 const COLONIA_PROMO_3_SOCIO = 410000;
-const COLONIA_PROMO_3_NO_SOCIO = 500000;
+/** No socio: la temporada completa es $ 490.000 por cada uno de los tres primeros. */
+const COLONIA_TEMPORADA_NO_SOCIO = 490000;
 
 export const COLONIA_OFFICIAL_TARIFFS_2026_2027 = Object.freeze({
   inscription: COLONIA_INSCRIPTION_2026_2027,
@@ -16,14 +17,14 @@ export const COLONIA_OFFICIAL_TARIFFS_2026_2027 = Object.freeze({
     [COLONIA_PLAN_KEYS.temporada]: 390000,
     [COLONIA_PLAN_KEYS.promo_2]: 280000,
     [COLONIA_PLAN_KEYS.promo_3]: COLONIA_PROMO_3_SOCIO,
-    [COLONIA_PLAN_KEYS.hermano_4]: COLONIA_PROMO_3_SOCIO,
+    [COLONIA_PLAN_KEYS.hermano_4]: 0,
   }),
   no_socio: Object.freeze({
     [COLONIA_PLAN_KEYS.cuota]: 180000,
-    [COLONIA_PLAN_KEYS.temporada]: 490000,
-    [COLONIA_PLAN_KEYS.promo_2]: 340000,
-    [COLONIA_PLAN_KEYS.promo_3]: COLONIA_PROMO_3_NO_SOCIO,
-    [COLONIA_PLAN_KEYS.hermano_4]: COLONIA_PROMO_3_NO_SOCIO,
+    [COLONIA_PLAN_KEYS.temporada]: COLONIA_TEMPORADA_NO_SOCIO,
+    [COLONIA_PLAN_KEYS.promo_2]: COLONIA_TEMPORADA_NO_SOCIO,
+    [COLONIA_PLAN_KEYS.promo_3]: COLONIA_TEMPORADA_NO_SOCIO,
+    [COLONIA_PLAN_KEYS.hermano_4]: 0,
   }),
 });
 
@@ -50,6 +51,16 @@ export function planAmountFor(tariffs, memberKind, planKey) {
 
 export function inscriptionAmount(tariffs = COLONIA_OFFICIAL_TARIFFS_2026_2027) {
   return Number(tariffs?.inscription ?? COLONIA_OFFICIAL_TARIFFS_2026_2027.inscription) || 0;
+}
+
+/** No socio: temporada y promos de 2 o 3 se cobran por chico. El cuarto no lleva plan. */
+export function coloniaPlanChargedPerPupil(memberKind, planKey) {
+  const kind = normalizeMemberKind(memberKind);
+  const plan = String(planKey || '').toLowerCase();
+  if (kind !== 'no_socio') return false;
+  return plan === COLONIA_PLAN_KEYS.temporada
+    || plan === COLONIA_PLAN_KEYS.promo_2
+    || plan === COLONIA_PLAN_KEYS.promo_3;
 }
 
 /**
@@ -86,7 +97,7 @@ export function evaluatePromotionCharge({
     }
     warnings.push({
       code: 'fourth_sibling_inscription_only',
-      message: 'Cuarto hermano: mismo importe que la promo de 3. La inscripción no se cobra.',
+      message: 'Cuarto hermano: solo paga la inscripción. No paga cuota ni temporada.',
     });
   }
 

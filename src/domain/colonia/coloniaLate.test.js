@@ -41,7 +41,7 @@ describe('interés de la cuota de Colonia', () => {
     ]);
   });
 
-  it('el cuarto hermano no ofrece una inscripción que el plan dice que no cobra', () => {
+  it('no socio paga 490.000 de temporada por cada uno y el cuarto solo la inscripción', () => {
     const fourth = coloniaEnrollPayChoices({
       planKey: 'hermano_4',
       memberKind: 'no_socio',
@@ -50,7 +50,7 @@ describe('interés de la cuota de Colonia', () => {
       paidOn: '2026-11-27',
       season,
     });
-    const three = coloniaEnrollPayChoices({
+    const one = coloniaEnrollPayChoices({
       planKey: 'promo_3',
       memberKind: 'no_socio',
       pupilCount: 1,
@@ -58,10 +58,25 @@ describe('interés de la cuota de Colonia', () => {
       paidOn: '2026-11-27',
       season,
     });
+    const three = quoteColoniaEnrollmentDue({
+      planKey: 'temporada',
+      memberKind: 'no_socio',
+      pupilCount: 3,
+      tariffs: COLONIA_OFFICIAL_TARIFFS_2026_2027,
+      paidOn: '2026-11-27',
+      season,
+    });
+    expect(fourth.planCapital).toBe(0);
     expect(fourth.choices.map((row) => [row.label, row.amount])).toEqual([
-      ['Todo', 500000],
+      ['Solo inscripción', 50000],
     ]);
-    expect(three.choices.map((row) => row.amount)).toEqual([550000, 50000, 500000]);
+    expect(one.choices.map((row) => row.amount)).toEqual([540000, 50000, 490000]);
+    expect(three).toMatchObject({
+      planEach: 490000,
+      planCapital: 1470000,
+      inscription: 150000,
+      total: 1620000,
+    });
   });
 
   it('en la inscripción el 15 % va solo sobre la cuota', () => {
@@ -113,7 +128,8 @@ describe('interés de la cuota de Colonia', () => {
       paidOn: '2026-11-25',
       season,
     });
-    expect(hermano.inscription).toBe(0);
+    expect(hermano.inscription).toBe(50000);
+    expect(hermano.planCapital).toBe(0);
     expect(hermano.interest).toBe(0);
   });
 
