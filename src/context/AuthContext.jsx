@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { allowLocalDemoAuth, isSupabaseConfigured, supabase } from '../lib/supabase';
 import { ROLE_LABELS, canAccessAdmin, primaryRoleFromList } from '../domain/auth/roles';
 import { PROFILE_SESSION_COLUMNS, profileSessionFields } from '../domain/auth/profileSession';
+import { clearMemberDeviceCache } from '../domain/auth/sessionCache';
 import {
   SESSION_DESK,
   canUseMemberDesk,
@@ -77,9 +78,7 @@ function mapProfile(sessionUser, profileRow) {
 }
 
 async function loadUserFromSession(sessionUser) {
-  const email = String(sessionUser.email || '').trim();
-  // Paralelo: perfil + roles + ficha (por vínculo o por el mismo correo).
-  const [profileRes, roleRes, memberByProfile, memberByEmail] = await Promise.all([
+  const [profileRes, roleRes, memberByProfile] = await Promise.all([
     supabase
       .from('profiles')
       .select(PROFILE_SESSION_COLUMNS)
@@ -93,32 +92,15 @@ async function loadUserFromSession(sessionUser) {
     supabase
       .from('members')
       .select('member_number')
-      .eq('profile_id', sessionUser.id)
-      .limit(1),
-    email
-      ? supabase
-        .from('members')
-        .select('member_number')
-        .ilike('email', email)
-        .limit(1)
-      : Promise.resolve({ data: [] }),
+      .eq('profile_id', sessionUser.id),
   ]);
 
-  let memberNumber = memberByProfile.data?.[0]?.member_number
-    || memberByEmail.data?.[0]?.member_number
-    || null;
-  const documentNumber = String(profileRes.data?.document_number || '').replace(/\D/g, '');
-  if (!memberNumber && documentNumber) {
-    const { data: byDoc } = await supabase
-      .from('members')
-      .select('member_number')
-      .eq('document_number', documentNumber)
-      .limit(1);
-    memberNumber = byDoc?.[0]?.member_number || null;
-  }
+  const linkedRows = memberByProfile.data || [];
+  let memberNumber = linkedRows.length === 1 ? linkedRows[0].member_number : null;
 
-  // Si entró por DNI/mail sin profile_id en la ficha, vincula una vez (best-effort).
-  if (!memberByProfile.data?.[0]?.member_number) {
+  // Sin vínculo no se adivina la ficha por correo ni por DNI.
+  // El alta automática solo ocurre si DNI y correo son de la misma persona.
+  if (linkedRows.length === 0) {
     try {
       const { data: linkedNumber } = await supabase.rpc('link_own_member_profile');
       if (linkedNumber) memberNumber = linkedNumber;
@@ -143,6 +125,7 @@ export function AuthProvider({ children }) {
   const [authError, setAuthError] = useState('');
   /** Solo true cuando el usuario apretó “salir”: un SIGNED_OUT espurio no debe echarlo. */
   const logoutIntentRef = useRef(false);
+  const sessionUserIdRef = useRef(null);
 
   const applyMappedUser = useCallback((mapped) => {
     if (!mapped) {
@@ -150,6 +133,10 @@ export function AuthProvider({ children }) {
       setDesk(null);
       return mapped;
     }
+    if (sessionUserIdRef.current && sessionUserIdRef.current !== mapped.id && typeof window !== 'undefined') {
+      clearMemberDeviceCache(window.localStorage);
+    }
+    sessionUserIdRef.current = mapped.id;
     const nextDesk = resolveSessionDesk(mapped, loadSessionDesk());
     setUser(mapped);
     setDesk(nextDesk);
@@ -373,6 +360,8 @@ export function AuthProvider({ children }) {
     }
     localStorage.removeItem(SESSION_KEY);
     localStorage.removeItem('jockey-role');
+    clearMemberDeviceCache(localStorage);
+    sessionUserIdRef.current = null;
     clearSessionDesk();
     clearLocalAuth();
     // Si el SDK no emite SIGNED_OUT, no dejar el flag trabado.
