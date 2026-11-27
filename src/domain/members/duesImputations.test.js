@@ -9,10 +9,10 @@ import {
 
 describe('duesMonthsPhrase', () => {
   it('nombra la cuota de alta y no un mes', () => {
-    expect(duesMonthsPhrase(['1899-12-10'])).toBe('Cuota de alta');
-    expect(duesMonthsPhrase(['1899-12-10', '2026-11-10'])).toBe('Cuota de alta y Noviembre de 2026');
-    expect(duesChargeConcept('Cuota de alta')).toBe('Cuota de alta');
-    expect(duesChargeConcept('Cuota de alta y Noviembre de 2026')).toBe('Cuota de alta y Noviembre de 2026');
+    expect(duesMonthsPhrase(['1899-12-10'])).toBe('Primera cuota social');
+    expect(duesMonthsPhrase(['1899-12-10', '2026-11-10'])).toBe('Primera cuota social y Noviembre de 2026');
+    expect(duesChargeConcept('Primera cuota social')).toBe('Primera cuota social');
+    expect(duesChargeConcept('Primera cuota social — Noviembre de 2026')).toBe('Primera cuota social — Noviembre de 2026');
     expect(duesChargeConcept('Noviembre de 2026')).toBe('Cuota social · Noviembre de 2026');
   });
 

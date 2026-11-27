@@ -167,11 +167,15 @@ function takeMonth(list, member, dueOn, leftover, { today }) {
     return { leftover, status: 'short' };
   }
   const capital = capitalBase;
-  const joinFee = isMemberJoinFeeMonth(member, dueOn);
-  const interest = joinFee ? 0 : Math.max(0, interestBase);
+  const join = String(member?.joinDate || member?.meta?.joinDate || '').slice(0, 10);
+  const due = String(dueOn || '').slice(0, 10);
+  const joinedAfterDue = /^\d{4}-\d{2}-\d{2}$/.test(join) && join > due;
+  const interest = (isJoinFeeDueOn(due) || (isMemberJoinFeeMonth(member, due) && joinedAfterDue))
+    ? 0
+    : Math.max(0, interestBase);
   const next = money(leftover - capital);
   list.push({
-    ...periodFromDueOn(joinFee ? JOIN_FEE_DUE_ON : dueOn),
+    ...periodFromDueOn(due),
     capital,
     interest,
   });
@@ -191,6 +195,12 @@ function monthAfterKey(yearMonth) {
  */
 function allocateJoinFee(member, remaining) {
   const periods = Array.isArray(member?.duesOpenPeriods) ? member.duesOpenPeriods : [];
+  const joinKey = memberJoinMonthKey(member);
+  const structured = periods.some((row) => {
+    const due = String(row?.dueOn || '').slice(0, 10);
+    return joinKey && due.slice(0, 7) === joinKey && due > '1900-01-10' && (Number(row?.capital) || 0) > EPS;
+  });
+  if (structured) return null;
   const stored = periods.find((row) => isJoinFeeDueOn(row?.dueOn) || String(row?.kind || '') === 'alta');
   let capital = stored ? money(stored.capital) : 0;
   if (!(capital > EPS)) {

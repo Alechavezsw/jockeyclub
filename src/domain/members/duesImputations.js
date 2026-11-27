@@ -3,18 +3,31 @@ import { money } from '../money';
 /** Deuda anterior al detalle por mes. Se cobra primero y no inventa un vencimiento. */
 export const OPENING_DUE_ON = '1900-01-10';
 
-/** Cuota de alta: la tarifa de la categoría, una sola vez. No es un mes y no lleva el 10 %. */
+/**
+ * Filas viejas de alta, anteriores a la cuota del mes de ingreso.
+ * No es un período. No lleva el 10 %. Las altas nuevas usan el día 10 (o 18 si es AMET) del mes real.
+ */
 export const JOIN_FEE_DUE_ON = '1899-12-10';
-export const JOIN_FEE_LABEL = 'Cuota de alta';
-
-export function isJoinFeeDueOn(dueOn) {
-  return String(dueOn || '').slice(0, 10) === JOIN_FEE_DUE_ON;
-}
+export const JOIN_FEE_LABEL = 'Primera cuota social';
 
 const MONTHS_ES = [
   'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
   'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
 ];
+
+export function isJoinFeeDueOn(dueOn) {
+  return String(dueOn || '').slice(0, 10) === JOIN_FEE_DUE_ON;
+}
+
+/** «Primera cuota social — Noviembre de 2026». El mes es el de la fecha de alta. */
+export function firstSocialQuotaLabel(dueOn) {
+  const iso = String(dueOn || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso) || iso <= OPENING_DUE_ON || isJoinFeeDueOn(iso)) {
+    return JOIN_FEE_LABEL;
+  }
+  const name = MONTHS_ES[Number(iso.slice(5, 7)) - 1];
+  return name ? `${JOIN_FEE_LABEL} — ${name} de ${iso.slice(0, 4)}` : JOIN_FEE_LABEL;
+}
 
 export function imputationPeriodLabel(dueOn) {
   const iso = String(dueOn || '').slice(0, 10);
