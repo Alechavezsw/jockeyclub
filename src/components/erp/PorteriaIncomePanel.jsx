@@ -8,8 +8,11 @@ import {
   isPorteriaIncomeItem,
   OTHER_INCOME_PAYMENT_METHODS,
   PORTERIA_TABLE_PAGE_SIZE,
+  porteriaGuestBookChoices,
+  porteriaGuestBookTotal,
   totalAmountHintFromNotes,
 } from '../../domain/accounting/otherIncomes';
+import { mergePoolSettings } from '../../domain/pool/poolAccess';
 import { downloadPorteriaIncomeReceiptPdf } from '../../domain/accounting/exportPorteriaIncomeReceiptPdf';
 import { repos } from '../../data/bootstrap';
 import { formatInstantAR, todayAR } from '../../lib/arDate';
@@ -40,6 +43,7 @@ export default function PorteriaIncomePanel({
   rendererIsPorter = false,
   receiverId = '',
   receiverName = '',
+  poolSettings,
 }) {
   const [date, setDate] = useState(todayAR);
   const [kind, setKind] = useState('porteria');
@@ -47,6 +51,8 @@ export default function PorteriaIncomePanel({
   const [amount, setAmount] = useState('');
   const [detail, setDetail] = useState('');
   const [bookNumber, setBookNumber] = useState('');
+  const [guestBookId, setGuestBookId] = useState('');
+  const [guestQty, setGuestQty] = useState(1);
   const [porters, setPorters] = useState([]);
   const [porterId, setPorterId] = useState('');
   const [tablePage, setTablePage] = useState(0);
@@ -117,6 +123,11 @@ export default function PorteriaIncomePanel({
     return () => { cancelled = true; };
   }, [rendererId, rendererName, rendererIsPorter]);
 
+  const guestBooks = useMemo(
+    () => porteriaGuestBookChoices(mergePoolSettings(poolSettings)),
+    [poolSettings],
+  );
+  const selectedGuestBook = guestBooks.find((item) => item.id === guestBookId) || null;
   const selectedPorter = porters.find((row) => row.id === porterId) || null;
   const whoReceives = String(receiverName || rendererName || '').trim();
 
@@ -143,7 +154,9 @@ export default function PorteriaIncomePanel({
       setError('Elegí el portero que rinde.');
       return;
     }
-    const description = detail.trim();
+    const booked = kind === 'porteria' ? selectedGuestBook : null;
+    const bookedTotal = booked ? porteriaGuestBookTotal(booked, guestQty) : null;
+    const description = (bookedTotal?.detail || detail).trim();
     const book = bookNumber.trim();
     if (!description) {
       setError('Escribí la descripción.');
@@ -153,7 +166,7 @@ export default function PorteriaIncomePanel({
       setError('Indicá el número de talonario.');
       return;
     }
-    const entered = Number(amount);
+    const entered = bookedTotal ? bookedTotal.amount : Number(amount);
     if (!(entered > 0)) {
       setError('Indicá el importe.');
       return;
@@ -191,6 +204,8 @@ export default function PorteriaIncomePanel({
       setAmount('');
       setDetail('');
       setBookNumber('');
+      setGuestBookId('');
+      setGuestQty(1);
       setPaymentMethod('efectivo');
       try {
         await downloadPorteriaIncomeReceiptPdf(receipt);
@@ -225,7 +240,13 @@ export default function PorteriaIncomePanel({
               role="radio"
               aria-checked={kind === item.id}
               className={`gate-income-kind${kind === item.id ? ' is-on' : ''}`}
-              onClick={() => setKind(item.id)}
+              onClick={() => {
+                setKind(item.id);
+                if (item.id !== 'porteria') {
+                  setGuestBookId('');
+                  setGuestQty(1);
+                }
+              }}
             >
               {item.label}
             </button>
@@ -247,6 +268,40 @@ export default function PorteriaIncomePanel({
           ))}
         </div>
 
+        {kind === 'porteria' ? (
+          <div className="gate-income-kinds is-books" role="radiogroup" aria-label="Talonarios de invitados">
+            <button
+              type="button"
+              role="radio"
+              aria-checked={!guestBookId}
+              className={`gate-income-kind${!guestBookId ? ' is-on' : ''}`}
+              onClick={() => {
+                setGuestBookId('');
+                setGuestQty(1);
+              }}
+            >
+              Otro ingreso
+            </button>
+            {guestBooks.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                role="radio"
+                aria-checked={guestBookId === item.id}
+                className={`gate-income-kind${guestBookId === item.id ? ' is-on' : ''}`}
+                onClick={() => {
+                  setGuestBookId(item.id);
+                  setGuestQty(1);
+                  setAmount(String(item.amount));
+                  setDetail(item.label);
+                }}
+              >
+                {item.label} · {formatCurrency(item.amount)}
+              </button>
+            ))}
+          </div>
+        ) : null}
+
         <label className="gate-income-field">
           <span>Fecha</span>
           <input
@@ -257,6 +312,27 @@ export default function PorteriaIncomePanel({
             onChange={(event) => setDate(event.target.value)}
           />
         </label>
+        {selectedGuestBook ? (
+          <label className="gate-income-field">
+            <span>Cantidad de talonarios</span>
+            <input
+              type="number"
+              min="1"
+              step="1"
+              className="form-input"
+              required
+              inputMode="numeric"
+              value={guestQty}
+              onChange={(event) => {
+                const next = Math.max(1, Math.floor(Number(event.target.value) || 1));
+                const total = porteriaGuestBookTotal(selectedGuestBook, next);
+                setGuestQty(next);
+                setAmount(String(total.amount));
+                setDetail(total.detail);
+              }}
+            />
+          </label>
+        ) : null}
         <label className="gate-income-field">
           <span>Importe</span>
           <input
@@ -266,8 +342,9 @@ export default function PorteriaIncomePanel({
             className="form-input"
             required
             inputMode="decimal"
-            value={amount}
+            value={selectedGuestBook ? String(porteriaGuestBookTotal(selectedGuestBook, guestQty).amount) : amount}
             placeholder="0"
+            readOnly={Boolean(selectedGuestBook)}
             onChange={(event) => setAmount(event.target.value)}
           />
         </label>
@@ -276,8 +353,9 @@ export default function PorteriaIncomePanel({
           <input
             className="form-input"
             required
-            value={detail}
+            value={selectedGuestBook ? porteriaGuestBookTotal(selectedGuestBook, guestQty).detail : detail}
             placeholder="Qué se está rindiendo"
+            readOnly={Boolean(selectedGuestBook)}
             onChange={(event) => setDetail(event.target.value)}
           />
         </label>

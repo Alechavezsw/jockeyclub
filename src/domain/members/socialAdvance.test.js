@@ -158,6 +158,23 @@ describe('adelanto de cuota social', () => {
     expect(promoted.memberUpdates.map((row) => row.memberId)).toEqual(['11']);
   });
 
+  it('no deja adelantar un mes salteando el anterior', () => {
+    const member = familiar();
+    expect(() => collectionPreview(member, TODAY, {
+      periodDueOns: ['2027-01-10'],
+      chargeScope: 'social',
+    })).toThrow(/orden|saltear/i);
+    expect(() => collectionPreview(member, TODAY, {
+      periodDueOns: ['2026-12-10', '2027-02-10'],
+      chargeScope: 'social',
+    })).toThrow(/orden|saltear/i);
+    const preview = collectionPreview(member, TODAY, {
+      periodDueOns: ['2026-12-10', '2027-01-10', '2027-02-10'],
+      chargeScope: 'social',
+    });
+    expect(preview.cash).toBe(210000);
+  });
+
   it('no vuelve a cobrar un mes ya adelantado', () => {
     const paid = payMemberDues(familiar(), {
       method: 'efectivo',

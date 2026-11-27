@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { X, Banknote, Landmark, QrCode, CreditCard, Upload, Copy, Check, Split, WalletCards, Wallet } from 'lucide-react';
+import { X, Banknote, Landmark, QrCode, CreditCard, Upload, Copy, Check, Split, WalletCards, Wallet, ChevronDown } from 'lucide-react';
 import ModalDialog from '../ModalDialog';
 import MercadoPagoCheckout from '../MercadoPagoCheckout';
 import {
@@ -8,6 +8,7 @@ import {
 } from '../../domain/members/clubBanks';
 import {
   advanceSocialPeriodChoices,
+  toggleAdvanceMonthSelection,
   collectionPeriodChoices,
   collectionTennisPreview,
   collectionTennisPeriodChoices,
@@ -736,6 +737,12 @@ export default function CollectDuesModal({
     ? money(onAccountAmount - quotedAmount)
     : money(Math.max(0, Number(split.leftover) || 0));
   const isClear = !duesExempt && !hydrating && Boolean(split.clear);
+  const advanceRows = periodChoices.filter((row) => row.kind === 'advance');
+  const selectedAdvance = advanceRows.filter((row) => {
+    const key = row.selectKey || String(row.dueOn).slice(0, 10);
+    return selectedDueOns.includes(key);
+  });
+  const selectedAdvanceTotal = selectedAdvance.reduce((sum, row) => sum + (Number(row.capital) || 0), 0);
   const nextDueLabel = formatShortDate(account?.nextDueDate) || null;
   const routed = account?.memberId && liveMember?.memberId && account.memberId !== liveMember.memberId;
   const methods = (!tennisOnly && duesExempt)
@@ -985,6 +992,8 @@ export default function CollectDuesModal({
   const togglePeriod = (key) => {
     setError('');
     setSelectedDueOns((prev) => {
+      const advance = toggleAdvanceMonthSelection(periodChoices, key, prev);
+      if (advance) return advance;
       const has = prev.includes(key);
       if (has) {
         if (prev.length <= 1) return prev;
@@ -1524,23 +1533,39 @@ export default function CollectDuesModal({
                 ? 'No hay abono de tenis pendiente en los meses abiertos.'
                 : (nextDueLabel
                   ? `No debe cuota ahora. Próximo vencimiento ${nextDueLabel}.`
-                  : 'No debe cuota ahora. Si querés, adelantá los meses de abajo: entran pagos y la liquidación de ese mes no los vuelve a cobrar.')}
+                  : 'No debe cuota ahora. Si querés, abrí Adelantar cuota: entran pagos y la liquidación de ese mes no los vuelve a cobrar.')}
             </p>
           </div>
         ) : null}
 
-        {!tennisOnly && !duesExempt && !isOnAccount && periodChoices.some((row) => row.kind === 'advance') ? (
-          <div style={{ marginBottom: '1rem' }}>
-            <p style={{ margin: '0 0 0.35rem', fontSize: '0.78rem', letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--text-gold)' }}>
-              Adelantar cuota
-            </p>
+        {!tennisOnly && !duesExempt && !isOnAccount && advanceRows.length ? (
+          <details className="due-advance">
+            <summary className="due-advance-summary">
+              <i className="due-fold-arrow" aria-hidden="true">
+                <ChevronDown size={16} strokeWidth={2.5} />
+              </i>
+              <span>
+                <strong>Adelantar cuota</strong>
+                <small>
+                  {selectedAdvance.length
+                    ? `${duesMonthsPhrase(selectedAdvance.map((row) => row.dueOn))} · ${formatCurrency(selectedAdvanceTotal)}`
+                    : 'Elegí uno o varios meses que todavía no vencieron'}
+                </small>
+              </span>
+            </summary>
+            <div className="due-advance-body">
             <p style={{ margin: '0 0 0.55rem', fontSize: '0.82rem', color: 'var(--text-muted)' }}>
-              Uno o varios meses que todavía no vencieron. Capital entero, sin el 10 %. En la liquidación de ese mes queda paga.
+              Capital entero, sin el 10 %. En orden: no se puede saltear un mes. En la liquidación de ese mes queda paga.
             </p>
             <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gap: '0.4rem' }}>
-              {periodChoices.filter((row) => row.kind === 'advance').map((row) => {
+              {advanceRows.map((row, index) => {
                 const key = row.selectKey || String(row.dueOn).slice(0, 10);
                 const checked = selectedDueOns.includes(key);
+                const previous = index > 0 ? advanceRows[index - 1] : null;
+                const previousKey = previous
+                  ? (previous.selectKey || String(previous.dueOn).slice(0, 10))
+                  : '';
+                const locked = Boolean(previousKey) && !selectedDueOns.includes(previousKey);
                 return (
                   <li key={key}>
                     <label
@@ -1552,19 +1577,23 @@ export default function CollectDuesModal({
                         borderRadius: 8,
                         border: checked ? '1px solid var(--primary-gold)' : '1px solid var(--border-glass)',
                         background: checked ? 'rgba(var(--primary-gold-rgb),0.1)' : 'transparent',
-                        cursor: 'pointer',
+                        cursor: locked ? 'not-allowed' : 'pointer',
+                        opacity: locked ? 0.55 : 1,
                       }}
                     >
                       <input
                         type="checkbox"
                         checked={checked}
+                        disabled={locked}
                         onChange={() => togglePeriod(key)}
                       />
                       <span style={{ flex: 1 }}>
                         <strong style={{ display: 'block', color: 'var(--text-primary)' }}>
                           {row.displayLabel || row.label}
                         </strong>
-                        <small style={{ color: 'var(--text-muted)' }}>Sin recargo</small>
+                        <small style={{ color: 'var(--text-muted)' }}>
+                          {locked ? 'Primero el mes anterior' : 'Sin recargo'}
+                        </small>
                       </span>
                       <b className="tabular-nums" style={{ color: 'var(--text-gold)' }}>
                         {formatCurrency(row.capital)}
@@ -1574,7 +1603,8 @@ export default function CollectDuesModal({
                 );
               })}
             </ul>
-          </div>
+            </div>
+          </details>
         ) : null}
 
         {!isClear && canPickMonths && !isOnAccount ? (

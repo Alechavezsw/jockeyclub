@@ -9,11 +9,26 @@ import {
   linesTotal,
   porterIncomeBooks,
   porterIncomeBooksByDate,
+  porteriaGuestBookChoices,
+  porteriaGuestBookTotal,
   PORTERIA_TABLE_PAGE_SIZE,
   validateOtherIncomeAttachment,
 } from './otherIncomes';
 
 describe('otherIncomes', () => {
+  it('ofrece los talonarios de invitados al precio de temporada', () => {
+    const choices = porteriaGuestBookChoices();
+    expect(choices.map((item) => [item.id, item.amount, item.passes])).toEqual([
+      ['guest-book-without', 170000, 10],
+      ['guest-book-with', 350000, 10],
+    ]);
+    expect(porteriaGuestBookTotal(choices[1], 2)).toEqual({
+      quantity: 2,
+      amount: 700000,
+      detail: '2 × Talonario 10 invitados con pileta',
+    });
+  });
+
   it('lee el total declarado en la nota de rendición', () => {
     expect(totalAmountHintFromNotes(
       '… $ 104.000 EFECTIVO- total entre efectivo y QR $ 150.000',

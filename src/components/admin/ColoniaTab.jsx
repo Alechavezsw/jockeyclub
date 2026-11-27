@@ -56,7 +56,7 @@ import {
   coloniaCollectableScopes,
   summarizeColoniaAccount,
 } from '../../domain/colonia/coloniaLedger';
-import { quoteColoniaEnrollmentDue, quoteColoniaOpenDue } from '../../domain/colonia/coloniaLate';
+import { coloniaEnrollPayChoices, quoteColoniaEnrollmentDue, quoteColoniaOpenDue } from '../../domain/colonia/coloniaLate';
 import {
   buildColoniaEnrollmentReceipt,
   buildColoniaPaidReceiptFromEnrollment,
@@ -585,9 +585,18 @@ export default function ColoniaTab({
   const inscriptionDue = planKey === 'hermano_4' ? 0 : (Number(inscriptionPrice) || 0);
   const enrollmentInscriptionTotal = inscriptionDue * pupilCount;
   const enrollmentPlanTotal = Number(planPrice) || 0;
-  const enrollmentInterest = enrollPayScope === 'inscripcion' ? 0 : (Number(enrollQuote.interest) || 0);
+  const enrollOffer = coloniaEnrollPayChoices({
+    planKey,
+    memberKind: student.memberKind,
+    pupilCount,
+    tariffs: COLONIA_OFFICIAL_TARIFFS_2026_2027,
+    paidOn: todayIso(),
+    season: season || COLONIA_SEASON_2026_2027,
+  });
+  const enrollScope = enrollOffer.choices.some((row) => row.key === enrollPayScope) ? enrollPayScope : 'todo';
+  const enrollmentInterest = enrollScope === 'inscripcion' ? 0 : (Number(enrollQuote.interest) || 0);
   const enrollmentTotal = enrollmentInscriptionTotal + enrollmentPlanTotal + (Number(enrollQuote.interest) || 0);
-  const enrollmentCollectAmount = coloniaAmountForPayScope(enrollPayScope, {
+  const enrollmentCollectAmount = coloniaAmountForPayScope(enrollScope, {
     inscriptionAmount: enrollmentInscriptionTotal,
     planAmount: enrollmentPlanTotal,
   }) + enrollmentInterest;
@@ -1456,8 +1465,8 @@ export default function ColoniaTab({
       const paySlices = slices.map((slice, index) => {
         const inscriptionPart = inscriptionDue > 0 ? inscriptionDue : 0;
         const planPart = index === 0 ? enrollmentPlanTotal : 0;
-        const interest = index === 0 && enrollPayScope !== 'inscripcion' ? (enrollQuote.interest || 0) : 0;
-        const amount = coloniaAmountForPayScope(enrollPayScope, {
+        const interest = index === 0 && enrollScope !== 'inscripcion' ? (enrollQuote.interest || 0) : 0;
+        const amount = coloniaAmountForPayScope(enrollScope, {
           inscriptionAmount: inscriptionPart,
           planAmount: planPart,
         }) + interest;
@@ -1469,7 +1478,7 @@ export default function ColoniaTab({
           ids: paySlices.map((slice) => slice.id),
           primaryId: paySlices[0]?.id,
           amount: mpAmount,
-          scope: enrollPayScope,
+          scope: enrollScope,
           payStatus: 'awaiting_mp',
           method: 'mercadopago',
         });
@@ -1493,7 +1502,7 @@ export default function ColoniaTab({
           operatorConfirmed: coloniaMethodUsesCard(enrollPayMethod),
           externalReference: enrollPayRef,
           bankId: enrollBankId,
-          idempotencyKey: `alta:${slice.id}:${enrollPayMethod}:${enrollPayScope}:${slice.amount}:${enrollPayRef || 'x'}`,
+          idempotencyKey: `alta:${slice.id}:${enrollPayMethod}:${enrollScope}:${slice.amount}:${enrollPayRef || 'x'}`,
         });
         await repos.coloniaRecordPayment({
           enrollmentId: draft.enrollmentId,
@@ -1512,15 +1521,17 @@ export default function ColoniaTab({
         ids: paySlices.map((slice) => slice.id),
         primaryId: paySlices[0]?.id,
         amount: enrollmentCollectAmount,
-        scope: enrollPayScope,
+        scope: enrollScope,
         payStatus: ready.status,
         method: enrollPayMethod,
       });
-      const scopeNote = enrollPayScope === 'inscripcion'
+      const scopeNote = enrollScope === 'inscripcion'
         ? 'Inscripción cobrada'
-        : enrollPayScope === 'plan'
-          ? 'Mes/plan cobrado'
-          : 'Inscripción y mes cobrados';
+        : enrollScope === 'plan'
+          ? 'Plan cobrado'
+          : enrollScope === 'todo' && inscriptionDue <= 0
+            ? 'Plan cobrado'
+            : 'Inscripción y plan cobrados';
       setMsg(ready.status === 'confirmed'
         ? `${scopeNote}. Ya se puede inscribir.`
         : `${scopeNote} (pendiente de confirmar). Ya se puede inscribir.`);
@@ -2257,7 +2268,19 @@ export default function ColoniaTab({
                     ['promo_3', '3 hermanos'],
                     ['hermano_4', '4º hermano'],
                   ].map(([key, label]) => {
-                    const amount = planAmountFor(COLONIA_OFFICIAL_TARIFFS_2026_2027, student.memberKind, key);
+                    const offer = coloniaEnrollPayChoices({
+                      planKey: key,
+                      memberKind: student.memberKind,
+                      pupilCount,
+                      tariffs: COLONIA_OFFICIAL_TARIFFS_2026_2027,
+                      paidOn: todayIso(),
+                      season: season || COLONIA_SEASON_2026_2027,
+                    });
+                    const note = !(offer.planCapital > 0)
+                      ? 'Sin canon'
+                      : offer.inscription > 0
+                        ? `${money(offer.planCapital)} + inscripción ${money(offer.inscription)}`
+                        : `${money(offer.planCapital)} · sin inscripción`;
                     return (
                       <button
                         key={key}
@@ -2268,7 +2291,7 @@ export default function ColoniaTab({
                         onClick={() => changePlan(key)}
                       >
                         <strong>{label}</strong>
-                        <span>{Number(amount) > 0 ? money(amount) : 'Sin canon'}</span>
+                        <span>{note}{offer.interest > 0 ? ` + interés ${money(offer.interest)}` : ''}</span>
                       </button>
                     );
                   })}
@@ -2373,15 +2396,11 @@ export default function ColoniaTab({
               <div className="colonia-step">
                 <p>Pago, y después la inscripción</p>
                 <div className="colonia-pay-scopes" role="group" aria-label="Qué cobrar">
-                  {[
-                    { key: 'todo', label: 'Todo', amount: enrollmentTotal, show: enrollmentTotal > 0 },
-                    { key: 'inscripcion', label: 'Solo inscripción', amount: enrollmentInscriptionTotal, show: enrollmentInscriptionTotal > 0 },
-                    { key: 'plan', label: planKey === 'temporada' ? 'Solo temporada' : 'Solo mes', amount: enrollmentPlanTotal + (Number(enrollQuote.interest) || 0), show: enrollmentPlanTotal > 0 },
-                  ].filter((row) => row.show).map((row) => (
+                  {enrollOffer.choices.map((row) => (
                     <button
                       key={row.key}
                       type="button"
-                      className={enrollPayScope === row.key ? 'btn btn-sm primary' : 'btn btn-sm'}
+                      className={enrollScope === row.key ? 'btn btn-sm primary' : 'btn btn-sm'}
                       disabled={busy || Boolean(enrollHold)}
                       onClick={() => {
                         setEnrollPayScope(row.key);
@@ -2423,9 +2442,9 @@ export default function ColoniaTab({
               <div className="colonia-total">
                 <div>
                   <span>
-                    {enrollPayScope === 'inscripcion'
+                    {enrollScope === 'inscripcion'
                       ? `Inscripción ${money(enrollmentInscriptionTotal)}${pupilCount > 1 ? ` × ${pupilCount}` : ''}`
-                      : enrollPayScope === 'plan'
+                      : enrollScope === 'plan'
                         ? `${planKey === 'cuota' ? 'Cuota' : planKey === 'temporada' ? 'Temporada' : 'Plan'} ${money(enrollmentPlanTotal)}${enrollmentInterest > 0 ? ` + interés 15 % ${money(enrollmentInterest)}` : ''}`
                         : planKey === 'hermano_4'
                           ? `Plan ${money(planPrice)} · sin inscripción`
@@ -2630,7 +2649,7 @@ export default function ColoniaTab({
                       />
                       {openDue.late ? (
                         <p className="colonia-banner warn">
-                          La cuota se paga después del 10: lleva 15 % de interés ({money(openDue.interest)}). La inscripción no.
+                          Desde diciembre, la cuota paga después del 10 lleva 15 % de interés ({money(openDue.interest)}). Noviembre y la inscripción no.
                         </p>
                       ) : null}
                       {payMethod === 'mercadopago' ? (

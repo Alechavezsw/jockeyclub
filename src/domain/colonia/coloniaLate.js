@@ -1,7 +1,8 @@
 /**
  * Interés de la cuota de Colonia.
- * El capital queda en el cargo. El 15 % se suma al cobrar, si el pago
- * es después del 10 de ese mes. La inscripción, la temporada y la cuota social no entran.
+ * El capital queda en el cargo. El 15 % corre desde diciembre: el 10 de ese mes
+ * entra sin interés y desde el 11 se suma al cobrar. Noviembre no lleva 15 %.
+ * La inscripción, la temporada y la cuota social no entran.
  */
 
 import { todayISODateAR } from '../../lib/arDate';
@@ -30,18 +31,24 @@ export function coloniaCuotaMonthKey(paidOn, season) {
   return key;
 }
 
-/** El 10 entra sin interés. Desde el 11, la cuota lleva 15 %. */
-export function coloniaCuotaIsLate(monthKey, paidOn) {
+/** Diciembre del año en que abre la temporada. Antes de eso no hay 15 %. */
+export function coloniaInterestStartsOn(season) {
+  const year = String(season?.activitiesStartOn || season?.activities_start_on || '2026-11-30').slice(0, 4);
+  return `${/^\d{4}$/.test(year) ? year : '2026'}-12`;
+}
+
+/** El 10 entra sin interés. Desde el 11, y solo desde diciembre, la cuota lleva 15 %. */
+export function coloniaCuotaIsLate(monthKey, paidOn, season) {
+  const key = String(monthKey || '').slice(0, 7);
+  if (!/^\d{4}-\d{2}$/.test(key) || key < coloniaInterestStartsOn(season)) return false;
   const iso = coloniaPaidOnIso(paidOn);
-  const match = /^(\d{4})-(\d{2})$/.exec(String(monthKey || ''));
-  if (!match) return false;
-  const due = `${match[1]}-${match[2]}-${String(COLONIA_CUOTA_DUE_DAY).padStart(2, '0')}`;
+  const due = `${key}-${String(COLONIA_CUOTA_DUE_DAY).padStart(2, '0')}`;
   return iso > due;
 }
 
-export function coloniaCuotaInterest(capital, monthKey, paidOn) {
+export function coloniaCuotaInterest(capital, monthKey, paidOn, season) {
   const cap = moneyArs(capital);
-  if (!(cap > 0) || !coloniaCuotaIsLate(monthKey, paidOn)) return 0;
+  if (!(cap > 0) || !coloniaCuotaIsLate(monthKey, paidOn, season)) return 0;
   return moneyArs(cap * COLONIA_CUOTA_LATE_RATE);
 }
 
@@ -59,7 +66,7 @@ export function quoteColoniaEnrollmentDue({
   const inscriptionEach = plan === 'hermano_4' ? 0 : inscriptionAmount(tariffs);
   const planCapital = moneyArs(planAmountFor(tariffs, memberKind, plan) || 0);
   const monthKey = plan === 'cuota' ? coloniaCuotaMonthKey(paidOn, season) : null;
-  const interest = plan === 'cuota' ? coloniaCuotaInterest(planCapital, monthKey, paidOn) : 0;
+  const interest = plan === 'cuota' ? coloniaCuotaInterest(planCapital, monthKey, paidOn, season) : 0;
   const inscription = moneyArs(inscriptionEach * kids);
   return {
     inscription,
@@ -71,6 +78,41 @@ export function quoteColoniaEnrollmentDue({
     late: interest > 0,
     total: moneyArs(inscription + planCapital + interest),
   };
+}
+
+/** Botones de cobro alineados con el plan: la inscripción no se disfraza de otro canon. */
+export function coloniaEnrollPayChoices(args = {}) {
+  const quote = quoteColoniaEnrollmentDue(args);
+  const planKey = String(args.planKey || '');
+  const planScopeLabel = planKey === 'temporada'
+    ? 'Solo temporada'
+    : planKey === 'cuota'
+      ? 'Solo mes'
+      : 'Solo el plan';
+  const planDue = moneyArs(quote.planCapital + quote.interest);
+  const choices = [];
+  if (quote.total > 0) {
+    choices.push({
+      key: 'todo',
+      label: quote.inscription > 0 ? 'Plan + inscripción' : 'Todo',
+      amount: quote.total,
+    });
+  }
+  if (quote.inscription > 0) {
+    choices.push({
+      key: 'inscripcion',
+      label: 'Solo inscripción',
+      amount: quote.inscription,
+    });
+  }
+  if (planDue > 0 && quote.inscription > 0) {
+    choices.push({
+      key: 'plan',
+      label: planScopeLabel,
+      amount: planDue,
+    });
+  }
+  return { ...quote, planScopeLabel, choices };
 }
 
 /** Parte del cobro que baja el saldo de capital. El interés no adelanta el mes siguiente. */
@@ -136,7 +178,7 @@ export function quoteColoniaOpenDue({
     ? fromCharge
     : coloniaCuotaMonthKey(paidOn, season);
   const monthly = !planKey || String(planKey) === 'cuota';
-  const interest = monthly ? coloniaCuotaInterest(cuotaLeft, monthKey, paidOn) : 0;
+  const interest = monthly ? coloniaCuotaInterest(cuotaLeft, monthKey, paidOn, season) : 0;
   const capital = moneyArs(inscriptionLeft + cuotaLeft + otherLeft);
   return {
     inscription: inscriptionLeft,
