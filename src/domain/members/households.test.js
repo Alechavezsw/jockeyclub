@@ -22,6 +22,7 @@ import {
   suggestedTierAfterFamilyDetach,
   householdRoleLabel,
   householdAccountHint,
+  householdMemberAsAdherent,
 } from './households';
 
 const catalog = [
@@ -120,6 +121,15 @@ describe('households', () => {
     expect(isFamilyGroupVisibleMember({ status: 'active' })).toBe(true);
     expect(isFamilyGroupVisibleMember({ status: 'suspended' })).toBe(true);
     expect(isFamilyGroupVisibleMember({ status: 'inactive' })).toBe(false);
+  });
+
+  it('muestra el parentesco guardado en la ficha del integrante', () => {
+    expect(householdMemberAsAdherent({
+      ...hijo,
+      relationship: 'Cónyuge',
+    }).relationship).toBe('Cónyuge');
+    expect(householdMemberAsAdherent(hijo).relationship).toBe('Grupo familiar');
+    expect(householdMemberAsAdherent(titular, 'Titular').relationship).toBe('Titular');
   });
 
   it('el refresh del padrón puede limpiar familyPrincipalNumber', () => {

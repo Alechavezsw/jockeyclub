@@ -418,11 +418,15 @@ export function isLiveMember(member, today = new Date()) {
 }
 
 /** Forma de adherente para UI / ficha a partir de un socio del padrón. */
-export function householdMemberAsAdherent(member, relationship = 'Grupo familiar') {
+export function householdMemberAsAdherent(member, relationship) {
+  const explicit = String(relationship || '').trim();
+  const stored = String(member?.relationship || member?.meta?.relationship || '').trim();
+  const label = explicit
+    || (stored && !/^grupo\s*familiar$/i.test(stored) ? stored : 'Grupo familiar');
   return {
     id: member.id || `gf-${memberNumberOf(member)}`,
     name: member.name || member.full_name || '—',
-    relationship,
+    relationship: label,
     tier: member.tier,
     cuotaCategories: member.cuotaCategories || (member.tier ? [member.tier] : []),
     status: member.status || 'active',
