@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
+import { runDeskTurn } from "./desk.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -122,35 +123,6 @@ async function liveBrief(userClient: ReturnType<typeof createClient>, hint: Reco
   };
 }
 
-function localAnswer(question: string, brief: Record<string, unknown>) {
-  const q = question.toLowerCase();
-  const bits: string[] = [];
-  const monthLabel = String(brief.monthLabel || brief.month);
-  if (/recaud|cobra/.test(q)) bits.push(`Recaudado de ${monthLabel}: $ ${Number(brief.collected || 0).toLocaleString("es-AR")}.`);
-  if (/liquid/.test(q)) bits.push(`Liquidado de ${monthLabel}: $ ${Number(brief.liquidated || 0).toLocaleString("es-AR")}.`);
-  if (/activo|padr[oó]n/.test(q)) bits.push(`Socios activos: ${brief.activos}. Con saldo: ${brief.deudores}.`);
-  if (/puerta|porter|pileta|reserva/.test(q)) {
-    bits.push(`Hoy ${brief.today}: ${brief.porteriaHoy} lecturas de portería, ${brief.reservasHoy} reservas, ${brief.piletaHoy} pileta.`);
-  }
-  if (/reclamo/.test(q)) bits.push(`Reclamos abiertos: ${brief.reclamosAbiertos}.`);
-  if (/fiesta|evento/.test(q)) bits.push(`Fiestas cargadas: ${brief.fiestas}.`);
-  if (/personal|empleado/.test(q)) bits.push(`Personal en legajo: ${brief.personal}.`);
-  if (/novedad|revista/.test(q)) bits.push(`Notas en Revista: ${brief.novedades}.`);
-  if (/proveedor/.test(q)) bits.push(`Proveedores: ${brief.proveedores}. Órdenes de pago: ${brief.ordenesPago}.`);
-  if (/concesi/.test(q)) bits.push(`Concesiones: ${brief.concesiones}.`);
-  if (brief.member && !Array.isArray((brief.member as { matches?: unknown }).matches)) {
-    const m = brief.member as { member_number?: string; full_name?: string; outstanding_balance?: number; status?: string };
-    bits.push(`Socio ${m.member_number} · ${m.full_name}: ${m.status}, saldo $ ${Number(m.outstanding_balance || 0).toLocaleString("es-AR")}.`);
-  }
-  if (/c[oó]mo|ense[nñ]/.test(q)) {
-    bits.push("Inicio: recaudado y vencimiento. Socios: padrón. Cuotas: liquidar. Caja: Contabilidad. Portería: Ingresos.");
-  }
-  if (!bits.length) {
-    bits.push(`Hoy ${brief.today}. Activos ${brief.activos}, deudores ${brief.deudores}, portería ${brief.porteriaHoy}. Preguntá por un número de socio, el mes o cómo se usa una sección.`);
-  }
-  return bits.join(" ");
-}
-
 /** Pro primero (más criterio); flash como respaldo rápido. */
 const GEMINI_MODELS = [
   "gemini-2.5-pro",
@@ -160,80 +132,6 @@ const GEMINI_MODELS = [
 
 function scrubSecret(text: string, key: string) {
   return text.replaceAll(key, "").replace(/\s+/g, " ").trim().slice(0, 160);
-}
-
-async function askGemini(
-  messages: { role: string; content: string }[],
-  brief: Record<string, unknown>,
-  guide = GUIDE,
-) {
-  const key = (Deno.env.get("GEMINI_API_KEY") || Deno.env.get("GOOGLE_GENERATIVE_AI_API_KEY") || "").trim();
-  const fallback = { text: localAnswer(messages.at(-1)?.content || "", brief), source: "libro" };
-  if (!key) return fallback;
-
-  const system = `Sos Jev, secretario del Jockey Club San Juan (Sede Rivadavia), potenciado con Gemini.
-Hablás en español rioplatense, claro y con criterio. Tutéas.
-Tu trabajo: CONTESTAR preguntas inteligentes sobre el club usando el LIBRO EN VIVO y el MANUAL.
-Cruzá datos (mes, padrón, mora, puerta, caja, revisión) cuando ayuden. Priorizá 1–3 acciones concretas.
-Si la pregunta es ambigua, hacé UNA pregunta corta en "next" en vez de adivinar.
-"¿Cómo se hace…?": pasos numerados en "text" (máx. 6) y la sección en "tab".
-No inventés montos, socios, pantallas ni plazos. Si no está en el LIBRO/MANUAL, decilo.
-Comprobante automático: todo cobro acreditado a socio manda PDF por mail + MD.
-Primero el veredicto, después el texto útil, después el siguiente paso.
-No suenes a chatbot genérico. No repitas el mismo número dos veces.
-Respondé SOLO un JSON:
-{"verdict":"...","text":"...","next":"...","tab":"dashboard|jev|members|dues|bookings|disciplines|pool|pool_gate|access|qr_gate|accounting|caja|staff|teachers|events|alerts|claims|messaging|news|reports|surveys|system|migration|concessions|null","focus":"diary|mayor|create|balance|results|cash|expenses|suppliers|payment_orders|libre_deuda|null"}
-LIBRO EN VIVO:
-${JSON.stringify(brief)}
-CÓMO SE USA LA APP:
-${String(guide || GUIDE).slice(0, 12000)}`;
-
-  const contents = messages.slice(-10).map((row) => ({
-    role: row.role === "assistant" ? "model" : "user",
-    parts: [{ text: String(row.content || "").slice(0, 5000) }],
-  }));
-
-  for (const model of GEMINI_MODELS) {
-    try {
-      const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-goog-api-key": key,
-          },
-          body: JSON.stringify({
-            systemInstruction: { parts: [{ text: system }] },
-            contents,
-            generationConfig: {
-              maxOutputTokens: 1200,
-              temperature: 0.4,
-              responseMimeType: "application/json",
-            },
-          }),
-        },
-      );
-      if (!response.ok) {
-        const err = scrubSecret(await response.text(), key);
-        console.error("jev gemini", model, response.status, err);
-        continue;
-      }
-      const payload = await response.json();
-      const text = payload?.candidates?.[0]?.content?.parts
-        ?.map((part: { text?: string }) => part.text)
-        .join("") || "";
-      if (!text.trim()) {
-        console.error("jev gemini", model, "empty");
-        continue;
-      }
-      return { text: text.trim(), source: "gemini" };
-    } catch (error) {
-      console.error("jev gemini", model, error instanceof Error ? error.message : "falló");
-    }
-  }
-
-  return fallback;
 }
 
 async function askGeminiCompose(input: {
@@ -347,7 +245,12 @@ Deno.serve(async (req) => {
       ...((body.brief && typeof body.brief === "object") ? body.brief : {}),
       lastQuestion,
     });
-    const reply = await askGemini(messages, brief, typeof body.guide === "string" ? body.guide : GUIDE);
+    const reply = await runDeskTurn(
+      userClient,
+      messages,
+      brief,
+      typeof body.guide === "string" ? body.guide : GUIDE,
+    );
     return json(200, { ...reply, brief: { today: brief.today, activos: brief.activos, deudores: brief.deudores } });
   } catch (error) {
     return json(500, { error: error instanceof Error ? error.message : "Jev no pudo leer el libro." });

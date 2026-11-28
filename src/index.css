@@ -28584,6 +28584,31 @@ ul.sys-set-hint {
   margin-top: 0.45rem;
   color: var(--text-secondary);
 }
+.jev-slip-lookups {
+  margin: 0.7rem 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+.jev-slip-lookups li {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  max-width: 100%;
+  padding: 0.2rem 0.5rem;
+  border-radius: 999px;
+  border: 1px solid rgba(9, 103, 85, 0.35);
+  background: rgba(9, 103, 85, 0.08);
+  font-size: 0.75rem;
+  line-height: 1.3;
+  color: var(--text-secondary);
+}
+.jev-slip-lookups b {
+  font-weight: 650;
+  color: var(--emerald-accent);
+}
 .jev-slip-figures {
   margin: 0.6rem 0 0;
   display: grid;

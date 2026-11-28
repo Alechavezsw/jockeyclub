@@ -9,6 +9,8 @@ import {
 } from '../../domain/assistant/clubGuide';
 import { findMemberInQuery, memberFacts } from '../../domain/assistant/memberFacts';
 import { todayISODateAR } from '../../lib/arDate';
+import { askJevChat } from '../../data/jevChat';
+import { preferDeskReply } from '../../domain/assistant/deskBrain';
 
 function consultaStarters(monthLabel = 'este mes') {
   const mes = String(monthLabel || 'este mes').trim() || 'este mes';
@@ -37,6 +39,11 @@ function consultaStarters(monthLabel = 'este mes') {
       id: 'usar',
       label: 'Enseñame',
       ask: 'Enseñame paso a paso a cobrar una cuota (efectivo, transferencia, tarjeta o Mercado Pago) y a liquidar el mes.',
+    },
+    {
+      id: 'regla',
+      label: 'La regla',
+      ask: 'Si cobro la cuota de noviembre el 27, ¿es anticipada? Decime la regla y el importe de un socio individual.',
     },
     { id: 'manual', label: 'Manual', ask: null, room: 'manual' },
   ];
@@ -77,7 +84,7 @@ function JevSlip({ row, goToTab }) {
       <p className="jev-slip-meta">
         <span>{row.role === 'user' ? 'Consulta' : 'Dictamen'}</span>
         <time dateTime={row.at}>{slipTime(row.at)}</time>
-        {row.role === 'assistant' ? <em>Jev</em> : null}
+        {row.role === 'assistant' ? <em>{row.source === 'gemini' ? 'Jev · base' : 'Jev'}</em> : null}
       </p>
       {row.verdict ? <h3 className="jev-slip-verdict">{row.verdict}</h3> : null}
       <p className="jev-slip-text">{row.text}</p>
@@ -93,6 +100,16 @@ function JevSlip({ row, goToTab }) {
             </div>
           ))}
         </dl>
+      ) : null}
+      {row.lookups?.length ? (
+        <ul className="jev-slip-lookups">
+          {row.lookups.map((item) => (
+            <li key={`${item.label}-${item.detail}`}>
+              <b>{item.label}</b>
+              {item.detail ? <span>{item.detail}</span> : null}
+            </li>
+          ))}
+        </ul>
       ) : null}
       {row.next ? <p className="jev-slip-next">{row.next}</p> : null}
       {row.go && typeof goToTab === 'function' ? (
@@ -230,22 +247,43 @@ export default function JevChatDesk({
       || (FOLLOW_UP.test(folded) && turn - lastMember.current.at <= 4 ? lastMember.current.member : null);
     if (asked) lastMember.current = { member: asked, at: turn };
     const facts = asked ? memberFacts(asked, { today, poolSettings, members }) : null;
-    // Solo el libro en vivo de la sesión: sin Gemini (evita cifras inventadas o viejas).
     const local = composeInsight(text, { ...brief, today, reviewItems: queue }, { member: facts });
-    setMessages((curr) => [...curr, {
-      id: `a-${Date.now()}`,
-      role: 'assistant',
-      source: 'libro',
-      at: new Date().toISOString(),
-      ...(local || {
-        verdict: 'No tengo ese dato en el libro.',
-        text: 'Preguntame por un socio (número), el mes, caja, puerta o cómo se hace algo. No invento lo que no está en la sesión.',
-        figures: [],
-        next: 'El Manual de al lado tiene cada oficio paso a paso.',
-        go: null,
-      }),
-    }]);
-    setBusy(false);
+    const history = [...messages, userMsg]
+      .filter((row) => row.role === 'user' || row.role === 'assistant')
+      .slice(-8)
+      .map((row) => ({ role: row.role, content: row.text || row.verdict || '' }));
+    askJevChat({
+      messages: history,
+      brief: { ...brief, today, reviewItems: queue },
+      member: facts,
+      reviewItems: queue,
+    })
+      .then((remote) => {
+        const reply = preferDeskReply(local, remote);
+        setMessages((curr) => [...curr, {
+          id: `a-${Date.now()}`,
+          role: 'assistant',
+          at: new Date().toISOString(),
+          ...reply,
+        }]);
+      })
+      .catch((err) => {
+        setError(err?.message || 'Jev no pudo consultar la base.');
+        setMessages((curr) => [...curr, {
+          id: `a-${Date.now()}`,
+          role: 'assistant',
+          source: 'libro',
+          at: new Date().toISOString(),
+          ...(local || {
+            verdict: 'No pude consultar la base.',
+            text: 'Quedó el libro de esta sesión. Reintentá con el número de socio o la regla.',
+            figures: [],
+            next: null,
+            go: null,
+          }),
+        }]);
+      })
+      .finally(() => setBusy(false));
   };
 
   return (
@@ -257,12 +295,12 @@ export default function JevChatDesk({
           <p className="jev-desk-sub">
             {isReview
               ? 'Lee la cola de revisión y el libro de esta sesión. Prioriza y te lleva a la sección.'
-              : 'Lee el libro de esta sesión (mes, padrón, caja, puerta) y contesta con esas cifras. El Manual de al lado tiene cada oficio.'}
+              : 'Preguntá por un socio, un recibo o una regla. Jev lee la base y el libro del club, y muestra qué consultó.'}
           </p>
         </div>
         <p className="jev-desk-live" aria-live="polite">
           <i />
-          <span>{busy ? 'Leyendo el libro…' : 'Listo para preguntar'}</span>
+          <span>{busy ? 'Consultando la base…' : 'Listo para preguntar'}</span>
         </p>
       </header>
 
@@ -276,7 +314,7 @@ export default function JevChatDesk({
         {messages.map((row) => (
           <JevSlip key={row.id} row={row} goToTab={goToTab} />
         ))}
-        {busy ? <p className="jev-desk-wait">Jev está leyendo el libro…</p> : null}
+        {busy ? <p className="jev-desk-wait">Jev está cruzando la ficha con las reglas…</p> : null}
       </div>
 
       <div className="jev-desk-starters">
@@ -319,7 +357,7 @@ export default function JevChatDesk({
             rows={2}
             placeholder={isReview
               ? 'Priorizá, sin identificar, fichas…'
-              : 'Preguntale a Jev: socio, mes, caja, reservas, qué conviene…'}
+              : 'Número de socio, un recibo, o una regla: mora, adelanto, colonia…'}
             disabled={busy}
           />
         </label>
