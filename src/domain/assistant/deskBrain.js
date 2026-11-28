@@ -81,6 +81,19 @@ export function preferDeskReply(local, remote) {
   const broken = !remoteText || remoteText.startsWith('{') || remoteText.startsWith('```');
   const gemini = remote?.source === 'gemini' && !broken;
   if (!gemini) {
+    const note = String(parsed.text || remote?.text || '').trim();
+    if (note && /gemini/i.test(note)) {
+      return {
+        verdict: parsed.verdict || 'Gemini no respondió',
+        text: note,
+        figures: [],
+        next: parsed.next || null,
+        go: null,
+        focus: null,
+        lookups: [],
+        source: 'gemini',
+      };
+    }
     return {
       verdict: local?.verdict || 'No tengo ese dato en el libro.',
       text: local?.text || 'No pude consultar la base. Preguntame de nuevo en un momento.',

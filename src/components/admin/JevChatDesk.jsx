@@ -84,7 +84,7 @@ function JevSlip({ row, goToTab }) {
       <p className="jev-slip-meta">
         <span>{row.role === 'user' ? 'Consulta' : 'Dictamen'}</span>
         <time dateTime={row.at}>{slipTime(row.at)}</time>
-        {row.role === 'assistant' ? <em>{row.source === 'gemini' ? 'Jev · base' : 'Jev'}</em> : null}
+        {row.role === 'assistant' ? <em>{row.source === 'gemini' ? 'Gemini' : 'Libro'}</em> : null}
       </p>
       {row.verdict ? <h3 className="jev-slip-verdict">{row.verdict}</h3> : null}
       <p className="jev-slip-text">{row.text}</p>
@@ -295,12 +295,12 @@ export default function JevChatDesk({
           <p className="jev-desk-sub">
             {isReview
               ? 'Lee la cola de revisión y el libro de esta sesión. Prioriza y te lleva a la sección.'
-              : 'Preguntá por un socio, un recibo o una regla. Jev lee la base y el libro del club, y muestra qué consultó.'}
+              : 'Gemini lee la base y las reglas del club, y contesta con lo que consultó.'}
           </p>
         </div>
         <p className="jev-desk-live" aria-live="polite">
           <i />
-          <span>{busy ? 'Consultando la base…' : 'Listo para preguntar'}</span>
+          <span>{busy ? 'Gemini está consultando…' : 'Gemini listo'}</span>
         </p>
       </header>
 
@@ -314,7 +314,7 @@ export default function JevChatDesk({
         {messages.map((row) => (
           <JevSlip key={row.id} row={row} goToTab={goToTab} />
         ))}
-        {busy ? <p className="jev-desk-wait">Jev está cruzando la ficha con las reglas…</p> : null}
+        {busy ? <p className="jev-desk-wait">Gemini está cruzando la ficha con las reglas…</p> : null}
       </div>
 
       <div className="jev-desk-starters">
